@@ -10,7 +10,9 @@ COPY packages/eslint-config/package.json ./packages/eslint-config/
 COPY packages/typescript-config/package.json ./packages/typescript-config/
 RUN --mount=type=cache,id=cloudlane-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store
 COPY . .
-RUN pnpm --filter @cloud/web check-types && pnpm --filter @cloud/admin check-types && pnpm test && pnpm --filter @cloud/web build && pnpm --filter @cloud/admin build
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ENV npm_config_registry=$NPM_REGISTRY
+RUN pnpm check:web && pnpm check:admin && pnpm test && pnpm build:web && pnpm build:admin
 FROM nginx:1.28-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /build/apps/web/dist /usr/share/nginx/html

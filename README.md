@@ -65,7 +65,7 @@ pnpm --filter @cloud/web build
 docker compose --profile app up -d --build
 ```
 
-访问 `http://localhost:8080`。Nginx 代理 API、转发 Range 并关闭请求缓冲。数据库、Redis 和对象目录使用独立卷。当前环境 Docker 未运行，容器构建和全新环境启动尚未实测；发布前必须完成验收台账中的相关检查。
+访问 `http://localhost:8080`。Nginx 代理 API、转发 Range 并关闭请求缓冲。数据库、Redis 和对象目录使用独立卷。T008已通过Node24前端镜像构建，以及Nginx连接真实后端的临时库浏览器联调。全量Compose与全新基础设施部署仍未实测，按验收台账后续任务补齐。
 
 只有全新空库的第一个成功注册用户会原子性获得超级管理员。升级已有库不会自动提升任何历史用户权限；已有库的管理员角色需按既有管理流程配置。管理后台 `/admin` 通过服务端角色校验，普通用户前端显示 404。
 
