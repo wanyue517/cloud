@@ -1,6 +1,9 @@
 package com.wanyue.cloud.modules.auth.support;
 
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.io.AbstractDeserializer;
+import java.io.Reader;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.io.AbstractSerializer;
 import io.jsonwebtoken.io.Serializer;
@@ -24,6 +27,7 @@ public class JwtTokenProvider {
     private final String issuer;
     private final long accessTokenTtlSeconds;
     private final Serializer<Map<String, ?>> serializer;
+    private final ObjectMapper objectMapper;
 
     public JwtTokenProvider(@Value("${cloud.auth.jwt.secret}") String base64Secret,
                             @Value("${cloud.auth.jwt.issuer:cloudlane}") String issuer,
@@ -43,6 +47,7 @@ public class JwtTokenProvider {
             throw new IllegalArgumentException("JWT密钥无效，请配置Base64编码且解码后至少32字节的随机密钥");
         }
         this.issuer = issuer;
+        this.objectMapper = objectMapper;
         this.accessTokenTtlSeconds = accessTokenTtlSeconds;
         // JJWT默认JSON扩展基于Jackson 2，这里通过其标准SPI复用项目已有的Jackson 3。
         this.serializer = new AbstractSerializer<>() {
@@ -74,5 +79,23 @@ public class JwtTokenProvider {
 
     public long getAccessTokenTtlSeconds() {
         return accessTokenTtlSeconds;
+    }
+
+    public Claims verify(String token) {
+        AbstractDeserializer<Map<String, ?>> deserializer = new AbstractDeserializer<>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            protected Map<String, ?> doDeserialize(Reader reader) {
+                return objectMapper.readValue(reader, Map.class);
+            }
+        };
+        Claims claims = Jwts.parser().json(deserializer).verifyWith(signingKey)
+                .requireIssuer(issuer).require("tokenType", "access").build()
+                .parseSignedClaims(token).getPayload();
+        if (claims.getExpiration() == null || Long.parseLong(claims.getSubject()) <= 0
+                || claims.get("sessionVersion", Integer.class) == null) {
+            throw new IllegalArgumentException("无效访问令牌");
+        }
+        return claims;
     }
 }

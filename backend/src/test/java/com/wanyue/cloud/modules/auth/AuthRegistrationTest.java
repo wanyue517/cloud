@@ -1,4 +1,5 @@
 package com.wanyue.cloud.modules.auth;
+import com.wanyue.cloud.modules.auth.service.RegistrationPolicy;
 
 import com.wanyue.cloud.common.exception.BizException;
 import com.wanyue.cloud.modules.auth.service.PasswordCredentialService;
@@ -52,6 +53,9 @@ class AuthRegistrationTest {
         when(security.save(any())).thenReturn(true);
         ReflectionTestUtils.setField(service, "userSecurityService", security);
         ReflectionTestUtils.setField(service, "userRoleService", mock(UserRoleService.class));
+        var policy=mock(RegistrationPolicy.class);
+        when(policy.claimRole()).thenReturn("USER");
+        ReflectionTestUtils.setField(service,"registrationPolicy",policy);
         ReflectionTestUtils.setField(service, "securityLogService", mock(SecurityLogService.class));
         var spaces = mock(com.wanyue.cloud.modules.space.service.SpaceService.class);
         when(spaces.save(any())).thenReturn(true);

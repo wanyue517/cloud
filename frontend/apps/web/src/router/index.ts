@@ -1,4 +1,6 @@
 import {createRouter, createWebHistory, type RouteRecordRaw} from "vue-router";
+import { getAccessToken } from '@/lib/auth'
+import { loginUrl } from '@repo/session/navigation'
 
 const routes: RouteRecordRaw[] = [
     {
@@ -31,15 +33,16 @@ const routes: RouteRecordRaw[] = [
         name: 'app',
         component: () => import('@/layout/index.vue'),
         children: [
+            { path: '', component: () => import('@/views/drive/index.vue') },
             {
                 path: 'spaces/:spaceId',
                 name: 'spaces',
-                component: () => import('@/views/spaces/index.vue')
+                component: () => import('@/views/drive/index.vue')
             },
             {
                 path: 'spaces/:spaceId/folders/:folderId',
                 name: 'folders',
-                component: () => import('@/views/folders/index.vue')
+                component: () => import('@/views/drive/index.vue')
             }
         ]
     },
@@ -56,7 +59,7 @@ const routes: RouteRecordRaw[] = [
     // },
     {
         path: '/:pathMatch(.*)*',
-        redirect: '/404'
+        component: () => import('@/views/not-found.vue')
     }
 ]
 
@@ -65,4 +68,7 @@ const router = createRouter({
     routes
 })
 
+router.beforeEach(to => {
+    if ((to.path === '/app' || to.path.startsWith('/app/')) && !getAccessToken()) return loginUrl(to.fullPath)
+})
 export default router

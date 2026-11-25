@@ -23,11 +23,13 @@ public final class R<T> implements Serializable {
     private final int code;
     private final String msg;
     private final T data;
+    private final String traceId;
 
     private R(int code, String msg, T data) {
         this.code = code;
         this.msg = msg;
         this.data = data;
+        this.traceId = org.slf4j.MDC.get("traceId");
     }
 
     /** 成功，不返回数据。 */

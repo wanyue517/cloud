@@ -48,6 +48,15 @@ class AuthEmailEndpointTest {
     @EnableMethodSecurity
     @Import({AuthController.class, SecurityConfig.class, GlobalExceptionHandler.class})
     static class Config {
+        @Bean com.wanyue.cloud.modules.auth.service.WebSessionService webSessions() {
+            var sessions=mock(com.wanyue.cloud.modules.auth.service.WebSessionService.class);
+            when(sessions.start(anyLong())).thenReturn("test-refresh");return sessions;
+        }
+        @Bean com.wanyue.cloud.common.security.AccessTokenFilter accessTokenFilter() {
+            return new com.wanyue.cloud.common.security.AccessTokenFilter(
+                    mock(com.wanyue.cloud.modules.auth.support.JwtTokenProvider.class),
+                    mock(org.springframework.jdbc.core.JdbcTemplate.class));
+        }
         @Bean AuthService authService() { return mock(AuthService.class); }
         @Bean VerificationRateLimiter limiter() { return mock(VerificationRateLimiter.class); }
         @Bean TestErrorController errorController() { return new TestErrorController(); }
@@ -133,7 +142,7 @@ class AuthEmailEndpointTest {
                     return request;
                 }))
                 .andExpect(status().isInternalServerError());
-        mvc.perform(get("/error")).andExpect(status().isForbidden());
+        mvc.perform(get("/error")).andExpect(status().isUnauthorized());
         verifyNoInteractions(auth, limiter);
     }
 
@@ -216,7 +225,7 @@ class AuthEmailEndpointTest {
     @Test
     void corsDoesNotAllowAnonymousAccessToProtectedResources() throws Exception {
         mvc.perform(get("/api/admin/users").header(HttpHeaders.ORIGIN, "http://localhost:3000"))
-                .andExpect(status().isForbidden())
+                .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"));
     }
 

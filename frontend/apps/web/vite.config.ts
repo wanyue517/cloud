@@ -9,10 +9,12 @@ export default defineConfig(({ mode }) => {
   plugins: [vue(),tailwindcss()],
   server: {
     port: 3000,
+    strictPort: true,
     proxy: {
+      '^/admin(?:/|$)': { target: 'http://127.0.0.1:3001', ws: true },
       '/api': {
         target: env.API_PROXY_TARGET || 'http://127.0.0.1:8000',
-        changeOrigin: true,
+        changeOrigin: false,
       },
     },
   },

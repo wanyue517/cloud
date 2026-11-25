@@ -10,3 +10,8 @@
 **/.env.local
 **/*.log
 data/
+**/test-results/
+**/application-local.yaml
+.pnpm-store/
+
+**/__pycache__/

@@ -24,7 +24,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton
-} from '@/components/ui/sidebar'
+} from '@repo/ui/sidebar'
 
 interface MenuItem {
   label: string

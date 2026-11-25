@@ -16,6 +16,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 @Configuration
+@org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 @EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfig {
 
@@ -25,7 +26,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(properties.getAllowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "Accept", "X-CSRF-TOKEN", "X-XSRF-TOKEN"));
+                "Authorization", "Content-Type", "Accept", "X-CSRF-TOKEN", "X-XSRF-TOKEN", "X-Requested-With"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         // 携带凭据时必须使用明确来源，禁止误配置为通配符。
@@ -37,6 +38,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
+            AccessTokenFilter accessTokenFilter,
             @Qualifier("corsConfigurationSource") CorsConfigurationSource corsSource)
             throws Exception {
 
@@ -48,16 +50,22 @@ public class SecurityConfig {
         };
 
         http
+                .sessionManagement(session -> session.sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+                .addFilterBefore(accessTokenFilter, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) -> {
+                    response.setStatus(401);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"code\":401,\"msg\":\"请先登录\",\"data\":null}");
+                }))
                 .cors(cors -> cors.configurationSource(corsSource))
                 .authorizeHttpRequests(auth -> auth
                         // 容器内部错误转发应保留原始状态，不能被二次认证覆盖成403。
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, registerPaths).permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/v1/auth/refresh").permitAll()
                         .anyRequest().authenticated()
                 )
-                .csrf(csrf -> csrf
-                        .ignoringRequestMatchers(registerPaths)
-                );
+                .csrf(csrf -> csrf.disable());
 
         return http.build();
     }

@@ -29,11 +29,17 @@ public class AuthController {
 
     @Resource
     private VerificationRateLimiter rateLimiter;
+    @Resource
+    private com.wanyue.cloud.modules.auth.service.WebSessionService webSessions;
 
     @PreAuthorize("permitAll()")
     @PostMapping("/login/email")
-    public R<UserLoginRespVO> login(@Valid @RequestBody EmailLoginReqVO request) {
-        return R.ok(authService.loginWithEmail(request));
+    public R<UserLoginRespVO> login(@Valid @RequestBody EmailLoginReqVO request,
+            HttpServletRequest servletRequest,jakarta.servlet.http.HttpServletResponse response) {
+        UserLoginRespVO result=authService.loginWithEmail(request);
+        String refresh=webSessions.start(result.getUser().getId());
+        com.wanyue.cloud.modules.drive.AccountController.cookie(response,refresh,servletRequest.isSecure());
+        return R.ok(result);
     }
 
     @PreAuthorize("permitAll()")

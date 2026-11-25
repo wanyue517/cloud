@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 @Transactional
 class AuthDatabaseModelTest {
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    com.wanyue.cloud.common.config.RedisStartupCheck redisStartupCheck;
     @Autowired UserService users;
     @Autowired IdentityService identities;
     @Autowired PasswordCredentialService credentials;

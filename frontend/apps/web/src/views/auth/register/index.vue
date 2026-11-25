@@ -5,15 +5,15 @@ import { RouterLink } from 'vue-router'
 import { Eye, EyeOff } from '@lucide/vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Button } from '@repo/ui/button'
+import { Input } from '@repo/ui/input'
 import {
   FormControl,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
-} from '@/components/ui/form'
+} from '@repo/ui/form'
 import { useRegistration } from './useRegistration'
 import { registrationSchema } from './schema'
 

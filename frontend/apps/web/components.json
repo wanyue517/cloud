@@ -15,8 +15,8 @@
   "pointer": false,
   "aliases": {
     "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
+    "utils": "cn",
+    "ui": "@repo/ui",
     "lib": "@/lib",
     "composables": "@/composables"
   },

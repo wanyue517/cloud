@@ -97,6 +97,8 @@ public class AuthServiceImpl extends ServiceImpl<IdentityMapper, IdentityDO> imp
 
     @Resource
     private JwtTokenProvider jwtTokenProvider;
+    @Resource
+    private RegistrationPolicy registrationPolicy;
 
     @Override
     public UserLoginRespVO loginWithEmail(EmailLoginReqVO request) {
@@ -158,7 +160,7 @@ public class AuthServiceImpl extends ServiceImpl<IdentityMapper, IdentityDO> imp
             throw new BizException(HttpStatus.FORBIDDEN, 403, "账号需要多因素验证，暂不支持直接登录");
         }
 
-        // 8. 签发带过期时间的JWT访问令牌；刷新令牌和auth_session保存待接入。
+        // 8. 签发短期JWT；控制器随后创建持久会话并写入HttpOnly刷新Cookie。
         String accessToken = jwtTokenProvider.createAccessToken(user.getId(), userSecurity.getSessionVersion());
 
         // 9. 查询已有的个人资料和设置并转换为响应VO，不向外返回凭证对象。
@@ -179,7 +181,7 @@ public class AuthServiceImpl extends ServiceImpl<IdentityMapper, IdentityDO> imp
             BeanUtils.copyProperties(setting, settingResp);
         }
 
-        // 10. 使用现有返回类，refreshToken尚未实现，保持null。
+        // 10. 刷新令牌只存入HttpOnly Cookie，JSON中不返回明文。
         // TODO：接入会话后再补充失败计数清零、最近登录时间和成功审计日志。
         return UserLoginRespVO.builder()
                 .accessToken(accessToken)
@@ -242,8 +244,8 @@ public class AuthServiceImpl extends ServiceImpl<IdentityMapper, IdentityDO> imp
         requireSaved(userSecurityService.save(userSecurity));
 
         // 12. 分配默认用户角色（auth_user_role）
-        // 自助注册仅分配普通用户角色。
-        userRoleService.bindRole(user.getId(), UserRoleEnum.USER.getCode());
+        // 首次初始化通过事务锁领取管理员，其余注册分配普通用户角色。
+        userRoleService.bindRole(user.getId(), registrationPolicy.claimRole());
 
         /// 14. 记录注册安全日志（auth_security_log）
         securityLogService.recordRegisterSuccess(
@@ -257,15 +259,10 @@ public class AuthServiceImpl extends ServiceImpl<IdentityMapper, IdentityDO> imp
         space.setKind(SpaceKindEnum.PERSONAL.getCode());
         space.setName(defaultSpaceName);
         space.setIcon(defaultSpaceIcon);
-        space.setColor(defaultSpaceColor);
+        space.setColor("#fff".equals(defaultSpaceColor) ? "#ffffff" : defaultSpaceColor);
         space.setDescription(defaultSpaceDescription);
-        spaceService.save(space);
-
-        MemberDO member = new MemberDO();
-        member.setSpaceId(space.getId());
-        member.setUserId(user.getId());
-        member.setRole(SpaceMemberRoleEnum.OWNER.getValue());
-        memberService.save(member);
+        space.setCreationRequestKey("REGISTER:" + user.getId());
+        requireSaved(spaceService.save(space));
 
         // 16. 返回注册结果
         return true;

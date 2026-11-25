@@ -1,0 +1,309 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==============================
+   浅色主题
+   ============================== */
+:root {
+    color-scheme: light;
+
+    /* 基础语义色 */
+    --background: #ffffff;
+    --foreground: #171717;
+
+    --card: #ffffff;
+    --card-foreground: #171717;
+
+    --popover: #ffffff;
+    --popover-foreground: #171717;
+
+    --primary: #2563eb;
+    --primary-foreground: #ffffff;
+
+    --secondary: #f3f4f6;
+    --secondary-foreground: #262626;
+
+    --muted: #f3f4f6;
+    --muted-foreground: #737373;
+
+    --accent: #eff6ff;
+    --accent-foreground: #1d4ed8;
+
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+
+    --border: #e5e7eb;
+    --input: #e5e7eb;
+    --ring: #3b82f6;
+
+    /* 左侧导航 */
+    --sidebar: #f8fafc;
+    --sidebar-foreground: #262626;
+    --sidebar-primary: #2563eb;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e8eefc;
+    --sidebar-accent-foreground: #1d4ed8;
+    --sidebar-border: #e5e7eb;
+    --sidebar-ring: #3b82f6;
+
+    /* 图表颜色 */
+    --chart-1: #2563eb;
+    --chart-2: #0d9488;
+    --chart-3: #8b5cf6;
+    --chart-4: #f59e0b;
+    --chart-5: #ef4444;
+
+    /* 网盘业务颜色 */
+    --app-canvas: #f8fafc;
+    --app-hover: #f5f7fb;
+    --app-selected: #eff6ff;
+    --app-selected-border: #bfdbfe;
+
+    /* 文件类型 */
+    --file-folder: #eab308;
+    --file-image: #8b5cf6;
+    --file-video: #0891b2;
+    --file-audio: #ec4899;
+    --file-pdf: #dc2626;
+    --file-word: #2563eb;
+    --file-excel: #16a34a;
+    --file-ppt: #ea580c;
+    --file-code: #64748b;
+    --file-archive: #d97706;
+
+    /* 状态色 */
+    --success: #16a34a;
+    --warning: #d97706;
+    --info: #2563eb;
+
+    /* 基础圆角 */
+    --radius: 0.625rem;
+
+    /* 结构尺寸 */
+    --app-header-height: 56px;
+    --app-sidebar-width: 240px;
+    --app-sidebar-icon-width: 48px;
+    --app-tree-width: 260px;
+    --app-menu-height: 36px;
+    --app-row-height: 48px;
+    --app-control-height: 36px;
+    --app-page-padding: 24px;
+
+    /* 字号 */
+    --app-font-xs: 12px;
+    --app-font-sm: 13px;
+    --app-font-base: 14px;
+    --app-font-md: 16px;
+    --app-font-lg: 18px;
+    --app-font-xl: 20px;
+
+    /* 动效 */
+    --app-duration-fast: 120ms;
+    --app-duration-normal: 200ms;
+    --app-duration-slow: 300ms;
+}
+
+/* ==============================
+   深色主题
+   ============================== */
+.dark {
+    color-scheme: dark;
+
+    --background: #101114;
+    --foreground: #f5f5f5;
+
+    --card: #1a1c20;
+    --card-foreground: #f5f5f5;
+
+    --popover: #202227;
+    --popover-foreground: #f5f5f5;
+
+    --primary: #3b82f6;
+    --primary-foreground: #ffffff;
+
+    --secondary: #252830;
+    --secondary-foreground: #f5f5f5;
+
+    --muted: #252830;
+    --muted-foreground: #a3a3a3;
+
+    --accent: #1e3257;
+    --accent-foreground: #bfdbfe;
+
+    --destructive: #f87171;
+    --destructive-foreground: #280d0d;
+
+    --border: #30343b;
+    --input: #30343b;
+    --ring: #60a5fa;
+
+    /* 左侧导航 */
+    --sidebar: #17191d;
+    --sidebar-foreground: #e5e7eb;
+    --sidebar-primary: #3b82f6;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #253653;
+    --sidebar-accent-foreground: #bfdbfe;
+    --sidebar-border: #30343b;
+    --sidebar-ring: #60a5fa;
+
+    /* 图表 */
+    --chart-1: #60a5fa;
+    --chart-2: #2dd4bf;
+    --chart-3: #a78bfa;
+    --chart-4: #fbbf24;
+    --chart-5: #f87171;
+
+    /* 网盘业务 */
+    --app-canvas: #15171b;
+    --app-hover: #23262c;
+    --app-selected: #1e3257;
+    --app-selected-border: #315b9a;
+
+    /* 文件类型 */
+    --file-folder: #facc15;
+    --file-image: #a78bfa;
+    --file-video: #22d3ee;
+    --file-audio: #f472b6;
+    --file-pdf: #f87171;
+    --file-word: #60a5fa;
+    --file-excel: #4ade80;
+    --file-ppt: #fb923c;
+    --file-code: #94a3b8;
+    --file-archive: #fbbf24;
+
+    /* 状态色 */
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --info: #60a5fa;
+}
+
+/* ==============================
+   Tailwind v4 令牌映射
+   ============================== */
+@theme inline {
+    /* shadcn-vue 语义颜色 */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    /* Sidebar */
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    /* 图表 */
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+
+    /* 网盘颜色 */
+    --color-app-canvas: var(--app-canvas);
+    --color-app-hover: var(--app-hover);
+    --color-app-selected: var(--app-selected);
+    --color-app-selected-border: var(--app-selected-border);
+
+    --color-file-folder: var(--file-folder);
+    --color-file-image: var(--file-image);
+    --color-file-video: var(--file-video);
+    --color-file-audio: var(--file-audio);
+    --color-file-pdf: var(--file-pdf);
+    --color-file-word: var(--file-word);
+    --color-file-excel: var(--file-excel);
+    --color-file-ppt: var(--file-ppt);
+    --color-file-code: var(--file-code);
+    --color-file-archive: var(--file-archive);
+
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+    --color-info: var(--info);
+
+    /* 圆角 */
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 2px);
+    --radius-2xl: calc(var(--radius) + 6px);
+
+    /* 字体 */
+    --font-sans:
+            "Noto Sans SC",
+            "Inter",
+            "PingFang SC",
+            "Microsoft YaHei",
+            system-ui,
+            sans-serif;
+
+    /* 业务字号工具类 */
+    --text-ui-xs: var(--app-font-xs);
+    --text-ui-sm: var(--app-font-sm);
+    --text-ui-base: var(--app-font-base);
+    --text-ui-md: var(--app-font-md);
+    --text-ui-lg: var(--app-font-lg);
+    --text-ui-xl: var(--app-font-xl);
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    html {
+        font-size: 16px;
+    }
+
+    body {
+        @apply bg-background text-foreground font-sans antialiased;
+        font-size: var(--app-font-base);
+    }
+
+    button,
+    a,
+    input,
+    textarea {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}

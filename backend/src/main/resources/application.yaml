@@ -2,13 +2,19 @@ server:
   port: 8000
 
 spring:
+  config:
+    import: optional:file:./application-local.yaml
   application:
     name: cloud
+  servlet:
+    multipart:
+      max-file-size: 64MB
+      max-request-size: 65MB
 
   datasource:
-    url: jdbc:mysql://localhost:3306/cloud?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
-    username: root
-    password: 123456
+    url: ${DB_URL:jdbc:mysql://localhost:3306/cloud?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
+    username: ${DB_USERNAME:cloud}
+    password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   data:
@@ -19,10 +25,10 @@ spring:
       timeout: 3s
       connect-timeout: 3s
   mail:
-    host: smtp.qq.com
+    host: ${SMTP_HOST:localhost}
     port: 587
-    username: 3123616971@qq.com
-    password: ntujbsbxhnbjdcga
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
     default-encoding: UTF-8
     properties:
       mail:
@@ -64,7 +70,7 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
   global-config:
     db-config:
@@ -77,9 +83,9 @@ cloud:
     # 多个前端来源用逗号分隔，例如 https://cloud.example.com,https://admin.example.com
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
   verification:
-    hmac-secret: L5tizeYFAlrP5x5+IBtmKEMizI4D1Np7aAVOB+Hsa10=
+    hmac-secret: ${VERIFICATION_HMAC_SECRET}
     email:
-      from: 3123616971@qq.com
+      from: ${SMTP_FROM:noreply@example.com}
     code-ttl-seconds: 300
     send-interval-seconds: 60
     max-failures: 5
@@ -89,7 +95,7 @@ cloud:
   auth:
     jwt:
       # Base64编码的随机密钥，解码后至少32字节；部署时通过JWT_SECRET配置独立密钥。
-      secret: ${JWT_SECRET:${cloud.verification.hmac-secret}}
+      secret: ${JWT_SECRET}
       issuer: cloudlane
       access-token-ttl-seconds: 900
     default-space-name: '默认空间'

@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { Cloud, Eye, EyeOff } from '@lucide/vue'
 import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+import { Button } from '@repo/ui/button'
+import { Input } from '@repo/ui/input'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@repo/ui/form'
 import { loginSchema } from './schema'
 import { useLogin } from './useLogin'
 
+import { safeReturnPath, isAdminPath } from '@repo/session/navigation'
+const route = useRoute()
 const router = useRouter()
 const form = useForm({
   validationSchema: toTypedSchema(loginSchema),
@@ -20,7 +22,9 @@ const { submitting, error, login } = useLogin()
 const onSubmit = form.handleSubmit(async (values) => {
   if (await login(values)) {
     form.resetForm()
-    await router.replace('/app')
+    const destination = safeReturnPath(route.query.returnTo)
+    if (isAdminPath(destination)) window.location.assign(destination)
+    else await router.replace(destination)
   }
 })
 </script>

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://shadcn-vue.com/schema.json",
+  "style": "new-york",
+  "font": "noto-sans",
+  "typescript": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/styles/index.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "rtl": false,
+  "pointer": false,
+  "aliases": {
+    "components": "@repo/ui",
+    "utils": "cn",
+    "ui": "@repo/ui",
+    "lib": "@repo/ui",
+    "composables": "@repo/ui"
+  },
+  "registries": {}
+}

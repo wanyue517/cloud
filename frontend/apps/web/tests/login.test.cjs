@@ -9,7 +9,8 @@ const dependency = createRequire(path.join(app, 'package.json'))
 const ts = dependency('typescript')
 
 function load(relative, dependencies = {}, globals = {}) {
-  const source = fs.readFileSync(path.join(app, relative), 'utf8')
+  const target = ({ 'src/utils/request.ts': '../../packages/session/request.ts', 'src/lib/auth.ts': '../../packages/session/auth.ts' })[relative] || relative
+  const source = fs.readFileSync(path.join(app, target), 'utf8')
     .replace('import.meta.env.VITE_API_BASE_URL', 'undefined')
   const { outputText } = ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,

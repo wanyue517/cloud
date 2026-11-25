@@ -22,6 +22,24 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<R<Void>> denied(org.springframework.security.access.AccessDeniedException e) {
+        return ResponseEntity.status(403).body(R.fail(403,"无权限访问"));
+    }
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<R<Void>> conflict(org.springframework.dao.DataIntegrityViolationException e) {
+        log.warn("数据约束冲突 traceId={}",org.slf4j.MDC.get("traceId"));
+        return ResponseEntity.status(409).body(R.fail(409,"数据已存在或状态冲突，请刷新后重试"));
+    }
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<R<Void>> tooLarge(org.springframework.web.multipart.MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(413).body(R.fail(413,"上传请求过大，请使用分片上传"));
+    }
+    @ExceptionHandler({org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class})
+    public ResponseEntity<R<Void>> badParameter(Exception e) {
+        return ResponseEntity.badRequest().body(R.fail(400,"请求参数错误"));
+    }
 
     @ExceptionHandler({RedisConnectionFailureException.class, RedisSystemException.class, QueryTimeoutException.class})
     public ResponseEntity<R<Void>> handleInfrastructureUnavailable(RuntimeException e) {
