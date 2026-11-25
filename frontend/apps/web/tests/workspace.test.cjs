@@ -11,7 +11,7 @@ function load(relative, dependencies = {}, globals = {}) {
   let source = fs.readFileSync(path.join(root, relative), 'utf8')
     .replace('import.meta.env.BASE_URL', "'/admin/'")
     .replace('import.meta.env.VITE_API_BASE_URL', 'undefined')
-  source = source.replace(/import\('@\/views\/[^']+'\)/g, "Promise.resolve({ default: { render: () => null } })")
+  source = source.replace(/import\('@\/[^']+'\)/g, "Promise.resolve({ default: { render: () => null } })")
   const module = { exports: {} }
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
@@ -105,4 +105,44 @@ test('apps never import each other and shared UI has no application aliases', ()
   for (const file of files(path.join(root,'packages/ui/src'))) assert.doesNotMatch(fs.readFileSync(file,'utf8'), /['"]@\//)
   assert.match(fs.readFileSync(path.join(root,'apps/web/src/lib/auth.ts'),'utf8'), /export \* from '@repo\/session\/auth'/)
   assert.match(fs.readFileSync(path.join(root,'apps/web/src/utils/request.ts'),'utf8'), /export \* from '@repo\/session\/request'/)
+})
+
+function webRouter(getToken) {
+  const vueRouter = dependency('vue-router')
+  return load('apps/web/src/router/index.ts', {
+    'vue-router': { ...vueRouter, createWebHistory: () => vueRouter.createMemoryHistory('/') },
+    '@/lib/auth': { getAccessToken: getToken },
+    '@repo/session/navigation': nav,
+  }).default
+}
+test('web named home selects the workbench child and auth has a default entry', async () => {
+  const router = webRouter(() => 'token')
+  await router.push({ name: 'app' })
+  assert.equal(router.currentRoute.value.path, '/app')
+  assert.equal(router.currentRoute.value.matched.at(-1).name, 'app')
+  assert.equal(router.currentRoute.value.matched.length, 2)
+  await router.push('/auth')
+  assert.equal(router.currentRoute.value.name, 'login')
+  await router.push('/')
+  assert.equal(router.currentRoute.value.name, 'app')
+})
+test('web guards known resources, preserves string IDs and leaves unknown pages to 404', async () => {
+  let token = null
+  const router = webRouter(() => token)
+  const target = '/app/spaces/2124534695294148609/folders/2124534695294148999?preview=20#details'
+  await router.push(target)
+  assert.equal(router.currentRoute.value.name, 'login')
+  assert.equal(router.currentRoute.value.query.returnTo, target)
+  token = 'token'
+  await router.push(target)
+  assert.equal(router.currentRoute.value.name, 'folders')
+  assert.equal(router.currentRoute.value.params.spaceId, '2124534695294148609')
+  assert.equal(router.currentRoute.value.params.folderId, '2124534695294148999')
+  token = null
+  for (const value of ['/app/missing', '/app/spaces/invalid', '/app/spaces/1/folders/1e3', '/missing', '/404']) {
+    await router.push(value)
+    assert.equal(router.currentRoute.value.path, value)
+    assert.equal(Boolean(router.currentRoute.value.meta.requiresAuth), false)
+    assert.equal(router.currentRoute.value.query.returnTo, undefined)
+  }
 })

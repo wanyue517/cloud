@@ -41,6 +41,25 @@ def run_browser():
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
+            # T009 startup: use the real app entry and lazy route components.
+            page.goto(BASE + '/')
+            page.wait_for_url('**/auth/login?returnTo=**')
+            expect(page.locator('input[type=email]')).to_be_visible()
+            assert page.locator('html').get_attribute('lang') == 'zh-CN'
+            assert page.title() == 'Cloudlane 云端网盘'
+            page.goto(BASE + '/auth')
+            page.wait_for_url('**/auth/login')
+            expect(page.locator('input[type=email]')).to_be_visible()
+            page.goto(BASE + '/auth/register')
+            expect(page.locator('form')).to_be_visible()
+            for missing in ['/missing', '/app/missing', '/app/spaces/not-an-id']:
+                page.goto(BASE + missing)
+                expect(page.get_by_role('heading', name='404 · 页面不存在')).to_be_visible()
+                assert page.url == BASE + missing
+            for asset in ['/favicon.svg', '/admin/favicon.svg']:
+                response = context.request.get(BASE + asset)
+                assert response.status == 200 and 'image/svg+xml' in response.headers['content-type']
+            print('PASS: startup, auth default route, registration page, unknown routes, Chinese language and icons', flush=True)
             page.goto(BASE + '/admin/users?page=2')
             page.wait_for_url('**/auth/login?returnTo=**')
             expect(page.locator('input[type=email]')).to_be_visible()
@@ -59,6 +78,16 @@ def run_browser():
             expect(page.get_by_role('heading', name='Cloudlane 管理后台')).to_be_visible()
             page.wait_for_load_state('networkidle')
             print('Observed admin heading:', page.locator('h1').inner_text(), flush=True)
+            # The default /app child must render the real workbench after returning from admin.
+            page.get_by_role('link', name='返回网盘', exact=True).click()
+            page.wait_for_url('**/app')
+            expect(page.locator('.drive-app')).to_be_visible()
+            expect(page.get_by_role('link', name='管理后台', exact=True)).to_be_visible()
+            page.get_by_role('link', name='管理后台', exact=True).click()
+            expect(page.get_by_role('heading', name='Cloudlane 管理后台')).to_be_visible()
+            page.goto(BASE + '/admin/users?page=2')
+            expect(page.get_by_role('heading', name='Cloudlane 管理后台')).to_be_visible()
+            print('PASS: /app renders workbench and same-origin app navigation works', flush=True)
             access = page.evaluate("sessionStorage.getItem('cloudlane.accessToken')")
             identity = context.request.get(BASE + '/api/v1/me', headers={'Authorization': 'Bearer ' + access})
             assert identity.status == 200 and identity.json()['data']['id'] == os.environ['T008_ADMIN_ID']
