@@ -1,0 +1,11 @@
+[
+  {
+    "groupName": "Cloudlane-MP",
+    "templateName": "Cloudlane-MP",
+    "globalConfigName": "Cloudlane",
+    "columnConfigName": "Default.json",
+    "typeMapperName": "Cloudlane.json",
+    "tableNameRegex": ".*",
+    "schemaNameRegex": ".*"
+  }
+]

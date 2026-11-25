@@ -1,0 +1,12 @@
+.repository-backups/
+**/.idea/
+**/node_modules/
+**/target/
+**/dist/
+**/.turbo/
+**/.frontend-registration-check/
+**/.database-fix-backup/
+**/.env
+**/.env.local
+**/*.log
+data/

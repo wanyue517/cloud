@@ -1,0 +1,26 @@
+## Cloudlane 公共生成配置（修改本文件即可调整整个模板组）
+## EasyCode Plus: GlobalConfig/Cloudlane/cloudlane.vm; 每个模板以 $!{cloudlane.vm} 引入
+## 新版 GenerateFromEasyCodeFolder 会加载该 GlobalConfig 组。
+## 如果 IDEA 打开的是 backend 父工程，请改为：
+## #set($sourceDir = $tool.append($projectPath, "/cloudlane-api/src/main/java"))
+#set($sourceDir = $tool.append($projectPath, "/src/main/java"))
+#set($rootPackage = "com.wanyue.cloud")
+#set($rawTable = $tableInfo.obj.name)
+#set($sep = $rawTable.indexOf("_"))
+#set($domain = "common")
+#set($entityTable = $rawTable)
+#if($sep > 0)
+#set($domain = $rawTable.substring(0, $sep))
+#set($entityTable = $rawTable.substring($sep + 1))
+#end
+## Java 类型名始终取完整原始表名并转大驼峰，不剥离 auth_、sys_、space_ 等前缀。
+## 示例：auth_identity -> AuthIdentity；sys_user -> SysUser；space_member -> SpaceMember。
+## entityTable 仅用于现有接口路径，domain 仅用于包路径，均不参与 Java 类型名生成。
+#set($entity = $tool.getClassName($rawTable))
+## @Resource 注入字段以完整服务类型名的小驼峰形式生成：AuthIdentityService -> authIdentityService
+#set($serviceClass = $tool.append($entity, "Service"))
+#set($serviceVar = $tool.firstLowerCase($serviceClass))
+#set($packagePath = $rootPackage.replace(".", "/"))
+#set($basePath = $tool.append($sourceDir, "/", $packagePath, "/", $domain))
+#set($baseFields = $tool.newHashSet("id", "created_by", "created_at", "updated_by", "updated_at", "deleted", "version"))
+#set($secretFields = $tool.newHashSet("password_hash", "credential_hash", "refresh_token_hash", "token_hash", "access_token", "refresh_token", "secret_ciphertext", "secret_key", "code_hash", "private_key", "client_secret", "password", "salt", "recovery_code", "provider_access_token", "provider_refresh_token"))

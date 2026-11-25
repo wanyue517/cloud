@@ -1,0 +1,112 @@
+[
+  {
+    "matchType": "REGEX",
+    "columnType": "varchar\\(\\d+\\)(\\s+unsigned)?",
+    "javaType": "java.lang.String"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "char\\(\\d+\\)",
+    "javaType": "java.lang.String"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "(tiny|medium|long)?text",
+    "javaType": "java.lang.String"
+  },
+  {
+    "matchType": "ORDINARY",
+    "columnType": "json",
+    "javaType": "java.lang.String"
+  },
+  {
+    "matchType": "ORDINARY",
+    "columnType": "uuid",
+    "javaType": "java.lang.String"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "bigint(\\(\\d+\\))?(\\s+unsigned)?",
+    "javaType": "java.lang.Long"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "(smallint|mediumint|int|integer)(\\(\\d+\\))?(\\s+unsigned)?",
+    "javaType": "java.lang.Integer"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "tinyint\\(1\\)",
+    "javaType": "java.lang.Boolean"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "tinyint(\\(\\d+\\))?(\\s+unsigned)?",
+    "javaType": "java.lang.Integer"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "decimal(\\(\\d+(,\\d+)?\\))?",
+    "javaType": "java.math.BigDecimal"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "numeric(\\(\\d+(,\\d+)?\\))?",
+    "javaType": "java.math.BigDecimal"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "double(\\(\\d+(,\\d+)?\\))?",
+    "javaType": "java.lang.Double"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "float(\\(\\d+(,\\d+)?\\))?",
+    "javaType": "java.lang.Float"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "datetime(\\(\\d+\\))?",
+    "javaType": "java.time.LocalDateTime"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "timestamp(\\(\\d+\\))?",
+    "javaType": "java.time.LocalDateTime"
+  },
+  {
+    "matchType": "ORDINARY",
+    "columnType": "date",
+    "javaType": "java.time.LocalDate"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "time(\\(\\d+\\))?",
+    "javaType": "java.time.LocalTime"
+  },
+  {
+    "matchType": "ORDINARY",
+    "columnType": "boolean",
+    "javaType": "java.lang.Boolean"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "bit(\\(\\d+\\))?",
+    "javaType": "java.lang.Boolean"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "(tiny|medium|long)?blob",
+    "javaType": "byte[]"
+  },
+  {
+    "matchType": "ORDINARY",
+    "columnType": "binary",
+    "javaType": "byte[]"
+  },
+  {
+    "matchType": "REGEX",
+    "columnType": "varbinary\\(\\d+\\)",
+    "javaType": "byte[]"
+  }
+]

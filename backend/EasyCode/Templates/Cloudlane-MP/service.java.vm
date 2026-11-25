@@ -1,0 +1,21 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "Service.java"))
+$!callback.setSavePath($tool.append($basePath, "/service"))
+package $!{rootPackage}.$!{domain}.service;
+
+import com.baomidou.mybatisplus.spring.service.IService;
+import com.wanyue.cloud.common.result.PageResult;
+import $!{rootPackage}.$!{domain}.dataobject.$!{entity}DO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}CreateReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}UpdateReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}PageReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}RespVO;
+
+/** $!{tableInfo.comment}基础业务接口。 */
+public interface $!{entity}Service extends IService<$!{entity}DO> {
+    Long create($!{entity}CreateReqVO request);
+    void update(Long id, $!{entity}UpdateReqVO request);
+    void delete(Long id);
+    $!{entity}RespVO get(Long id);
+    PageResult<$!{entity}RespVO> page($!{entity}PageReqVO request);
+}

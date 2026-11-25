@@ -1,0 +1,20 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "CreateReqVO.java"))
+$!callback.setSavePath($tool.append($basePath, "/vo"))
+package $!{rootPackage}.$!{domain}.vo;
+
+import lombok.Data;
+#foreach($import in $importList)
+import $!{import};
+#end
+
+/** $!{tableInfo.comment}新增请求：敏感认证字段不通过通用 CRUD 处理。 */
+@Data
+public class $!{entity}CreateReqVO {
+#foreach($column in $tableInfo.fullColumn)
+#if(!$baseFields.contains($column.obj.name) && !$secretFields.contains($column.obj.name))
+    /** $!{column.comment} */
+    private $!{column.shortType} $!{column.name};
+#end
+#end
+}

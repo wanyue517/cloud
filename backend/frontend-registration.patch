@@ -1,0 +1,644 @@
+diff --git a/apps/web/src/api/auth/register/index.ts b/apps/web/src/api/auth/register/index.ts
+--- a/apps/web/src/api/auth/register/index.ts
++++ b/apps/web/src/api/auth/register/index.ts
+@@ -1,9 +1,24 @@
+-import {request} from '@/utils/request';
++import { request } from '@/utils/request'
+ 
+-export const sendEmailCode = (email: string) => {
+-    return request.post('/admin/auth/register/send-email-code', undefined, {
+-        params: {
+-            email
+-        }
+-    })
+-}
+\ No newline at end of file
++export interface EmailRegisterRequest {
++  email: string
++  code: string
++  password: string
++}
++
++const publicRequest = { skipAuth: true, skipRefresh: true, silent: true }
++
++export function sendEmailCode(email: string) {
++  return request.post<boolean>('/admin/auth/register/send-email-code', undefined, {
++    ...publicRequest,
++    params: { email: email.trim().toLowerCase() },
++  })
++}
++
++export function registerWithEmail(values: EmailRegisterRequest) {
++  return request.post<boolean>('/admin/auth/email', {
++    email: values.email.trim().toLowerCase(),
++    code: values.code.trim(),
++    password: values.password,
++  }, publicRequest)
++}
+diff --git a/apps/web/src/views/auth/register/index.vue b/apps/web/src/views/auth/register/index.vue
+--- a/apps/web/src/views/auth/register/index.vue
++++ b/apps/web/src/views/auth/register/index.vue
+@@ -1,11 +1,10 @@
+ 
+ <script setup lang="ts">
+-import { onUnmounted, ref } from 'vue'
++import { ref, watch } from 'vue'
+ import { RouterLink } from 'vue-router'
+ import { Eye, EyeOff } from '@lucide/vue'
+ import { toTypedSchema } from '@vee-validate/zod'
+ import { useForm } from 'vee-validate'
+-import { z } from 'zod'
+ import { Button } from '@/components/ui/button'
+ import { Input } from '@/components/ui/input'
+ import {
+@@ -15,21 +14,10 @@
+   FormLabel,
+   FormMessage,
+ } from '@/components/ui/form'
+-import {sendEmailCode} from "@/api/auth/register";
+-
+-const formSchema = toTypedSchema(z.object({
+-  email: z.string()
+-      .trim()
+-      .min(1, '邮箱不能为空')
+-      .email('请输入正确的邮箱地址'),
+-
+-  code: z.string()
+-      .min(1, '验证码不能为空')
+-      .regex(/^\d{6}$/, '请输入6位数字验证码'),
+-
+-  password: z.string()
+-      .min(6, '密码不能少于6位'),
+-}))
++import { useRegistration } from './useRegistration'
++import { registrationSchema } from './schema'
++
++const formSchema = toTypedSchema(registrationSchema)
+ 
+ const form = useForm({
+   validationSchema: formSchema,
+@@ -41,44 +29,28 @@
+ })
+ 
+ const showPassword = ref(false)
+-const countdown = ref(0)
+-const notice = ref('')
+-
+-let countdownTimer: ReturnType<typeof setInterval> | undefined
+-
+-// 模拟发送验证码
++const {
++  sending, submitting, registered, countdown, notice, error,
++  sendCode: dispatchCode, register, clearMessages,
++} = useRegistration()
++
+ async function sendCode() {
++  if (sending.value || submitting.value || countdown.value > 0) return
+   const result = await form.validateField('email')
+-
+-  if (!result.valid || countdown.value > 0) return
+-
+-  // TODO: 调用发送邮箱验证码接口
+-  await sendEmailCode(form.values.email)
+-
+-  notice.value = '演示模式：未实际发送邮件'
+-  countdown.value = 60
+-
+-  if (countdownTimer) clearInterval(countdownTimer)
+-
+-  countdownTimer = setInterval(() => {
+-    countdown.value--
+-
+-    if (countdown.value <= 0) {
+-      clearInterval(countdownTimer)
+-      countdownTimer = undefined
+-    }
+-  }, 1000)
++  if (!result.valid || !form.values.email) return
++  await dispatchCode(form.values.email)
+ }
+ 
+-// 模拟提交注册
+-const onSubmit = form.handleSubmit((values) => {
+-  // TODO: 调用邮箱注册接口
+-  console.log('模拟注册校验通过，邮箱：', values.email)
+-  notice.value = '表单校验通过，暂未接入注册接口'
++const onSubmit = form.handleSubmit(async (values) => {
++  await register(values)
++  if (registered.value) form.resetForm()
+ })
+ 
+-onUnmounted(() => {
+-  if (countdownTimer) clearInterval(countdownTimer)
++watch(() => form.values.email?.trim().toLowerCase(), (email, previous) => {
++  if (email === previous || registered.value) return
++  form.setFieldValue('code', '')
++  form.setFieldError('code', undefined)
++  clearMessages()
+ })
+ </script>
+ 
+@@ -126,14 +98,24 @@
+         <p class="mt-2 text-sm text-muted-foreground">
+           使用邮箱注册，开始使用 Cloudlane
+         </p>
++        <p class="mt-2 text-xs text-muted-foreground">用户名将使用邮箱中 @ 前的内容。</p>
+       </header>
++
++      <section v-if="registered" role="status" aria-live="polite" class="space-y-4">
++        <p class="text-sm">注册成功，请使用邮箱和密码登录。</p>
++        <RouterLink to="/auth/login" class="font-medium text-primary hover:underline">
++          前往登录
++        </RouterLink>
++      </section>
+ 
+       <!-- 注册表单 -->
+       <form
++          v-else
+           class="space-y-5"
+           novalidate
+           @submit="onSubmit"
+       >
++        <fieldset :disabled="sending || submitting" class="contents">
+         <!-- 邮箱 -->
+         <FormField
+             v-slot="{ componentField }"
+@@ -181,10 +163,11 @@
+                   type="button"
+                   variant="outline"
+                   class="h-11 w-[112px] shrink-0 rounded-lg text-sm"
+-                  :disabled="countdown > 0"
++                  :disabled="sending || submitting || countdown > 0"
++                  :aria-busy="sending"
+                   @click="sendCode"
+               >
+-                {{ countdown > 0
++                {{ sending ? '发送中…' : countdown > 0
+                   ? `${countdown}s 后重发`
+                   : '获取验证码'
+                 }}
+@@ -209,7 +192,8 @@
+                     v-bind="componentField"
+                     :type="showPassword ? 'text' : 'password'"
+                     autocomplete="new-password"
+-                    placeholder="至少6位字符"
++                    placeholder="8–32位字符"
++                    maxlength="32"
+                     class="h-11 rounded-lg pr-11"
+                 />
+               </FormControl>
+@@ -231,6 +215,7 @@
+             <FormMessage />
+           </FormItem>
+         </FormField>
++        </fieldset>
+ 
+         <!-- 状态提示 -->
+         <p
+@@ -240,18 +225,21 @@
+         >
+           {{ notice }}
+         </p>
++        <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
+ 
+         <!-- 提交 -->
+         <Button
+             type="submit"
+             class="mt-2 h-11 w-full rounded-lg text-sm font-medium"
+-        >
+-          创建账号
++            :disabled="sending || submitting || form.isSubmitting.value"
++            :aria-busy="submitting"
++        >
++          {{ submitting ? '注册中…' : '创建账号' }}
+         </Button>
+       </form>
+ 
+       <!-- 底部 -->
+-      <p class="mt-7 text-center text-sm text-muted-foreground">
++      <p v-if="!registered" class="mt-7 text-center text-sm text-muted-foreground">
+         已有账号？
+         <RouterLink
+             to="/auth/login"
+diff --git a/apps/web/src/utils/request.ts b/apps/web/src/utils/request.ts
+--- a/apps/web/src/utils/request.ts
++++ b/apps/web/src/utils/request.ts
+@@ -4,6 +4,7 @@
+     type AxiosRequestConfig,
+     type AxiosResponse,
+     type InternalAxiosRequestConfig,
++    type RawAxiosHeaders,
+ } from 'axios'
+ 
+ /** Cloudlane 后端统一返回体：R<T> */
+@@ -33,13 +34,18 @@
+ }
+ 
+ export class RequestError extends Error {
++    readonly code?: number
++    readonly httpStatus?: number
++
+     constructor(
+         message: string,
+-        public readonly code?: number,
+-        public readonly httpStatus?: number,
++        code?: number,
++        httpStatus?: number,
+     ) {
+         super(message)
+         this.name = 'RequestError'
++        this.code = code
++        this.httpStatus = httpStatus
+     }
+ }
+ 
+@@ -168,8 +174,9 @@
+ async function send<T>(options: RequestOptions): Promise<T> {
+     let response: AxiosResponse | undefined
+     try {
+-        response = await client.request(options)
+-        return await unwrapResponse<T>(response, options)
++        const received = await client.request<unknown, AxiosResponse>(options)
++        response = received
++        return await unwrapResponse<T>(received, options)
+     } catch (error) {
+         const normalized = await normalizeError(error)
+         const original = (axios.isAxiosError(error)
+@@ -189,7 +196,7 @@
+                     : await refreshOnce()
+ 
+                 if (newToken) {
+-                    const headers = AxiosHeaders.from(options.headers)
++                    const headers = AxiosHeaders.from(options.headers as RawAxiosHeaders | undefined)
+                     headers.set('Authorization', `Bearer ${newToken}`)
+                     return send<T>({...options, headers, _retried: true})
+                 }
+@@ -248,7 +255,7 @@
+                 form.append(key, value instanceof Blob ? value : String(value))
+             }
+         })
+-        const headers = AxiosHeaders.from(rest.headers)
++        const headers = AxiosHeaders.from(rest.headers as RawAxiosHeaders | undefined)
+         headers.delete('Content-Type') // 让浏览器自动携带 multipart boundary
+         return send<T>({
+             ...rest, url, method: 'POST', data: form, headers,
+diff --git a/apps/web/vite.config.ts b/apps/web/vite.config.ts
+--- a/apps/web/vite.config.ts
++++ b/apps/web/vite.config.ts
+@@ -1,16 +1,25 @@
+ import vue from '@vitejs/plugin-vue'
+-import { defineConfig } from 'vite'
++import { defineConfig, loadEnv } from 'vite'
+ import { fileURLToPath, URL } from 'node:url'
+ import tailwindcss from '@tailwindcss/vite'
+ 
+-export default defineConfig({
++export default defineConfig(({ mode }) => {
++  const env = loadEnv(mode, process.cwd(), '')
++  return {
+   plugins: [vue(),tailwindcss()],
+   server: {
+     port: 3000,
++    proxy: {
++      '/api': {
++        target: env.API_PROXY_TARGET || 'http://127.0.0.1:8000',
++        changeOrigin: true,
++      },
++    },
+   },
+   resolve:{
+     alias:{
+       '@': fileURLToPath(new URL('./src', import.meta.url))
+     }
+   }
++  }
+ })
+diff --git a/apps/web/package.json b/apps/web/package.json
+--- a/apps/web/package.json
++++ b/apps/web/package.json
+@@ -7,7 +7,8 @@
+     "dev": "vite",
+     "build": "vue-tsc -b && vite build",
+     "preview": "vite preview",
+-    "check-types": "vue-tsc --noEmit -p tsconfig.app.json"
++    "check-types": "vue-tsc --noEmit -p tsconfig.app.json",
++    "test:registration": "node --test tests/registration.test.cjs"
+   },
+   "dependencies": {
+     "@lucide/vue": "^1.77.0",
+diff --git a/apps/web/src/views/auth/register/useRegistration.ts b/apps/web/src/views/auth/register/useRegistration.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/views/auth/register/useRegistration.ts
+@@ -0,0 +1,69 @@
++import { onUnmounted, ref } from 'vue'
++import { registerWithEmail, sendEmailCode, type EmailRegisterRequest } from '@/api/auth/register'
++
++/** 页面状态独立于表单校验，所有网络入口共享防重复提交状态。 */
++export function useRegistration() {
++  const sending = ref(false)
++  const submitting = ref(false)
++  const registered = ref(false)
++  const countdown = ref(0)
++  const notice = ref('')
++  const error = ref('')
++  let timer: ReturnType<typeof setInterval> | undefined
++
++  function stopTimer() {
++    if (timer !== undefined) clearInterval(timer)
++    timer = undefined
++  }
++
++  function startCountdown() {
++    stopTimer()
++    const deadline = Date.now() + 60_000
++    countdown.value = 60
++    timer = setInterval(() => {
++      countdown.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
++      if (countdown.value === 0) stopTimer()
++    }, 1000)
++  }
++
++  function clearMessages() {
++    notice.value = ''
++    error.value = ''
++  }
++
++  async function sendCode(email: string) {
++    if (sending.value || submitting.value || registered.value || countdown.value > 0) return
++    sending.value = true
++    clearMessages()
++    try {
++      const sent = await sendEmailCode(email)
++      if (sent !== true) throw new Error('验证码未发送成功，请稍后重试')
++      notice.value = `验证码已发送至 ${email.trim().toLowerCase()}，请检查收件箱或垃圾邮件。`
++      startCountdown()
++    } catch (cause) {
++      error.value = cause instanceof Error ? cause.message : '验证码发送失败，请稍后重试'
++    } finally {
++      sending.value = false
++    }
++  }
++
++  async function register(values: EmailRegisterRequest) {
++    if (sending.value || submitting.value || registered.value) return
++    submitting.value = true
++    clearMessages()
++    try {
++      const created = await registerWithEmail(values)
++      if (created !== true) throw new Error('注册未完成，请稍后重试')
++      registered.value = true
++      stopTimer()
++      countdown.value = 0
++    } catch (cause) {
++      error.value = cause instanceof Error ? cause.message : '注册失败，请稍后重试'
++    } finally {
++      submitting.value = false
++    }
++  }
++
++  onUnmounted(stopTimer)
++  return { sending, submitting, registered, countdown, notice, error, sendCode, register, clearMessages }
++}
+diff --git a/apps/web/src/views/auth/register/schema.ts b/apps/web/src/views/auth/register/schema.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/views/auth/register/schema.ts
+@@ -0,0 +1,14 @@
++import { z } from 'zod'
++
++export const registrationSchema = z.object({
++  email: z.string().trim().toLowerCase()
++    .min(1, '邮箱不能为空')
++    .email('请输入正确的邮箱地址')
++    .max(191, '邮箱不能超过191个字符'),
++  code: z.string().trim()
++    .min(1, '验证码不能为空')
++    .regex(/^[0-9]{6}$/, '请输入6位数字验证码'),
++  password: z.string()
++    .min(8, '密码不能少于8位')
++    .max(32, '密码不能超过32位'),
++})
+diff --git a/apps/web/.env.example b/apps/web/.env.example
+new file mode 100644
+--- /dev/null
++++ b/apps/web/.env.example
+@@ -0,0 +1,2 @@
++VITE_API_BASE_URL=/api
++API_PROXY_TARGET=http://127.0.0.1:8000
+diff --git a/apps/web/REGISTRATION.md b/apps/web/REGISTRATION.md
+new file mode 100644
+--- /dev/null
++++ b/apps/web/REGISTRATION.md
+@@ -0,0 +1,27 @@
++# 邮箱注册
++
++在前端项目根目录运行 `pnpm --filter @cloud/web dev`，访问 `/auth/register`。
++开发时，Vite 将 `/api` 请求代理至后端（默认 `http://127.0.0.1:8000`）；
++如需修改地址，将 `.env.example` 中的配置放入本机 `.env.local`。
++生产部署需在 Web 服务器将 `/api` 转发至后端，或配置 `VITE_API_BASE_URL` 与对应跨域策略。
++
++接口约定：
++
++- `POST /api/admin/auth/register/send-email-code?email=...`：无请求体，返回 `R<boolean>`。
++- `POST /api/admin/auth/email`：JSON 仅包含 `email`、`code`、`password`，返回 `R<boolean>`。
++- `R` 的 `code=0` 且 `data=true` 才展示成功；错误由页面显示，不触发登录刷新。
++
++用户名由后端自动取规范化邮箱中最后一个 `@` 前的部分，无需填写或提交昵称。
++邮箱最长 191 字符、验证码为 6 位数字、密码 8–32 字符。
++发送成功后才开始 60 秒倒计时；后台标签页通过截止时间校正。
++修改邮箱会清空旧验证码，发送和注册请求互斥，失败保留表单以供重试。
++注册成功后显示登录入口，不自动登录；当前登录页本身仍为占位页面。
++
++验证：
++
++```powershell
++pnpm --filter @cloud/web build
++pnpm --filter @cloud/web test:registration
++```
++
++测试使用模拟网络响应，覆盖真实请求封装、参数序列化、发送失败、重复点击及倒计时，不会发送真实邮件。
+diff --git a/apps/web/tests/registration.test.cjs b/apps/web/tests/registration.test.cjs
+new file mode 100644
+--- /dev/null
++++ b/apps/web/tests/registration.test.cjs
+@@ -0,0 +1,179 @@
++const { test } = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const path = require('node:path')
++const vm = require('node:vm')
++const { createRequire } = require('node:module')
++const app = path.resolve(__dirname, '..')
++const dependency = createRequire(path.join(app, 'package.json'))
++const ts = dependency('typescript')
++const vue = dependency('vue')
++
++function load(relative, dependencies, globals = {}) {
++  const source = fs.readFileSync(path.join(app, relative), 'utf8')
++    .replace('import.meta.env.VITE_API_BASE_URL', 'undefined')
++  const { outputText } = ts.transpileModule(source, { compilerOptions: {
++    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
++  } })
++  const module = { exports: {} }
++  vm.runInNewContext(outputText, {
++    module, exports: module.exports, console, Error,
++    require: name => dependencies[name] ?? dependency(name),
++    ...globals,
++  }, { filename: relative })
++  return module.exports
++}
++
++function state(api = {}) {
++  const clock = { now: 0, tick: undefined, disposed: false }
++  const defaults = { sendEmailCode: async () => true, registerWithEmail: async () => true }
++  const mod = load('src/views/auth/register/useRegistration.ts', {
++    vue: { ...vue, onUnmounted: callback => { clock.dispose = callback } },
++    '@/api/auth/register': { ...defaults, ...api },
++  }, {
++    Date: { now: () => clock.now },
++    setInterval: callback => { clock.tick = callback; return 1 },
++    clearInterval: () => { clock.tick = undefined; clock.disposed = true },
++  })
++  return { ...mod.useRegistration(), clock }
++}
++
++test('send awaits success, deduplicates in-flight requests, and starts cooldown', async () => {
++  let resolve, calls = 0
++  const s = state({ sendEmailCode: () => { calls++; return new Promise(r => { resolve = r }) } })
++  const pending = s.sendCode('user@example.com')
++  assert.equal(s.sending.value, true)
++  await s.sendCode('user@example.com')
++  assert.equal(calls, 1)
++  assert.equal(s.countdown.value, 0)
++  resolve(true)
++  await pending
++  assert.equal(s.countdown.value, 60)
++  assert.match(s.notice.value, /user@example.com/)
++  await s.sendCode('user@example.com')
++  assert.equal(calls, 1)
++})
++
++test('failed send has error and permits retry without false success', async () => {
++  const s = state({ sendEmailCode: async () => { throw new Error('SMTP unavailable') } })
++  await s.sendCode('user@example.com')
++  assert.equal(s.error.value, 'SMTP unavailable')
++  assert.equal(s.notice.value, '')
++  assert.equal(s.countdown.value, 0)
++  assert.equal(s.sending.value, false)
++})
++
++test('cooldown uses elapsed wall time and clears timers on unmount', async () => {
++  const s = state()
++  await s.sendCode('user@example.com')
++  s.clock.now = 59_500
++  s.clock.tick()
++  assert.equal(s.countdown.value, 1)
++  s.clock.now = 61_000
++  s.clock.tick()
++  assert.equal(s.countdown.value, 0)
++  assert.equal(s.clock.tick, undefined)
++  await s.sendCode('user@example.com')
++  s.clock.dispose()
++  assert.equal(s.clock.tick, undefined)
++})
++
++test('registration blocks repeated submissions and only succeeds on true', async () => {
++  let resolve, calls = 0
++  const s = state({ registerWithEmail: () => { calls++; return new Promise(r => { resolve = r }) } })
++  const pending = s.register({})
++  await s.register({})
++  await s.sendCode('user@example.com')
++  assert.equal(calls, 1)
++  assert.equal(s.submitting.value, true)
++  assert.equal(s.registered.value, false)
++  resolve(true)
++  await pending
++  assert.equal(s.registered.value, true)
++  assert.equal(s.submitting.value, false)
++  await s.register({})
++  assert.equal(calls, 1)
++})
++
++test('false registration and API errors remain on the form', async () => {
++  const s = state({ registerWithEmail: async () => false })
++  await s.register({})
++  assert.equal(s.registered.value, false)
++  assert.notEqual(s.error.value, '')
++  const failed = state({ registerWithEmail: async () => { throw new Error('Code expired') } })
++  await failed.register({})
++  assert.equal(failed.error.value, 'Code expired')
++  assert.equal(failed.submitting.value, false)
++})
++
++function wire(adapter) {
++  const axios = dependency('axios')
++  const client = axios.create({ baseURL: '/api', adapter })
++  const shim = new Proxy(axios, { get: (target, prop) => prop === 'create' ? () => client : target[prop] })
++  const request = load('src/utils/request.ts', { axios: shim }, {
++    window: { location: { origin: 'http://localhost:3000' } }, Blob, URL, setTimeout,
++  })
++  const api = load('src/api/auth/register/index.ts', { '@/utils/request': request })
++  return { request, api, client, axios }
++}
++
++test('actual API and request layers match both backend contracts without auth tokens', async () => {
++  const calls = []
++  const { request, api, client } = wire(async config => {
++    calls.push(config)
++    return { config, status: 200, statusText: 'OK', headers: {}, data: { code: 0, data: true } }
++  })
++  request.setupRequest({ getAccessToken: () => 'must-not-be-sent' })
++  assert.equal(await api.sendEmailCode(' User@Example.com '), true)
++  assert.equal(client.getUri(calls[0]), '/api/admin/auth/register/send-email-code?email=user%40example.com')
++  assert.equal(calls[0].data, undefined)
++  assert.equal(calls[0].headers.get('Authorization'), undefined)
++  await api.registerWithEmail({ displayName: ' User ', email: ' User@Example.com ', code: '012345', password: ' password123 ' })
++  assert.equal(client.getUri(calls[1]), '/api/admin/auth/email')
++  const body = JSON.parse(calls[1].data)
++  assert.equal(Object.hasOwn(body, 'displayName'), false)
++  assert.equal(body.email, 'user@example.com')
++  assert.equal(body.password, ' password123 ')
++  assert.equal(body.code, '012345')
++})
++
++test('public API failures preserve business message and never retry or refresh', async () => {
++  let calls = 0, refreshes = 0
++  const { request, api, axios } = wire(async config => {
++    calls++
++    throw new axios.AxiosError('failed', 'ERR_BAD_REQUEST', config, undefined,
++      { config, status: 429, statusText: 'Too Many Requests', headers: {}, data: { code: 429, msg: 'Rate limited' } })
++  })
++  request.setupRequest({ refreshAccessToken: async () => { refreshes++; return 'token' } })
++  await assert.rejects(api.sendEmailCode('user@example.com'), error =>
++    error.message === 'Rate limited' && error.httpStatus === 429)
++  assert.equal(calls, 1)
++  assert.equal(refreshes, 0)
++})
++
++test('registration validation normalizes email and code while preserving password', () => {
++  const { registrationSchema } = load('src/views/auth/register/schema.ts', {})
++  const result = registrationSchema.parse({
++    email: ' User@Example.com ', code: ' 012345 ', password: ' password123 ', displayName: 'spoofed',
++  })
++  assert.equal(result.email, 'user@example.com')
++  assert.equal(result.code, '012345')
++  assert.equal(result.password, ' password123 ')
++  assert.equal(Object.hasOwn(result, 'displayName'), false)
++})
++
++test('registration validation rejects invalid fields and enforces password boundaries', () => {
++  const { registrationSchema } = load('src/views/auth/register/schema.ts', {})
++  const valid = { email: 'user@example.com', code: '012345', password: 'password123' }
++  for (const password of ['x'.repeat(8), 'x'.repeat(32)]) {
++    assert.equal(registrationSchema.safeParse({ ...valid, password }).success, true)
++  }
++  for (const invalid of [
++    { email: '' }, { email: 'invalid' },
++    { email: 'a'.repeat(64) + '@' + 'b'.repeat(63) + '.' + 'c'.repeat(63) + '.com' },
++    { code: '' }, { code: '12345' }, { code: '1234567' }, { code: '12345a' },
++    { password: 'x'.repeat(7) }, { password: 'x'.repeat(33) },
++  ]) {
++    assert.equal(registrationSchema.safeParse({ ...valid, ...invalid }).success, false)
++  }
++})

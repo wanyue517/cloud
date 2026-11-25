@@ -1,0 +1,14 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "PageReqVO.java"))
+$!callback.setSavePath($tool.append($basePath, "/vo"))
+package $!{rootPackage}.$!{domain}.vo;
+
+import com.wanyue.cloud.common.page.PageParam;
+import lombok.Getter;
+import lombok.Setter;
+
+/** $!{tableInfo.comment}分页查询请求；筛选字段由业务自行增加。 */
+@Getter
+@Setter
+public class $!{entity}PageReqVO extends PageParam {
+}

@@ -1,0 +1,24 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "UpdateReqVO.java"))
+$!callback.setSavePath($tool.append($basePath, "/vo"))
+package $!{rootPackage}.$!{domain}.vo;
+
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+#foreach($import in $importList)
+import $!{import};
+#end
+
+/** $!{tableInfo.comment}更新请求：需携带读取时获取的 version。 */
+@Data
+public class $!{entity}UpdateReqVO {
+
+    @NotNull(message = "版本号不能为空")
+    private Integer version;
+#foreach($column in $tableInfo.fullColumn)
+#if(!$baseFields.contains($column.obj.name) && !$secretFields.contains($column.obj.name))
+    /** $!{column.comment} */
+    private $!{column.shortType} $!{column.name};
+#end
+#end
+}

@@ -1,0 +1,19 @@
+{
+  "name": "frontend",
+  "private": true,
+  "scripts": {
+    "dev:web": "turbo run dev --filter=@cloud/web",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check:web": "turbo run check-types --filter=@cloud/web"
+  },
+  "devDependencies": {
+    "prettier": "3.9.6",
+    "turbo": "^2.11.13",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24"
+  }
+}

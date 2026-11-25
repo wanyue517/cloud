@@ -1,0 +1,26 @@
+package com.wanyue.cloud.modules.auth.vo;
+
+import lombok.Data;
+import java.time.LocalDateTime;
+
+/** 第三方OAuth账号绑定表新增请求：敏感认证字段不通过通用 CRUD 处理。 */
+@Data
+public class OauthAccountCreateReqVO {
+    /** 所属用户ID，关联sys_user.id */
+    private Long userId;
+    /** 第三方平台编码：github/google/wechat等 */
+    private String provider;
+    /** 第三方应用标识；区分微信等多应用场景 */
+    private String providerAppId;
+    /** 第三方用户唯一标识，大小写敏感 */
+    private String providerSubject;
+    /** 平台跨应用联合标识，如微信UnionID */
+    private String providerUnionId;
+    /** 绑定时第三方账号显示名称 */
+    private String providerName;
+    /** 第三方账号头像地址 */
+    private String providerAvatarUrl;
+    /** 最近使用该第三方账号登录的时间（UTC） */
+    private LocalDateTime lastUsedAt;
+}
+

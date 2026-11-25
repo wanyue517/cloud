@@ -1,0 +1,371 @@
+diff --git a/apps/web/src/main.ts b/apps/web/src/main.ts
+--- a/apps/web/src/main.ts
++++ b/apps/web/src/main.ts
+@@ -2,16 +2,6 @@
+ import '@/styles/index.css'
+ import App from './App.vue'
+ import router from './router'
+-import { setupRequest } from '@/utils/request'
+-import { clearAccessToken, getAccessToken } from '@/lib/auth'
+-
+-setupRequest({
+-  getAccessToken,
+-  onUnauthorized: () => {
+-    clearAccessToken()
+-    void router.replace('/auth/login')
+-  },
+-})
+ 
+ const app = createApp(App)
+ 
+diff --git a/apps/web/src/views/auth/login/index.vue b/apps/web/src/views/auth/login/index.vue
+--- a/apps/web/src/views/auth/login/index.vue
++++ b/apps/web/src/views/auth/login/index.vue
+@@ -1,109 +1,11 @@
+ <script setup lang="ts">
+-import { ref } from 'vue'
+-import { RouterLink, useRouter } from 'vue-router'
+-import { Cloud, Eye, EyeOff } from '@lucide/vue'
+-import { toTypedSchema } from '@vee-validate/zod'
+-import { useForm } from 'vee-validate'
+-import { Button } from '@/components/ui/button'
+-import { Input } from '@/components/ui/input'
+-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
+-import { loginSchema } from './schema'
+-import { useLogin } from './useLogin'
+ 
+-const router = useRouter()
+-const form = useForm({
+-  validationSchema: toTypedSchema(loginSchema),
+-  initialValues: { email: '', password: '' },
+-})
+-const showPassword = ref(false)
+-const { submitting, error, login } = useLogin()
+-const onSubmit = form.handleSubmit(async (values) => {
+-  if (await login(values)) {
+-    form.resetForm()
+-    await router.replace('/app')
+-  }
+-})
+ </script>
+ 
+ <template>
+-  <main class="flex min-h-screen items-center justify-center bg-background px-5 py-12 text-foreground">
+-    <div class="w-full max-w-[400px]">
+-      <header class="mb-9">
+-        <RouterLink to="/" class="mb-8 inline-flex items-center gap-2.5 text-sm font-semibold tracking-tight">
+-          <span class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+-            <Cloud :size="19" aria-hidden="true" />
+-          </span>
+-          Cloudlane
+-        </RouterLink>
+-        <h1 class="text-2xl font-semibold tracking-tight">欢迎回来</h1>
+-        <p class="mt-2 text-sm text-muted-foreground">使用邮箱和密码登录 Cloudlane</p>
+-      </header>
++    <div>login</div>
++</template>
+ 
+-      <form class="space-y-5" novalidate @submit="onSubmit">
+-        <fieldset :disabled="submitting || form.isSubmitting.value" class="contents">
+-          <FormField v-slot="{ componentField }" name="email">
+-            <FormItem>
+-              <FormLabel class="text-sm">邮箱地址</FormLabel>
+-              <FormControl>
+-                <Input
+-                  v-bind="componentField"
+-                  type="email"
+-                  autocomplete="username"
+-                  placeholder="name@example.com"
+-                  class="h-11 rounded-lg"
+-                />
+-              </FormControl>
+-              <FormMessage />
+-            </FormItem>
+-          </FormField>
++<style scoped>
+ 
+-          <FormField v-slot="{ componentField }" name="password">
+-            <FormItem>
+-              <FormLabel class="text-sm">密码</FormLabel>
+-              <div class="relative">
+-                <FormControl>
+-                  <Input
+-                    v-bind="componentField"
+-                    :type="showPassword ? 'text' : 'password'"
+-                    autocomplete="current-password"
+-                    placeholder="输入登录密码"
+-                    class="h-11 rounded-lg pr-11"
+-                  />
+-                </FormControl>
+-                <button
+-                  type="button"
+-                  class="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+-                  :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+-                  :aria-pressed="showPassword"
+-                  @click="showPassword = !showPassword"
+-                >
+-                  <EyeOff v-if="showPassword" :size="17" aria-hidden="true" />
+-                  <Eye v-else :size="17" aria-hidden="true" />
+-                </button>
+-              </div>
+-              <FormMessage />
+-            </FormItem>
+-          </FormField>
+-        </fieldset>
+-
+-        <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
+-
+-        <Button
+-          type="submit"
+-          class="mt-2 h-11 w-full rounded-lg text-sm font-medium"
+-          :disabled="submitting || form.isSubmitting.value"
+-          :aria-busy="submitting"
+-        >
+-          {{ submitting ? '登录中…' : '登录' }}
+-        </Button>
+-      </form>
+-
+-      <p class="mt-7 text-center text-sm text-muted-foreground">
+-        还没有账号？
+-        <RouterLink to="/auth/register" class="font-medium text-primary hover:underline underline-offset-4">
+-          立即注册
+-        </RouterLink>
+-      </p>
+-    </div>
+-  </main>
+-</template>
++</style>
+diff --git a/apps/web/REGISTRATION.md b/apps/web/REGISTRATION.md
+--- a/apps/web/REGISTRATION.md
++++ b/apps/web/REGISTRATION.md
+@@ -15,10 +15,7 @@
+ 邮箱最长 191 字符、验证码为 6 位数字、密码 8–32 字符。
+ 发送成功后才开始 60 秒倒计时；后台标签页通过截止时间校正。
+ 修改邮箱会清空旧验证码，发送和注册请求互斥，失败保留表单以供重试。
+-注册成功后显示登录入口，不自动登录。
+-登录页为 `/auth/login`，调用 `POST /api/admin/auth/login/email`，JSON 仅含 `email`、`password`。
+-登录成功后将 Access Token 保存到当前标签页的 sessionStorage，后续 API 请求自动携带 Bearer 凭证，并跳转 `/app`。
+-密码保持原样，不去除空格。登录失败显示后端错误并保留输入；受保护请求返回 401 时清除凭证并返回登录页。
++注册成功后显示登录入口，不自动登录；当前登录页本身仍为占位页面。
+ 
+ 验证：
+ 
+diff --git a/apps/web/src/api/auth/login/index.ts b/apps/web/src/api/auth/login/index.ts
+deleted file mode 100644
+--- a/apps/web/src/api/auth/login/index.ts
++++ /dev/null
+@@ -1,19 +0,0 @@
+-import { request } from '@/utils/request'
+-
+-export interface EmailLoginRequest {
+-  email: string
+-  password: string
+-}
+-
+-export interface EmailLoginResponse {
+-  accessToken: string
+-  expiresIn: number
+-  tokenType: string
+-}
+-
+-export function loginWithEmail(values: EmailLoginRequest) {
+-  return request.post<EmailLoginResponse>('/admin/auth/login/email', {
+-    email: values.email.trim().toLowerCase(),
+-    password: values.password,
+-  }, { skipAuth: true, skipRefresh: true, silent: true, withCredentials: true })
+-}
+diff --git a/apps/web/src/lib/auth.ts b/apps/web/src/lib/auth.ts
+deleted file mode 100644
+--- a/apps/web/src/lib/auth.ts
++++ /dev/null
+@@ -1,13 +0,0 @@
+-const ACCESS_TOKEN_KEY = 'cloudlane.accessToken'
+-
+-export function getAccessToken() {
+-  return sessionStorage.getItem(ACCESS_TOKEN_KEY)
+-}
+-
+-export function saveAccessToken(token: string) {
+-  sessionStorage.setItem(ACCESS_TOKEN_KEY, token)
+-}
+-
+-export function clearAccessToken() {
+-  sessionStorage.removeItem(ACCESS_TOKEN_KEY)
+-}
+diff --git a/apps/web/src/views/auth/login/schema.ts b/apps/web/src/views/auth/login/schema.ts
+deleted file mode 100644
+--- a/apps/web/src/views/auth/login/schema.ts
++++ /dev/null
+@@ -1,13 +0,0 @@
+-import { z } from 'zod'
+-
+-export const loginSchema = z.object({
+-  email: z.string().trim().toLowerCase()
+-    .min(1, '邮箱不能为空')
+-    .email('请输入正确的邮箱地址')
+-    .max(191, '邮箱不能超过191个字符'),
+-  password: z.string()
+-    .min(1, '密码不能为空')
+-    .min(8, '密码不能少于8位')
+-    .max(32, '密码不能超过32位')
+-    .refine(value => value.trim().length > 0, '密码不能为空'),
+-})
+diff --git a/apps/web/src/views/auth/login/useLogin.ts b/apps/web/src/views/auth/login/useLogin.ts
+deleted file mode 100644
+--- a/apps/web/src/views/auth/login/useLogin.ts
++++ /dev/null
+@@ -1,29 +0,0 @@
+-import { ref } from 'vue'
+-import { loginWithEmail, type EmailLoginRequest } from '@/api/auth/login'
+-import { saveAccessToken } from '@/lib/auth'
+-
+-export function useLogin() {
+-  const submitting = ref(false)
+-  const error = ref('')
+-
+-  async function login(values: EmailLoginRequest) {
+-    if (submitting.value) return false
+-    submitting.value = true
+-    error.value = ''
+-    try {
+-      const result = await loginWithEmail(values)
+-      if (!result || typeof result.accessToken !== 'string' || !result.accessToken.trim()) {
+-        throw new Error('登录响应缺少凭证，请稍后重试')
+-      }
+-      saveAccessToken(result.accessToken)
+-      return true
+-    } catch (cause) {
+-      error.value = cause instanceof Error ? cause.message : '登录失败，请稍后重试'
+-      return false
+-    } finally {
+-      submitting.value = false
+-    }
+-  }
+-
+-  return { submitting, error, login }
+-}
+diff --git a/apps/web/tests/login.test.cjs b/apps/web/tests/login.test.cjs
+deleted file mode 100644
+--- a/apps/web/tests/login.test.cjs
++++ /dev/null
+@@ -1,120 +0,0 @@
+-const { test } = require('node:test')
+-const assert = require('node:assert/strict')
+-const fs = require('node:fs')
+-const path = require('node:path')
+-const vm = require('node:vm')
+-const { createRequire } = require('node:module')
+-const app = path.resolve(__dirname, '..')
+-const dependency = createRequire(path.join(app, 'package.json'))
+-const ts = dependency('typescript')
+-
+-function load(relative, dependencies = {}, globals = {}) {
+-  const source = fs.readFileSync(path.join(app, relative), 'utf8')
+-    .replace('import.meta.env.VITE_API_BASE_URL', 'undefined')
+-  const { outputText } = ts.transpileModule(source, { compilerOptions: {
+-    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true,
+-  } })
+-  const module = { exports: {} }
+-  vm.runInNewContext(outputText, {
+-    module, exports: module.exports, Error,
+-    require: name => dependencies[name] ?? dependency(name), ...globals,
+-  }, { filename: relative })
+-  return module.exports
+-}
+-
+-const values = { email: ' User@Example.com ', password: ' password123 ' }
+-
+-test('login validation normalizes email, preserves password, and rejects invalid values', () => {
+-  const { loginSchema } = load('src/views/auth/login/schema.ts')
+-  const parsed = loginSchema.parse(values)
+-  assert.equal(parsed.email, 'user@example.com')
+-  assert.equal(parsed.password, values.password)
+-  for (const invalid of [
+-    { email: '' }, { email: 'invalid' }, { email: 'a'.repeat(192) + '@example.com' },
+-    { password: '' }, { password: '1234567' }, { password: ' '.repeat(8) },
+-    { password: 'a'.repeat(33) },
+-  ]) assert.equal(loginSchema.safeParse({ ...values, ...invalid }).success, false)
+-})
+-
+-test('login uses the backend contract without stale auth or automatic refresh', async () => {
+-  const axios = dependency('axios')
+-  const calls = []
+-  const response = { accessToken: 'new-token', expiresIn: 900, tokenType: 'Bearer' }
+-  const client = axios.create({ baseURL: '/api', adapter: async config => {
+-    calls.push(config)
+-    return { config, status: 200, headers: {}, data: { code: 0, data: response } }
+-  } })
+-  const shim = new Proxy(axios, { get: (target, prop) => prop === 'create' ? () => client : target[prop] })
+-  const request = load('src/utils/request.ts', { axios: shim }, {
+-    window: { location: { origin: 'http://localhost:3000' } }, Blob, URL, setTimeout,
+-  })
+-  let refreshes = 0
+-  request.setupRequest({
+-    getAccessToken: () => 'old-token',
+-    refreshAccessToken: async () => { refreshes++; return 'refreshed' },
+-  })
+-  const api = load('src/api/auth/login/index.ts', { '@/utils/request': request })
+-  assert.equal(await api.loginWithEmail(values), response)
+-  assert.equal(client.getUri(calls[0]), '/api/admin/auth/login/email')
+-  assert.deepEqual(JSON.parse(calls[0].data), { email: 'user@example.com', password: values.password })
+-  assert.equal(calls[0].headers.get('Authorization'), undefined)
+-  assert.equal(calls[0].withCredentials, true)
+-  client.defaults.adapter = async config => ({
+-    config, status: 200, headers: {}, data: { code: 401, msg: '邮箱或密码错误' },
+-  })
+-  await assert.rejects(api.loginWithEmail(values), /邮箱或密码错误/)
+-  assert.equal(refreshes, 0)
+-})
+-
+-function state(loginWithEmail, saveAccessToken = () => {}) {
+-  return load('src/views/auth/login/useLogin.ts', {
+-    '@/api/auth/login': { loginWithEmail }, '@/lib/auth': { saveAccessToken },
+-  }).useLogin()
+-}
+-
+-test('login blocks duplicate submissions and saves successful credentials', async () => {
+-  let resolve, calls = 0, saved
+-  const s = state(() => { calls++; return new Promise(r => { resolve = r }) }, token => { saved = token })
+-  const pending = s.login(values)
+-  assert.equal(s.submitting.value, true)
+-  assert.equal(await s.login(values), false)
+-  assert.equal(calls, 1)
+-  resolve({ accessToken: 'new-token' })
+-  assert.equal(await pending, true)
+-  assert.equal(saved, 'new-token')
+-  assert.equal(s.submitting.value, false)
+-})
+-
+-test('failed login and malformed responses do not save credentials and allow retry', async () => {
+-  let attempts = 0, saves = 0
+-  const s = state(async () => {
+-    if (++attempts === 1) throw new Error('邮箱或密码错误')
+-    return { accessToken: 'valid-token' }
+-  }, () => { saves++ })
+-  assert.equal(await s.login(values), false)
+-  assert.equal(s.error.value, '邮箱或密码错误')
+-  assert.equal(s.submitting.value, false)
+-  assert.equal(await s.login(values), true)
+-  assert.equal(s.error.value, '')
+-  assert.equal(saves, 1)
+-  for (const response of [null, true, {}, { accessToken: '' }, { accessToken: ' ' }]) {
+-    const invalid = state(async () => response, () => assert.fail('must not save'))
+-    assert.equal(await invalid.login(values), false)
+-    assert.match(invalid.error.value, /缺少凭证/)
+-  }
+-})
+-
+-test('session storage saves only the access token and supports clearing', () => {
+-  const entries = new Map()
+-  const auth = load('src/lib/auth.ts', {}, { sessionStorage: {
+-    getItem: key => entries.get(key) ?? null,
+-    setItem: (key, value) => entries.set(key, value),
+-    removeItem: key => entries.delete(key),
+-  } })
+-  assert.equal(auth.getAccessToken(), null)
+-  auth.saveAccessToken('token')
+-  assert.equal(auth.getAccessToken(), 'token')
+-  assert.equal(entries.size, 1)
+-  auth.clearAccessToken()
+-  assert.equal(auth.getAccessToken(), null)
+-})

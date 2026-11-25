@@ -1,0 +1,13 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "Mapper.java"))
+$!callback.setSavePath($tool.append($basePath, "/mapper"))
+package $!{rootPackage}.$!{domain}.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import $!{rootPackage}.$!{domain}.dataobject.$!{entity}DO;
+import org.apache.ibatis.annotations.Mapper;
+
+/** $!{tableInfo.comment} Mapper。 */
+@Mapper
+public interface $!{entity}Mapper extends BaseMapper<$!{entity}DO> {
+}

@@ -1,0 +1,89 @@
+$!{cloudlane.vm}
+$!callback.setFileName($tool.append($entity, "ServiceImpl.java"))
+$!callback.setSavePath($tool.append($basePath, "/service/impl"))
+package $!{rootPackage}.$!{domain}.service.impl;
+
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.wanyue.cloud.common.exception.BizException;
+import com.wanyue.cloud.common.result.PageResult;
+import $!{rootPackage}.$!{domain}.dataobject.$!{entity}DO;
+import $!{rootPackage}.$!{domain}.mapper.$!{entity}Mapper;
+import $!{rootPackage}.$!{domain}.service.$!{entity}Service;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}CreateReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}UpdateReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}PageReqVO;
+import $!{rootPackage}.$!{domain}.vo.$!{entity}RespVO;
+import org.springframework.beans.BeanUtils;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/** $!{tableInfo.comment}单表 CRUD；生成后需补充业务规则及关联数据处理。 */
+@Service
+public class $!{entity}ServiceImpl extends ServiceImpl<$!{entity}Mapper, $!{entity}DO>
+        implements $!{entity}Service {
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long create($!{entity}CreateReqVO request) {
+        $!{entity}DO entity = new $!{entity}DO();
+        BeanUtils.copyProperties(request, entity);
+        if (!save(entity)) {
+            throw BizException.conflict("新增失败");
+        }
+        return entity.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void update(Long id, $!{entity}UpdateReqVO request) {
+        $!{entity}DO entity = getById(id);
+        if (entity == null) {
+            throw BizException.notFound("记录不存在");
+        }
+        // 请求 version 必须与客户端读取该记录时的版本一致。
+        // BeanUtils 复制版本值后，MP 乐观锁将按该版本执行条件更新。
+        BeanUtils.copyProperties(request, entity);
+        if (!updateById(entity)) {
+            throw BizException.conflict("记录已变更，请刷新后重试");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        if (!removeById(id)) {
+            throw BizException.notFound("记录不存在");
+        }
+    }
+
+    @Override
+    public $!{entity}RespVO get(Long id) {
+        $!{entity}DO entity = getById(id);
+        if (entity == null) {
+            throw BizException.notFound("记录不存在");
+        }
+        return toResp(entity);
+    }
+
+    @Override
+    public PageResult<$!{entity}RespVO> page($!{entity}PageReqVO request) {
+        IPage<$!{entity}DO> result = super.page(
+                new Page<>(request.getPageNo(), request.getPageSize()),
+                Wrappers.<$!{entity}DO>lambdaQuery()
+                        .orderByDesc($!{entity}DO::getCreatedAt)
+        );
+        return PageResult.of(
+                result.getRecords().stream().map(this::toResp).toList(),
+                result.getTotal(), result.getCurrent(), result.getSize()
+        );
+    }
+
+    private $!{entity}RespVO toResp($!{entity}DO entity) {
+        $!{entity}RespVO vo = new $!{entity}RespVO();
+        BeanUtils.copyProperties(entity, vo);
+        return vo;
+    }
+}
