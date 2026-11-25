@@ -4,7 +4,12 @@
     "types": [
       "vite/client"
     ],
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@repo/ui/*": [
+        "./src/*"
+      ]
+    }
   },
   "include": [
     "src/**/*.ts",

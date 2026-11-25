@@ -5,7 +5,7 @@
   "typescript": true,
   "tailwind": {
     "config": "",
-    "css": "src/styles/index.css",
+    "css": "../../packages/ui/src/styles/index.css",
     "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
@@ -15,8 +15,8 @@
   "pointer": false,
   "aliases": {
     "components": "@/components",
-    "utils": "cn",
-    "ui": "@repo/ui",
+    "utils": "@repo/ui/lib/utils",
+    "ui": "@repo/ui/components",
     "lib": "@/lib",
     "composables": "@/composables"
   },

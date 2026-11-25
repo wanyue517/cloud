@@ -3,7 +3,7 @@ import type { DropdownMenuCheckboxItemEmits, DropdownMenuCheckboxItemProps } fro
 import type { HTMLAttributes } from "vue"
 import { Check } from "@lucide/vue"
 import { reactiveOmit } from "@vueuse/core"
-import { cn } from "cn"
+import { cn } from "@repo/ui/lib/utils"
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuItemIndicator,

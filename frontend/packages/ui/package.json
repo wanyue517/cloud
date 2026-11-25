@@ -80,7 +80,11 @@
     "./tooltip/Tooltip.vue": "./src/components/tooltip/Tooltip.vue",
     "./tooltip/TooltipContent.vue": "./src/components/tooltip/TooltipContent.vue",
     "./tooltip/TooltipProvider.vue": "./src/components/tooltip/TooltipProvider.vue",
-    "./tooltip/TooltipTrigger.vue": "./src/components/tooltip/TooltipTrigger.vue"
+    "./tooltip/TooltipTrigger.vue": "./src/components/tooltip/TooltipTrigger.vue",
+    "./components/*": "./src/components/*/index.ts",
+    "./lib/*": "./src/lib/*.ts",
+    "./composables/*": "./src/composables/*.ts",
+    "./components/*.vue": "./src/components/*.vue"
   },
   "scripts": {
     "check-types": "vue-tsc --noEmit -p tsconfig.json"

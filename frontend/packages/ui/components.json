@@ -14,11 +14,11 @@
   "rtl": false,
   "pointer": false,
   "aliases": {
-    "components": "@repo/ui",
-    "utils": "cn",
-    "ui": "@repo/ui",
-    "lib": "@repo/ui",
-    "composables": "@repo/ui"
+    "components": "@repo/ui/components",
+    "ui": "@repo/ui/components",
+    "utils": "@repo/ui/lib/utils",
+    "lib": "@repo/ui/lib",
+    "composables": "@repo/ui/composables"
   },
   "registries": {}
 }

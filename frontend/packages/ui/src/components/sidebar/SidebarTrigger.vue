@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from "vue"
 import { PanelLeft } from "@lucide/vue"
-import { cn } from "cn"
+import { cn } from "@repo/ui/lib/utils"
 import { Button } from '@repo/ui/button'
 import { useSidebar } from "./utils"
 

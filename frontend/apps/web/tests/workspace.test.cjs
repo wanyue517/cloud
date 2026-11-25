@@ -146,3 +146,16 @@ test('web guards known resources, preserves string IDs and leaves unknown pages 
     assert.equal(router.currentRoute.value.query.returnTo, undefined)
   }
 })
+
+test('shared UI exports resolve existing consumers and configured generated imports', () => {
+  for (const app of ['web', 'admin']) {
+    const resolve = createRequire(path.join(root, 'apps', app, 'package.json')).resolve
+    const config = JSON.parse(fs.readFileSync(path.join(root, 'apps', app, 'components.json'), 'utf8'))
+    for (const name of ['@repo/ui/button', config.aliases.ui + '/button', config.aliases.ui + '/sheet/SheetDescription.vue', config.aliases.utils]) {
+      const target = resolve(name)
+      assert.equal(fs.existsSync(target), true, name)
+      const relative = path.relative(path.join(root, 'packages/ui/src'), fs.realpathSync(target))
+      assert.equal(relative.startsWith('..') || path.isAbsolute(relative), false, name)
+    }
+  }
+})

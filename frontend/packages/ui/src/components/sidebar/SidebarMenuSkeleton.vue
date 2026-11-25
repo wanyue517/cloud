@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from "vue"
-import { cn } from "cn"
+import { cn } from "@repo/ui/lib/utils"
 import { useId } from "reka-ui"
 import { computed } from "vue"
 import { Skeleton } from '@repo/ui/skeleton'
