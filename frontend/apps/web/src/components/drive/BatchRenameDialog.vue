@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { AlertTriangle, CheckCircle2, Wand2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { Checkbox } from '@repo/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
 import type { DriveNode } from '@/api/drive'
@@ -24,6 +25,8 @@ const previewItems = ref<BatchRenamePreviewItem[]>([])
 const previewing = ref(false)
 const applying = ref(false)
 const error = ref('')
+let previewGen = 0
+let previewTimer: ReturnType<typeof setTimeout> | undefined
 
 const hasConflict = computed(() => previewItems.value.some(i => i.conflict))
 
@@ -43,14 +46,18 @@ function buildPayload(): BatchRenameRequest {
 }
 
 async function runPreview() {
+  const gen = ++previewGen
   previewing.value = true
   error.value = ''
   try {
-    previewItems.value = await opsApi.previewBatchRename(props.spaceId, buildPayload())
+    const res = await opsApi.previewBatchRename(props.spaceId, buildPayload())
+    if (gen !== previewGen) return
+    previewItems.value = res
   } catch (e) {
+    if (gen !== previewGen) return
     error.value = e instanceof Error ? e.message : '生成预览失败'
   } finally {
-    previewing.value = false
+    if (gen === previewGen) previewing.value = false
   }
 }
 
@@ -69,7 +76,8 @@ async function apply() {
 }
 
 watch([mode, prefix, suffix, find, replace, template, startNumber, keepExtension, conflictPolicy], () => {
-  void runPreview()
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => { void runPreview() }, 250)
 }, { immediate: true })
 </script>
 
@@ -118,8 +126,8 @@ watch([mode, prefix, suffix, find, replace, template, startNumber, keepExtension
         <label class="space-y-1"><span>起始编号</span><Input v-model="startNumber" type="number" min="0" /></label>
       </div>
 
-      <label class="flex items-center gap-2 text-xs">
-        <input v-model="keepExtension" type="checkbox" />
+      <label class="flex cursor-pointer items-center gap-2 text-xs">
+        <Checkbox :model-value="keepExtension" @update:model-value="v => { keepExtension = v === true }" />
         <span>保留文件扩展名不变</span>
       </label>
 
@@ -134,8 +142,8 @@ watch([mode, prefix, suffix, find, replace, template, startNumber, keepExtension
           </thead>
           <tbody class="divide-y divide-border">
             <tr v-for="item in previewItems" :key="item.nodeId" :class="item.conflict ? 'bg-destructive/10' : ''">
-              <td class="max-w-[200px] truncate px-3 py-2 text-muted-foreground">{{ item.oldName }}</td>
-              <td class="max-w-[220px] truncate px-3 py-2 font-medium">{{ item.newName }}</td>
+              <td class="max-w-[200px] truncate px-3 py-2 text-muted-foreground" :title="item.oldName">{{ item.oldName }}</td>
+              <td class="max-w-[220px] truncate px-3 py-2 font-medium" :title="item.newName">{{ item.newName }}</td>
               <td class="px-3 py-2 text-right">
                 <span v-if="item.conflict" class="inline-flex items-center gap-1 text-destructive"><AlertTriangle :size="12" /> {{ item.reason || '冲突' }}</span>
                 <span v-else class="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 :size="12" /> 就绪</span>

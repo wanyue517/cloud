@@ -36,7 +36,7 @@ onMounted(() => { void load() })
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-1 flex-col gap-4 p-6">
+  <div class="flex h-full min-h-0 flex-1 flex-col gap-4">
     <header class="flex items-center justify-between gap-3">
       <div>
         <h1 class="flex items-center gap-2 text-xl font-semibold"><Clock :size="20" /> 最近使用</h1>
@@ -51,7 +51,12 @@ onMounted(() => { void load() })
       暂无最近使用记录
     </div>
     <div v-else class="divide-y divide-border rounded-xl border border-border bg-card">
-      <div v-for="item in items" :key="item.id" class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <div
+        v-for="item in items"
+        :key="item.id"
+        class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 hover:bg-muted/30"
+        @dblclick="emit('preview', item)"
+      >
         <div class="min-w-0">
           <div class="flex items-center gap-2 font-medium">
             <File :size="16" class="shrink-0 text-primary" />

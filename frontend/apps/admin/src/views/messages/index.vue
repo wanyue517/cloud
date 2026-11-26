@@ -4,6 +4,7 @@ import { Megaphone, RefreshCw, Send } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { Textarea } from '@repo/ui/textarea'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
@@ -105,8 +106,8 @@ onMounted(() => { void load() })
         <label class="block space-y-1 text-xs">
           <span>发送范围</span>
           <select v-model="scope" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
-            <option value="ALL">全员广播 (ALL)</option>
-            <option value="DIRECT">定向用户 (DIRECT)</option>
+            <option value="ALL">全员广播</option>
+            <option value="DIRECT">定向用户</option>
           </select>
         </label>
         <label v-if="scope === 'DIRECT'" class="block space-y-1 text-xs">
@@ -124,7 +125,7 @@ onMounted(() => { void load() })
       </div>
       <label class="block space-y-1 text-xs">
         <span>消息正文</span>
-        <textarea v-model="content" rows="3" class="w-full rounded-md border border-input bg-background p-2.5 text-sm" placeholder="输入通知详情…" />
+        <Textarea v-model="content" rows="3" placeholder="输入通知详情…" />
       </label>
       <Button type="submit" size="sm" :disabled="publishing || !title.trim()">
         <Send :size="14" /> {{ publishing ? '正在发布…' : '立即发布' }}

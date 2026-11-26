@@ -9,7 +9,7 @@ import {
   type TreeNodeSummary,
 } from '@/lib/tree'
 
-const props = defineProps<{ space: string; parent: string; active: string; revision: number }>()
+const props = defineProps<{ space: string; parent: string; active: string; revision: number; ancestorIds?: string[] }>()
 const emit = defineEmits<{ navigate: [id: string]; move: [source: string, target: string] }>()
 
 const PAGE_SIZE = 200
@@ -163,6 +163,28 @@ watch(
   },
 )
 
+watch(
+  () => props.ancestorIds,
+  async ids => {
+    if (!ids?.length) return
+    const next = new Set(expandedIds.value)
+    let changed = false
+    for (const id of ids) {
+      if (id && id !== '0' && !next.has(id)) {
+        next.add(id)
+        changed = true
+      }
+    }
+    if (changed) expandedIds.value = next
+    for (const id of ids) {
+      if (id && id !== '0' && !childrenByParent.value.has(id)) {
+        await loadParent(id, 1)
+      }
+    }
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   if (viewportRef.value) {
     viewportHeight.value = viewportRef.value.clientHeight || 420
@@ -212,7 +234,7 @@ onBeforeUnmount(() => {
               <ChevronRight v-else :size="13" :class="{ rotated: item.expanded }" />
             </Button>
             <span v-else class="tree-toggle-placeholder" aria-hidden="true" />
-            <Button variant="ghost" size="sm" class="tree-label" @click="emit('navigate', item.node.id)">
+            <Button variant="ghost" size="sm" class="tree-label" :title="item.node.name" @click="emit('navigate', item.node.id)">
               <Folder :size="15" />
               <span>{{ item.node.name }}</span>
             </Button>

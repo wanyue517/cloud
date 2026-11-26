@@ -12,6 +12,7 @@ const { siteConfig, loadSiteConfig } = useSiteConfig()
 const email = ref('')
 const code = ref('')
 const newPassword = ref('')
+const confirmPassword = ref('')
 const showPassword = ref(false)
 const sending = ref(false)
 const submitting = ref(false)
@@ -62,6 +63,10 @@ async function submitReset() {
     error.value = '请填写完整邮箱、6 位验证码以及 8–32 位新密码'
     return
   }
+  if (newPassword.value !== confirmPassword.value) {
+    error.value = '两次输入的新密码不一致'
+    return
+  }
   submitting.value = true
   try {
     await request.post('/admin/auth/password/reset', {
@@ -99,49 +104,63 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
       <section v-if="done" role="status" class="space-y-4 rounded-xl border border-border bg-card p-5">
         <p class="text-sm font-medium">密码已重置成功！</p>
         <p class="text-xs text-muted-foreground">请使用新密码重新登录。</p>
-        <RouterLink to="/auth/login" class="inline-block text-sm font-medium text-primary hover:underline">
-          返回登录
-        </RouterLink>
+        <Button as-child class="w-full">
+          <RouterLink to="/auth/login">前往登录</RouterLink>
+        </Button>
       </section>
 
       <form v-else class="space-y-4" novalidate @submit.prevent="submitReset">
-        <label class="block space-y-1.5 text-sm">
-          <span>邮箱地址</span>
-          <Input v-model="email" type="email" autocomplete="email" placeholder="name@example.com" class="h-11 rounded-lg" />
-        </label>
+        <fieldset :disabled="submitting" class="space-y-4">
+          <label class="block space-y-1.5 text-sm">
+            <span>邮箱地址</span>
+            <Input v-model="email" type="email" autocomplete="email" placeholder="name@example.com" class="h-11 rounded-lg" />
+          </label>
 
-        <label class="block space-y-1.5 text-sm">
-          <span>邮箱验证码</span>
-          <div class="flex gap-2.5">
-            <Input v-model="code" type="text" inputmode="numeric" maxlength="6" placeholder="输入6位验证码" class="h-11 flex-1 rounded-lg" />
-            <Button type="button" variant="outline" class="h-11 w-[112px] shrink-0 rounded-lg text-sm" :disabled="sending || countdown > 0" @click="sendCode">
-              {{ sending ? '发送中…' : countdown > 0 ? `${countdown}s 后重发` : '获取验证码' }}
-            </Button>
-          </div>
-        </label>
+          <label class="block space-y-1.5 text-sm">
+            <span>邮箱验证码</span>
+            <div class="flex gap-2.5">
+              <Input v-model="code" type="text" inputmode="numeric" maxlength="6" placeholder="输入6位验证码" class="h-11 flex-1 rounded-lg" />
+              <Button type="button" variant="outline" class="h-11 w-[112px] shrink-0 rounded-lg text-sm" :disabled="sending || submitting || countdown > 0" @click="sendCode">
+                {{ sending ? '发送中…' : countdown > 0 ? `${countdown}s 后重发` : '获取验证码' }}
+              </Button>
+            </div>
+          </label>
 
-        <label class="block space-y-1.5 text-sm">
-          <span>新密码</span>
-          <div class="relative">
+          <label class="block space-y-1.5 text-sm">
+            <span>新密码</span>
+            <div class="relative">
+              <Input
+                v-model="newPassword"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="new-password"
+                maxlength="32"
+                placeholder="8–32位字符"
+                class="h-11 rounded-lg pr-11"
+              />
+              <button
+                type="button"
+                class="absolute inset-y-0 right-0 flex w-11 cursor-pointer items-center justify-center rounded-r-lg text-muted-foreground hover:text-foreground"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" :size="17" />
+                <Eye v-else :size="17" />
+              </button>
+            </div>
+          </label>
+
+          <label class="block space-y-1.5 text-sm">
+            <span>确认新密码</span>
             <Input
-              v-model="newPassword"
+              v-model="confirmPassword"
               :type="showPassword ? 'text' : 'password'"
               autocomplete="new-password"
               maxlength="32"
-              placeholder="8–32位字符"
-              class="h-11 rounded-lg pr-11"
+              placeholder="再次输入新密码"
+              class="h-11 rounded-lg"
             />
-            <button
-              type="button"
-              class="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-lg text-muted-foreground hover:text-foreground"
-              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-              @click="showPassword = !showPassword"
-            >
-              <EyeOff v-if="showPassword" :size="17" />
-              <Eye v-else :size="17" />
-            </button>
-          </div>
-        </label>
+          </label>
+        </fieldset>
 
         <p v-if="notice" role="status" class="text-xs text-muted-foreground">{{ notice }}</p>
         <p v-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
@@ -151,7 +170,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
         </Button>
       </form>
 
-      <p class="mt-7 text-center text-sm text-muted-foreground">
+      <p v-if="!done" class="mt-7 text-center text-sm text-muted-foreground">
         想起密码了？
         <RouterLink to="/auth/login" class="font-medium text-primary hover:underline underline-offset-4">返回登录</RouterLink>
       </p>

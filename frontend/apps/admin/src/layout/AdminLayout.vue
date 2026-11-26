@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
 import ThemeSettings from '@repo/ui/ThemeSettings.vue'
 import { logout } from '@repo/session/session'
 import { loginUrl } from '@repo/session/navigation'
@@ -60,7 +61,7 @@ function isActive(to: string) {
 }
 
 function toggleNav() {
-  if (typeof window !== 'undefined' && window.innerWidth <= 760) {
+  if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
     mobileMenuOpen.value = !mobileMenuOpen.value
   } else {
     sidebarCollapsed.value = !sidebarCollapsed.value
@@ -77,15 +78,21 @@ function onKeydown(event: KeyboardEvent) {
 
 async function signOut() {
   if (signingOut.value) return
+  const ok = await confirm({
+    title: '退出管理后台',
+    description: '确定退出当前管理员账号吗？',
+    confirmText: '确认退出',
+  })
+  if (!ok) return
   signingOut.value = true
   error.value = ''
   try {
     await logout()
+    window.location.assign(loginUrl('/admin/'))
   } catch (e) {
     error.value = e instanceof Error ? e.message : '退出失败'
   } finally {
     signingOut.value = false
-    window.location.assign(loginUrl('/admin/'))
   }
 }
 
@@ -152,7 +159,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
       </nav>
 
       <div class="p-3 border-t border-sidebar-border text-xs text-muted-foreground shrink-0">
-        独立管理后台 · 与用户工作台解耦
+        {{ siteName }} 管理控制台
       </div>
     </aside>
 
@@ -174,7 +181,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
         <div class="flex items-center gap-2 md:gap-3 shrink-0">
           <div class="w-28 sm:w-32">
-            <ThemeSettings />
+            <ThemeSettings :show-compact-option="false" />
           </div>
           <Button as-child variant="outline" size="sm">
             <a href="/app">返回网盘</a>

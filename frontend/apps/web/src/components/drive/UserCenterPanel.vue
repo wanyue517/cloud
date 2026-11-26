@@ -9,6 +9,7 @@ import { Checkbox } from '@repo/ui/checkbox'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
 import { Separator } from '@repo/ui/separator'
+import { Switch } from '@repo/ui/switch'
 import { toast } from '@repo/ui/toast'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { accentColors, theme, type ColorMode } from '@repo/ui/theme'
@@ -240,15 +241,24 @@ async function loadSessions() {
 }
 
 async function revokeSession(id: string) {
+  const ok = await confirm({
+    title: '下线登录设备',
+    description: '确定强制下线该设备会话吗？该设备需要重新登录才能访问网盘。',
+    confirmText: '确认下线',
+    variant: 'destructive',
+  })
+  if (!ok) return
   revokingId.value = id
   error.value = ''
   feedback.value = ''
   try {
     await request.delete(`/v1/auth/sessions/${id}`)
     sessions.value = sessions.value.filter(item => item.id !== id)
-    feedback.value = '已下线指定设备会话'
+    toast.success('已下线指定设备会话')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '下线设备失败'
+    const msg = e instanceof Error ? e.message : '下线设备失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     revokingId.value = ''
   }
@@ -733,7 +743,7 @@ onMounted(() => {
               <span v-if="item.current" class="session-badge">当前设备</span>
             </div>
             <p>
-              {{ item.clientType }}{{ item.ipAddress ? ` · ${item.ipAddress}` : '' }} · 最近活跃 {{ item.lastUsedAt || item.createdAt }}
+              {{ item.clientType }}{{ item.ipAddress ? ` · ${item.ipAddress}` : '' }} · 最近活跃 {{ new Date(item.lastUsedAt || item.createdAt).toLocaleString('zh-CN') }}
             </p>
           </div>
           <Button
@@ -836,13 +846,13 @@ onMounted(() => {
           </div>
         </fieldset>
 
-        <label class="settings-checkbox">
-          <input :checked="isCompact" type="checkbox" class="accent-primary" @change="setCompact(($event.target as HTMLInputElement).checked)" />
+        <div class="settings-checkbox justify-between">
           <div>
             <strong>紧凑文件列表</strong>
             <span>减小文件行高（36px），在单屏内浏览更多文件。</span>
           </div>
-        </label>
+          <Switch :model-value="isCompact" @update:model-value="v => setCompact(v)" />
+        </div>
       </div>
     </section>
 

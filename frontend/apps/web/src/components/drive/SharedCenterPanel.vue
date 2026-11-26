@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { Check, FolderSymlink, Inbox, Link2, RefreshCw, Share2, Trash2, X } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
+import { toast } from '@repo/ui/toast'
 import { roleLabel, shareApi, type InvitationItem, type ResourceShareItem, type ShareLinkItem } from '@/api/share'
 
 const emit = defineEmits<{
@@ -41,28 +43,46 @@ async function loadAll() {
 }
 
 async function disableLink(id: string) {
+  const ok = await confirm({
+    title: '停用公开分享链接',
+    description: '停用后该链接将永久失效，持有链接的访问者无法再打开。确定停用吗？',
+    confirmText: '确认停用',
+    variant: 'destructive',
+  })
+  if (!ok) return
   busyId.value = id
   error.value = ''
   try {
     await shareApi.disableShareLink(id)
-    notice.value = '分享链接已停用'
+    toast.success('分享链接已停用')
     await loadAll()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '停用失败'
+    const msg = e instanceof Error ? e.message : '停用失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busyId.value = ''
   }
 }
 
 async function revoke(shareId: string) {
+  const ok = await confirm({
+    title: '撤销文件夹共享',
+    description: '撤销后对方将立即失去该文件夹的访问权限。确定撤销吗？',
+    confirmText: '确认撤销',
+    variant: 'destructive',
+  })
+  if (!ok) return
   busyId.value = shareId
   error.value = ''
   try {
     await shareApi.revokeResourceShare(shareId)
-    notice.value = '已撤销共享授权'
+    toast.success('已撤销共享授权')
     await loadAll()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '撤销失败'
+    const msg = e instanceof Error ? e.message : '撤销失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busyId.value = ''
   }
@@ -92,7 +112,7 @@ onMounted(() => { void loadAll() })
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-1 flex-col gap-4 p-6">
+  <div class="flex h-full min-h-0 flex-1 flex-col gap-4">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-xl font-semibold">共享中心</h1>

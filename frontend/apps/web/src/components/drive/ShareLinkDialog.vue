@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, Copy, Link2 } from '@lucide/vue'
+import { Check, Copy, Dices, Link2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { Switch } from '@repo/ui/switch'
+import { toast } from '@repo/ui/toast'
 import type { DriveNode } from '@/api/drive'
 import { shareApi, type CreatedShareLink } from '@/api/share'
 
@@ -43,16 +45,37 @@ async function createLink() {
   }
 }
 
+function generateRandomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let out = ''
+  for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  password.value = out
+}
+
 async function copyLink() {
   if (!fullUrl.value) return
   const text = created.value?.hasPassword && password.value.trim()
     ? `${fullUrl.value} 提取码：${password.value.trim()}`
     : fullUrl.value
   try {
-    await navigator.clipboard.writeText(text)
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
     copied.value = true
+    toast.success('分享链接已复制到剪贴板')
     window.setTimeout(() => { copied.value = false }, 2000)
-  } catch { /* ignore */ }
+  } catch {
+    toast.error('自动复制失败，请手动选中上方链接复制')
+  }
 }
 </script>
 
@@ -92,16 +115,21 @@ async function copyLink() {
         </label>
         <label class="block space-y-1 text-sm">
           <span>提取码（可选，留空表示免密访问）</span>
-          <Input v-model="password" maxlength="16" placeholder="例如 8899" :disabled="busy" />
+          <div class="flex items-center gap-2">
+            <Input v-model="password" maxlength="16" placeholder="例如 8899" :disabled="busy" />
+            <Button type="button" variant="outline" size="sm" class="shrink-0" :disabled="busy" @click="generateRandomCode">
+              <Dices :size="14" /> 随机生成
+            </Button>
+          </div>
         </label>
         <label class="block space-y-1 text-sm">
           <span>最大下载次数（可选，留空不限）</span>
           <Input v-model="maxDownloads" type="number" min="1" placeholder="不限" :disabled="busy" />
         </label>
-        <label class="flex items-center gap-2 text-sm">
-          <input v-model="allowDownload" type="checkbox" :disabled="busy" />
+        <div class="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
           <span>允许访问者下载原文件</span>
-        </label>
+          <Switch :model-value="allowDownload" :disabled="busy" @update:model-value="v => { allowDownload = v }" />
+        </div>
         <p v-if="error" role="alert" class="text-xs text-destructive">{{ error }}</p>
         <DialogFooter>
           <Button type="button" variant="outline" :disabled="busy" @click="emit('close')">取消</Button>

@@ -3,18 +3,19 @@ import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { RefreshCw } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { Skeleton } from '@repo/ui/skeleton'
 import { request } from '@repo/session/request'
 import { ADMIN_NAV_ITEMS } from '@/layout/navigation'
 
 const stats = ref<Record<string, number>>({})
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 
 const metrics = [
   { key: 'users', label: '注册用户' },
   { key: 'spaces', label: '存储空间' },
   { key: 'files', label: '文件总数' },
-  { key: 'bytes', label: '物理存储（字节）' },
+  { key: 'bytes', label: '物理存储占用' },
 ] as const
 
 function formatBytes(bytes: number) {
@@ -61,19 +62,21 @@ onMounted(() => {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <section v-for="metric in metrics" :key="metric.key" class="rounded-xl border border-border bg-card p-5">
         <p class="text-sm text-muted-foreground">{{ metric.label }}</p>
-        <p class="text-3xl font-semibold mt-3 tabular-nums">
-          {{ (stats[metric.key] || 0).toLocaleString() }}
-        </p>
-        <p v-if="metric.key === 'bytes'" class="text-xs text-muted-foreground mt-2">
-          约 {{ formatBytes(stats.bytes || 0) }}
-        </p>
+        <Skeleton v-if="loading && !Object.keys(stats).length" class="mt-3 h-9 w-28" />
+        <template v-else>
+          <p class="text-3xl font-semibold mt-3 tabular-nums">
+            {{ metric.key === 'bytes' ? formatBytes(stats.bytes || 0) : (stats[metric.key] || 0).toLocaleString() }}
+          </p>
+          <p v-if="metric.key === 'bytes'" class="text-xs text-muted-foreground mt-2 tabular-nums">
+            精确 {{ (stats.bytes || 0).toLocaleString() }} B
+          </p>
+        </template>
       </section>
     </div>
 
     <section class="rounded-xl border border-border bg-card p-5 space-y-4">
       <div class="flex items-center justify-between gap-2">
-        <h3 class="font-semibold text-base">后台模块入口</h3>
-        <span class="text-xs text-muted-foreground">遵循 T005 后台独立路由清单</span>
+        <h3 class="font-semibold text-base">快捷入口</h3>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <RouterLink
@@ -82,12 +85,7 @@ onMounted(() => {
           :to="item.to"
           class="rounded-lg border border-border p-4 hover:bg-muted/60 transition-colors flex flex-col gap-1.5"
         >
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-medium text-sm">{{ item.label }}</span>
-            <span class="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-              可用
-            </span>
-          </div>
+          <span class="font-medium text-sm">{{ item.label }}</span>
           <p class="text-xs text-muted-foreground leading-relaxed">{{ item.description }}</p>
         </RouterLink>
       </div>

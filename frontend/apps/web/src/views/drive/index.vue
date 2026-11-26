@@ -295,7 +295,21 @@ function openQuickAccessItem(item: QuickAccessItem) {
   if (item.nodeType === 'FOLDER') {
     router.push({ name: 'folders', params: { spaceId: item.spaceId, folderId: item.nodeId } })
   } else {
-    router.push({ name: 'spaces', params: { spaceId: item.spaceId } })
+    previewVersion.value = undefined
+    preview.value = {
+      id: item.nodeId,
+      spaceId: item.spaceId,
+      parentId: '0',
+      name: item.name,
+      nodeType: 'FILE',
+      currentVersionId: null,
+      revision: 0,
+      size: item.size,
+      mimeType: '',
+      hidden: false,
+      updatedAt: item.updatedAt,
+      hasChildren: false,
+    }
   }
 }
 
@@ -762,7 +776,7 @@ function key(event: KeyboardEvent) {
   if (event.key === 'Escape') selected.value = new Set()
   if (event.key === 'F2' && currentSelection.value[0]) { event.preventDefault(); rename(currentSelection.value[0]) }
   if (event.key === 'Delete' && selected.value.size) deleteSelection()
-  if (event.key === 'Enter' && currentSelection.value[0]) open(currentSelection.value[0])
+  if (event.key === 'Enter' && currentSelection.value[0] && !(event.target as HTMLElement)?.closest('button,a,[role="menuitem"]')) open(currentSelection.value[0])
 }
 
 const topbarTitle = computed(() => {
@@ -957,7 +971,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           <Button variant="ghost" size="sm" class="tree-root-button" :class="{ active: parentId === '0' }" @click="navigate('0')">
             <Folder :size="15" /><span>全部文件</span>
           </Button>
-          <FolderTree :space="spaceId" parent="0" :active="parentId" :revision="treeRevision" @navigate="navigate" @move="move" />
+          <FolderTree :space="spaceId" parent="0" :active="parentId" :revision="treeRevision" :ancestor-ids="ancestors.map(a => a.id)" @navigate="navigate" @move="move" />
         </template>
       </div>
       <div
@@ -1640,15 +1654,18 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <DialogTitle>{{ versionNode.name }} · 历史版本</DialogTitle>
             <DialogDescription>恢复历史内容会创建新版本，原有记录保留。</DialogDescription>
           </DialogHeader>
-          <div v-for="version in versions" :key="version.id" class="flex items-center gap-3 py-2">
-            <span class="flex-1 text-sm">
-              版本 {{ version.number }} · {{ size(version.size) }}
-              <small class="block text-muted-foreground">
-                {{ new Date(version.createdAt).toLocaleString('zh-CN') }}<template v-if="version.createdByName"> · 修改人：{{ version.createdByName }}</template>
-              </small>
-            </span>
-            <Button variant="outline" @click="previewVersion = version; preview = versionNode">预览</Button>
-            <Button variant="outline" :disabled="version.id === versionNode.currentVersionId" @click="restoreVersion(version)">恢复</Button>
+          <div class="max-h-80 overflow-y-auto divide-y divide-border">
+            <div v-for="version in versions" :key="version.id" class="flex items-center gap-2 py-2.5">
+              <span class="min-w-0 flex-1 text-sm">
+                版本 {{ version.number }} · {{ size(version.size) }}
+                <small class="block text-muted-foreground">
+                  {{ new Date(version.createdAt).toLocaleString('zh-CN') }}<template v-if="version.createdByName"> · 修改人：{{ version.createdByName }}</template>
+                </small>
+              </span>
+              <Button variant="outline" size="sm" @click="previewVersion = version; preview = versionNode">预览</Button>
+              <Button variant="outline" size="sm" @click="drive.content(versionNode, version.id).then(b => saveBlob(b, versionNode!.name)).catch(fail)">下载</Button>
+              <Button variant="outline" size="sm" :disabled="version.id === versionNode.currentVersionId" @click="restoreVersion(version)">恢复</Button>
+            </div>
           </div>
         </template>
       </DialogContent>
@@ -1661,7 +1678,23 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           <label class="block space-y-1 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
           <label class="block space-y-1 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
           <div class="grid grid-cols-2 gap-3">
-            <label class="block space-y-1 text-sm"><span>标记颜色</span><Input v-model="spaceColor" aria-label="标记颜色" placeholder="#6366f1" :disabled="spaceSaving" /></label>
+            <div class="space-y-1.5 text-sm">
+              <span>标记颜色</span>
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  v-for="c in ['#6366f1', '#2563eb', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6']"
+                  :key="c"
+                  type="button"
+                  class="size-6 cursor-pointer rounded-full border-2 transition-transform hover:scale-110"
+                  :class="spaceColor.toLowerCase() === c ? 'border-foreground scale-110' : 'border-transparent'"
+                  :style="{ backgroundColor: c }"
+                  :aria-label="`选择颜色 ${c}`"
+                  :disabled="spaceSaving"
+                  @click="spaceColor = c"
+                />
+                <input v-model="spaceColor" type="color" aria-label="自定义颜色" class="size-6 cursor-pointer rounded border border-input bg-transparent p-0" :disabled="spaceSaving" />
+              </div>
+            </div>
             <label class="block space-y-1 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
           </div>
           <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>

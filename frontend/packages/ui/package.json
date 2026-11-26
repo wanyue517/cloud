@@ -79,6 +79,8 @@
     "./sidebar/SidebarSeparator.vue": "./src/components/sidebar/SidebarSeparator.vue",
     "./sidebar/SidebarTrigger.vue": "./src/components/sidebar/SidebarTrigger.vue",
     "./skeleton/Skeleton.vue": "./src/components/skeleton/Skeleton.vue",
+    "./switch/Switch.vue": "./src/components/switch/Switch.vue",
+    "./textarea/Textarea.vue": "./src/components/textarea/Textarea.vue",
     "./toast/Toaster.vue": "./src/components/toast/Toaster.vue",
     "./tooltip/Tooltip.vue": "./src/components/tooltip/Tooltip.vue",
     "./tooltip/TooltipContent.vue": "./src/components/tooltip/TooltipContent.vue",
