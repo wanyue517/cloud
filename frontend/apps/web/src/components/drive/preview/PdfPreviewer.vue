@@ -89,11 +89,28 @@ async function flattenOutline(
   return result
 }
 
+function readSavedPage(): number {
+  try {
+    const raw = localStorage.getItem(`cloudlane.pdf.page.${props.node.id}.${props.version?.id || 'cur'}`)
+    const parsed = raw ? Number.parseInt(raw, 10) : 1
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
+  } catch {
+    return 1
+  }
+}
+
+function saveCurrentPage(pageNum: number) {
+  try {
+    localStorage.setItem(`cloudlane.pdf.page.${props.node.id}.${props.version?.id || 'cur'}`, String(pageNum))
+  } catch { /* ignore */ }
+}
+
 async function renderPage(num: number) {
   if (!pdfDoc || !canvasRef.value) return
   const safePage = Math.max(1, Math.min(totalPages.value, num))
   currentPage.value = safePage
   pageInput.value = String(safePage)
+  saveCurrentPage(safePage)
   if (activeRenderTask) {
     try { activeRenderTask.cancel() } catch { /* ignore */ }
     activeRenderTask = null
@@ -149,13 +166,14 @@ async function loadPdf() {
     }
     pdfDoc = doc
     totalPages.value = doc.numPages
-    currentPage.value = 1
-    pageInput.value = '1'
+    const initialPage = Math.min(doc.numPages, readSavedPage())
+    currentPage.value = initialPage
+    pageInput.value = String(initialPage)
     const rawOutline = await doc.getOutline()
     outline.value = await flattenOutline(doc, rawOutline)
     showOutline.value = outline.value.length > 0
     loading.value = false
-    await renderPage(1)
+    await renderPage(initialPage)
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e instanceof Error ? e.message : 'PDF 加载失败'

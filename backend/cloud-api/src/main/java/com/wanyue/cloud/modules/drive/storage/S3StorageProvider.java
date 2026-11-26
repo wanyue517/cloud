@@ -137,6 +137,38 @@ public class S3StorageProvider implements StorageProvider {
         return URI.create(base + "/" + bucket.strip() + "/" + cleanKey);
     }
 
+    /** 生成标准 AWS SigV4 Query String 预签名 PUT URL（需求 7.6 S3 直传） */
+    public String generatePresignedPutUrl(
+            String endpoint, String bucket, String region, String accessKey, String secretKey,
+            String key, int expiresSeconds) {
+        int safeExpires = Math.max(60, Math.min(3600, expiresSeconds));
+        String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
+        URI uri = buildObjectUri(endpoint, bucket, key);
+        try {
+            ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+            String amzDate = AMZ_DATE.format(now);
+            String dateStamp = DATE_STAMP.format(now);
+            String host = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+            String canonicalUri = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+            String scope = dateStamp + "/" + safeRegion + "/s3/aws4_request";
+            String credential = (accessKey == null ? "" : accessKey.strip()) + "/" + scope;
+            String encodedCred = java.net.URLEncoder.encode(credential, StandardCharsets.UTF_8).replace("+", "%20");
+            String canonicalQuery = "X-Amz-Algorithm=AWS4-HMAC-SHA256"
+                    + "&X-Amz-Credential=" + encodedCred
+                    + "&X-Amz-Date=" + amzDate
+                    + "&X-Amz-Expires=" + safeExpires
+                    + "&X-Amz-SignedHeaders=host";
+            String canonicalRequest = "PUT\n" + canonicalUri + "\n" + canonicalQuery + "\nhost:" + host + "\n\nhost\nUNSIGNED-PAYLOAD";
+            String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n"
+                    + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
+            byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey, dateStamp, safeRegion, "s3");
+            String signature = HexFormat.of().formatHex(hmacSha256(signingKey, stringToSign));
+            return uri + "?" + canonicalQuery + "&X-Amz-Signature=" + signature;
+        } catch (Exception e) {
+            throw new BizException(HttpStatus.INTERNAL_SERVER_ERROR, 500, "生成 S3 预签名上传地址失败: " + e.getMessage());
+        }
+    }
+
     public HttpRequest buildSignedRequest(
             String method, URI uri, String region, String accessKey, String secretKey, byte[] payload, String rangeHeader) throws Exception {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);

@@ -109,6 +109,25 @@ onMounted(() => { void loadSiteConfig() })
         </Button>
       </form>
 
+      <div v-if="siteConfig.oauthProviders.length" class="mt-5 space-y-2.5">
+        <div class="relative flex items-center justify-center text-xs text-muted-foreground">
+          <span class="bg-background px-2">或使用第三方账号登录</span>
+        </div>
+        <div class="grid grid-cols-1 gap-2">
+          <Button
+            v-for="provider in siteConfig.oauthProviders"
+            :key="provider.providerCode"
+            as-child
+            variant="outline"
+            class="h-10 w-full rounded-lg text-sm"
+          >
+            <a :href="`/api/v1/auth/oauth/${encodeURIComponent(provider.providerCode)}/authorize`">
+              使用 {{ provider.displayName }} 登录
+            </a>
+          </Button>
+        </div>
+      </div>
+
       <div class="mt-7 flex items-center justify-between text-sm text-muted-foreground">
         <RouterLink to="/auth/forgot-password" class="hover:text-foreground hover:underline underline-offset-4">
           忘记密码？

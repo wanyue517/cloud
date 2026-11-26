@@ -46,6 +46,21 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`
 }
 
+function highlightParts(text: string, keyword: string): { text: string; hit: boolean }[] {
+  const kw = keyword.trim()
+  if (!kw || !text) return [{ text, hit: false }]
+  const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+  return parts.filter(Boolean).map(p => ({ text: p, hit: p.toLowerCase() === kw.toLowerCase() }))
+}
+
+function matchBadge(hit: SearchHit): string {
+  if (hit.nodeType === 'FOLDER') return '文件夹'
+  if (hit.matchSource === 'BOTH') return '名称+正文命中'
+  if (hit.matchSource === 'CONTENT') return '正文命中'
+  return '文件名命中'
+}
+
 async function runSearch() {
   if (!query.value.trim() && !category.value && !extension.value.trim()) {
     items.value = []
@@ -130,11 +145,21 @@ watch([query, spaceId, category, extension, includeContent], () => {
               <div class="flex items-center gap-2">
                 <Folder v-if="hit.nodeType === 'FOLDER'" :size="15" class="shrink-0 text-amber-500" />
                 <File v-else :size="15" class="shrink-0 text-primary" />
-                <span class="truncate text-sm font-medium">{{ hit.name }}</span>
+                <span class="truncate text-sm font-medium">
+                  <template v-for="(seg, idx) in highlightParts(hit.name, query)" :key="idx">
+                    <mark v-if="seg.hit" class="rounded bg-amber-300/60 px-0.5 text-foreground dark:bg-amber-500/40">{{ seg.text }}</mark>
+                    <template v-else>{{ seg.text }}</template>
+                  </template>
+                </span>
                 <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{{ hit.spaceName }}</span>
-                <span v-if="hit.matchSource === 'CONTENT' || hit.matchSource === 'BOTH'" class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">正文命中</span>
+                <span class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{{ matchBadge(hit) }}</span>
               </div>
-              <p v-if="hit.snippet" class="line-clamp-2 text-xs text-muted-foreground">{{ hit.snippet }}</p>
+              <p v-if="hit.snippet" class="line-clamp-2 text-xs text-muted-foreground">
+                <template v-for="(seg, idx) in highlightParts(hit.snippet, query)" :key="idx">
+                  <mark v-if="seg.hit" class="rounded bg-amber-300/60 px-0.5 text-foreground dark:bg-amber-500/40">{{ seg.text }}</mark>
+                  <template v-else>{{ seg.text }}</template>
+                </template>
+              </p>
               <div class="text-[11px] text-muted-foreground">
                 {{ hit.nodeType === 'FOLDER' ? '文件夹' : formatSize(hit.size) }} · {{ new Date(hit.updatedAt).toLocaleString('zh-CN') }}
               </div>

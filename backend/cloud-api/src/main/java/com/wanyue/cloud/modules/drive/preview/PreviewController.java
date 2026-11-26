@@ -22,16 +22,19 @@ public class PreviewController {
     private final PreviewAssetService assetService;
     private final ExcelPreviewService excelService;
     private final ArchivePreviewService archiveService;
+    private final ThumbnailService thumbnailService;
 
     public PreviewController(
             DriveService drive,
             PreviewAssetService assetService,
             ExcelPreviewService excelService,
-            ArchivePreviewService archiveService) {
+            ArchivePreviewService archiveService,
+            ThumbnailService thumbnailService) {
         this.drive = drive;
         this.assetService = assetService;
         this.excelService = excelService;
         this.archiveService = archiveService;
+        this.thumbnailService = thumbnailService;
     }
 
     private static long user(Authentication auth) {
@@ -150,5 +153,26 @@ public class PreviewController {
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(new ByteArrayResource(extracted.data()));
+    }
+
+    @GetMapping("/thumbnail")
+    public ResponseEntity<FileSystemResource> thumbnail(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId,
+            @RequestParam(defaultValue = "320") int width) {
+        long uid = user(auth);
+        DriveModels.Content content = drive.content(uid, space, id, versionId);
+        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        var thumb = thumbnailService.getOrGenerate(resolvedVersion, content, width);
+        if (thumb.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header("X-Content-Type-Options", "nosniff")
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.IMAGE_JPEG)
+                .body(new FileSystemResource(thumb.get()));
     }
 }

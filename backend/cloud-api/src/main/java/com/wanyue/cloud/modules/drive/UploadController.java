@@ -16,6 +16,9 @@ public class UploadController {
     @GetMapping public R<java.util.List<java.util.Map<String, Object>>> list(Authentication a) { return R.ok(uploads.listByUser(DriveController.user(a))); }
     @PostMapping public R<Upload> create(Authentication a,@Valid @RequestBody UploadInput input) throws IOException { return R.ok(uploads.create(DriveController.user(a),input)); }
     @GetMapping("/{id}") public R<Upload> status(Authentication a,@PathVariable long id) throws IOException { return R.ok(uploads.status(DriveController.user(a),id,false)); }
+    @GetMapping("/{id}/presign") public R<java.util.Map<String, Object>> presign(Authentication a,@PathVariable long id,@RequestParam(defaultValue="900") int expiresSeconds) {
+        return R.ok(uploads.presign(DriveController.user(a),id,expiresSeconds));
+    }
     @PutMapping("/{id}/chunks/{index}") public R<Void> chunk(Authentication a,@PathVariable long id,@PathVariable int index,@RequestParam MultipartFile file,@RequestParam(required=false) String sha256) throws IOException {
         try(var in=file.getInputStream()) {uploads.chunk(DriveController.user(a),id,index,in,file.getSize(),sha256);} return R.ok();
     }

@@ -1,6 +1,11 @@
 import { reactive } from 'vue'
 import { request } from '@repo/session/request'
 
+export interface PublicOAuthProvider {
+  providerCode: string
+  displayName: string
+}
+
 export interface PublicSiteConfig {
   siteName: string
   siteLogoUrl: string
@@ -10,6 +15,7 @@ export interface PublicSiteConfig {
   allowPasswordLogin: boolean
   uploadChunkSizeMb: number
   uploadMaxFileMb: number
+  oauthProviders: PublicOAuthProvider[]
   loaded: boolean
 }
 
@@ -22,6 +28,7 @@ const state = reactive<PublicSiteConfig>({
   allowPasswordLogin: true,
   uploadChunkSizeMb: 4,
   uploadMaxFileMb: 10240,
+  oauthProviders: [],
   loaded: false,
 })
 
@@ -42,6 +49,7 @@ export function useSiteConfig() {
           state.allowPasswordLogin = res.allowPasswordLogin ?? true
           state.uploadChunkSizeMb = Number(res.uploadChunkSizeMb) || 4
           state.uploadMaxFileMb = Number(res.uploadMaxFileMb) || 10240
+          state.oauthProviders = Array.isArray(res.oauthProviders) ? res.oauthProviders : []
           state.loaded = true
           if (typeof document !== 'undefined' && state.siteName) {
             document.title = state.siteName

@@ -24,6 +24,8 @@ public class UploadService {
     private final DriveService drive;
     private final StorageRouterService storageRouter;
     private final SystemPolicyService policy;
+    private final com.wanyue.cloud.modules.drive.storage.S3StorageProvider s3Provider;
+    private final com.wanyue.cloud.modules.drive.storage.SecretCipher cipher;
     private final Path temp;
 
     public UploadService(
@@ -31,13 +33,41 @@ public class UploadService {
             DriveService drive,
             StorageRouterService storageRouter,
             SystemPolicyService policy,
+            com.wanyue.cloud.modules.drive.storage.S3StorageProvider s3Provider,
+            com.wanyue.cloud.modules.drive.storage.SecretCipher cipher,
             @Value("${cloud.storage.upload-temp:data/uploads}") String temp) throws IOException {
         this.db = db;
         this.drive = drive;
         this.storageRouter = storageRouter;
         this.policy = policy;
+        this.s3Provider = s3Provider;
+        this.cipher = cipher;
         this.temp = Path.of(temp).toAbsolutePath().normalize();
         Files.createDirectories(this.temp);
+    }
+
+    public Map<String, Object> presign(long user, long id, int expiresSeconds) {
+        var s = session(user, id, false);
+        long profileId = s.get("storage_profile_id") == null ? 1L : number(s, "storage_profile_id");
+        var profile = storageRouter.getProfile(profileId);
+        if (!"S3".equalsIgnoreCase(profile.provider())) {
+            return Map.of(
+                    "mode", "DIRECT_API",
+                    "provider", profile.provider(),
+                    "uploadUrl", "/api/v1/uploads/" + id + "/chunks/{index}",
+                    "expiresInSeconds", Math.max(60, Math.min(3600, expiresSeconds)));
+        }
+        String key = "uploads/" + id + "/" + UUID.randomUUID().toString().replace("-", "");
+        String secret = cipher.decrypt(profile.secretCipher());
+        String presignedUrl = s3Provider.generatePresignedPutUrl(
+                profile.endpoint(), profile.bucket(), profile.region(),
+                profile.accessKey(), secret, key, expiresSeconds);
+        return Map.of(
+                "mode", "S3_PRESIGNED_PUT",
+                "provider", "S3",
+                "objectKey", key,
+                "uploadUrl", presignedUrl,
+                "expiresInSeconds", Math.max(60, Math.min(3600, expiresSeconds)));
     }
 
     @Transactional

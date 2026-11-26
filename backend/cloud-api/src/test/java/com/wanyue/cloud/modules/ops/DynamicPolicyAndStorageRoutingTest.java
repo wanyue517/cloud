@@ -268,4 +268,56 @@ class DynamicPolicyAndStorageRoutingTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value(1));
     }
+
+    @Test
+    void thumbnailGenerationS3PresignAndOAuthAuthorizeFlow() throws Exception {
+        // 1. 生成一张真实 8x8 PNG 图片上传并请求服务端缩略图
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(8, 8, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(img, "png", pngOut);
+        MockMultipartFile png = new MockMultipartFile("file", "photo.png", "image/png", pngOut.toByteArray());
+        String uploaded = mvc.perform(multipart("/api/v1/spaces/" + spaceId + "/files").file(png)
+                        .param("parentId", "0").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String photoId = new tools.jackson.databind.json.JsonMapper().readTree(uploaded).get("data").get("id").asString();
+
+        mvc.perform(get("/api/v1/spaces/" + spaceId + "/nodes/" + photoId + "/preview/thumbnail?width=240")
+                        .header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/jpeg"));
+
+        // 2. 创建 S3 存储并设为默认 -> 创建上传会话 -> 获取 AWS SigV4 预签名直传 URL
+        String s3Created = mvc.perform(post("/api/v1/admin/storage-profiles").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"name\":\"PresignS3\",\"provider\":\"S3\",\"endpoint\":\"https://s3.example.com\",\"bucket\":\"cloud\",\"region\":\"us-east-1\",\"accessKey\":\"ak1\",\"secretKey\":\"sk1\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String s3Id = new tools.jackson.databind.json.JsonMapper().readTree(s3Created).get("data").asString();
+        mvc.perform(put("/api/v1/admin/storage-profiles/" + s3Id + "/default").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        String sessionResp = mvc.perform(post("/api/v1/uploads").header("Authorization", "Bearer " + userToken)
+                        .contentType("application/json")
+                        .content("{\"spaceId\":" + spaceId + ",\"parentId\":0,\"name\":\"big.bin\",\"size\":1024}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String uploadId = new tools.jackson.databind.json.JsonMapper().readTree(sessionResp).get("data").get("id").asString();
+
+        mvc.perform(get("/api/v1/uploads/" + uploadId + "/presign?expiresSeconds=600").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("S3_PRESIGNED_PUT"))
+                .andExpect(jsonPath("$.data.uploadUrl").value(org.hamcrest.Matchers.containsString("X-Amz-Signature=")));
+
+        // 3. 启用 GitHub OAuth 提供商 -> 公开站点配置可见且 authorize 返回 302
+        mvc.perform(put("/api/v1/admin/oauth-providers/github").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"enabled\":true,\"clientId\":\"gh-cid\",\"clientSecret\":\"gh-sec\",\"authorizeUrl\":\"https://github.com/login/oauth/authorize\",\"tokenUrl\":\"https://github.com/login/oauth/access_token\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/public/site-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.oauthProviders[0].providerCode").value("github"));
+
+        mvc.perform(get("/api/v1/auth/oauth/github/authorize"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("client_id=gh-cid")));
+    }
 }

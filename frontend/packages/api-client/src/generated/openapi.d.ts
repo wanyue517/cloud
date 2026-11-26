@@ -65,9 +65,9 @@ export interface components {
       maxFileBytes?: number
     }
     ApiResponse: {
-      data?: null
-      msg: string
       traceId?: string | null
+      msg: string
+      data?: null
       code: number
     }
     AuthController_ResetPasswordReq: {
@@ -2665,6 +2665,30 @@ export interface paths {
       }
     }
   }
+  "/api/v1/auth/oauth/{code}/authorize": {
+    get: {
+      parameters: {
+        path: {
+          code: string
+        }
+      }
+      response: null
+    }
+  }
+  "/api/v1/auth/oauth/{code}/callback": {
+    get: {
+      parameters: {
+        path: {
+          code: string
+        }
+        query?: {
+          state: string
+          code: string
+        }
+      }
+      response: null
+    }
+  }
   "/api/v1/auth/refresh": {
     post: {
       response: {
@@ -3559,6 +3583,21 @@ export interface paths {
       }
     }
   }
+  "/api/v1/spaces/{space}/nodes/{id}/preview/thumbnail": {
+    get: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+        query?: {
+          versionId?: number
+          width?: number
+        }
+      }
+      response: Blob
+    }
+  }
   "/api/v1/spaces/{space}/nodes/{id}/preview/video/probe": {
     get: {
       parameters: {
@@ -3922,6 +3961,24 @@ export interface paths {
         code: number
         msg: string
         data?: string
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/uploads/{id}/presign": {
+    get: {
+      parameters: {
+        path: {
+          id: string
+        }
+        query?: {
+          expiresSeconds?: number
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
         traceId?: string | null
       }
     }

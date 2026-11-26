@@ -6,6 +6,7 @@ import { Input } from '@repo/ui/input'
 import { Separator } from '@repo/ui/separator'
 import { accentColors, theme, type ColorMode } from '@repo/ui/theme'
 import { request } from '@/utils/request'
+import { opsApi } from '@/api/ops'
 
 export type SettingsSection = 'profile' | 'security' | 'appearance' | 'files'
 
@@ -83,6 +84,35 @@ const currentPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
 const passwordSaving = ref(false)
+
+const userMaxVersions = ref(10)
+const systemMaxVersions = ref(20)
+const versionPolicySaving = ref(false)
+
+async function loadVersionPolicy() {
+  try {
+    const res = await opsApi.getVersionPolicy()
+    userMaxVersions.value = res.maxVersions
+    systemMaxVersions.value = res.systemMaxVersions
+  } catch { /* ignore */ }
+}
+
+async function saveVersionPolicy() {
+  if (versionPolicySaving.value) return
+  versionPolicySaving.value = true
+  error.value = ''
+  feedback.value = ''
+  try {
+    const res = await opsApi.updateVersionPolicy(Number(userMaxVersions.value) || 10)
+    userMaxVersions.value = res.maxVersions
+    systemMaxVersions.value = res.systemMaxVersions
+    feedback.value = `个人历史版本保留上限已更新为 ${res.maxVersions} 个`
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '保存版本策略失败'
+  } finally {
+    versionPolicySaving.value = false
+  }
+}
 
 const quotaPercent = computed(() => {
   const quota = Number(props.profile.quotaBytes || 0)
@@ -186,11 +216,13 @@ watch(
     error.value = ''
     feedback.value = ''
     if (next === 'security') void loadSessions()
+    if (next === 'files') void loadVersionPolicy()
   },
 )
 
 onMounted(() => {
   if (props.section === 'security') void loadSessions()
+  if (props.section === 'files') void loadVersionPolicy()
 })
 </script>
 
@@ -436,6 +468,21 @@ onMounted(() => {
             <span>开启后将在文件列表中展示标记为隐藏的项目。</span>
           </div>
         </label>
+
+        <Separator />
+
+        <form class="space-y-2" @submit.prevent="saveVersionPolicy">
+          <label class="settings-field">
+            <span>单文件历史版本保留上限（系统最大允许 {{ systemMaxVersions }} 个）</span>
+            <div class="flex items-center gap-2">
+              <Input v-model.number="userMaxVersions" type="number" min="1" :max="systemMaxVersions" class="w-32" :disabled="versionPolicySaving" />
+              <Button type="submit" size="sm" variant="outline" :disabled="versionPolicySaving">
+                {{ versionPolicySaving ? '保存中…' : '保存版本上限' }}
+              </Button>
+            </div>
+            <small>替换文件产生新版本时，超出此上限的最旧版本将自动清理。</small>
+          </label>
+        </form>
       </div>
     </section>
   </div>

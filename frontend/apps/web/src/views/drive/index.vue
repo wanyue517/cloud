@@ -634,7 +634,71 @@ function open(node: DriveNode) {
     void opsApi.recordAccess(node.spaceId, node.id).catch(() => {})
   }
 }
-function newSpace() { ask('新建空间', '空间名称', '', async name => { const id = await drive.createSpace(name); await loadSpaces(); navigate('0', id) }) }
+const createSpaceOpen = ref(false)
+const createSpaceName = ref('')
+const createSpaceKind = ref<'PERSONAL' | 'SHARED' | 'PRIVATE'>('PERSONAL')
+const createSpaceDesc = ref('')
+const createSpaceBusy = ref(false)
+const createSpaceError = ref('')
+
+function newSpace() {
+  createSpaceName.value = ''
+  createSpaceKind.value = 'PERSONAL'
+  createSpaceDesc.value = ''
+  createSpaceError.value = ''
+  createSpaceOpen.value = true
+}
+
+async function submitCreateSpace() {
+  if (createSpaceBusy.value) return
+  if (!createSpaceName.value.trim()) {
+    createSpaceError.value = '请输入空间名称'
+    return
+  }
+  createSpaceBusy.value = true
+  createSpaceError.value = ''
+  try {
+    const id = await drive.createSpace(createSpaceName.value.trim(), {
+      kind: createSpaceKind.value,
+      description: createSpaceDesc.value.trim(),
+    })
+    createSpaceOpen.value = false
+    await loadSpaces()
+    navigate('0', id)
+  } catch (e) {
+    createSpaceError.value = e instanceof Error ? e.message : '创建空间失败'
+  } finally {
+    createSpaceBusy.value = false
+  }
+}
+
+const thumbUrls = reactive<Record<string, string>>({})
+const thumbLoading = new Set<string>()
+const THUMB_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'mp4', 'webm', 'mov', 'mkv'])
+
+function canShowThumb(node: DriveNode): boolean {
+  if (node.nodeType !== 'FILE') return false
+  const ext = node.name.includes('.') ? node.name.split('.').pop()!.toLowerCase() : ''
+  return THUMB_EXTS.has(ext)
+}
+
+async function ensureGridThumbnails() {
+  if (view.value !== 'grid') return
+  for (const node of nodes.value) {
+    if (!canShowThumb(node)) continue
+    const key = `${node.id}:${node.currentVersionId || ''}`
+    if (thumbUrls[key] || thumbLoading.has(key)) continue
+    thumbLoading.add(key)
+    drive.thumbnail(node, 320)
+      .then(blob => {
+        if (blob && blob.size > 0) thumbUrls[key] = URL.createObjectURL(blob)
+      })
+      .catch(() => {})
+      .finally(() => { thumbLoading.delete(key) })
+  }
+}
+
+watch([() => view.value, () => nodes.value], () => { void ensureGridThumbnails() })
 async function move(source: string, target: string) {
   const node = nodes.value.find(n => n.id === source)
   if (!node) return
@@ -1240,7 +1304,13 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                 <span class="file-name">
                   <input type="checkbox" :checked="selected.has(node.id)" :aria-label="`选择 ${node.name}`" @click.stop @change="choose(node, { ctrlKey: true, metaKey: false, shiftKey: false })" />
                   <span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }">
-                    <Folder v-if="node.nodeType === 'FOLDER'" :size="view === 'grid' ? 42 : 24" />
+                    <img
+                      v-if="view === 'grid' && thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                      :src="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                      :alt="node.name"
+                      class="h-14 w-20 rounded-md object-cover shadow-xs"
+                    />
+                    <Folder v-else-if="node.nodeType === 'FOLDER'" :size="view === 'grid' ? 42 : 24" />
                     <File v-else :size="view === 'grid' ? 38 : 22" />
                   </span>
                   <input
@@ -1453,6 +1523,49 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     </aside>
 
     <PreviewDialog v-if="preview" :node="preview" :version="previewVersion" :siblings="nodes" @select="next => { preview = next; previewVersion = undefined }" @close="preview = undefined" />
+
+    <Dialog :open="createSpaceOpen" @update:open="value => { if (!value && !createSpaceBusy) createSpaceOpen = false }">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>新建空间</DialogTitle>
+          <DialogDescription>选择空间类型（个人 / 共享 / 私密）并配置名称与说明。</DialogDescription>
+        </DialogHeader>
+        <form class="space-y-4 mt-2" @submit.prevent="submitCreateSpace">
+          <div class="grid grid-cols-3 gap-2">
+            <Button
+              v-for="opt in ([
+                { id: 'PERSONAL', label: '个人空间' },
+                { id: 'SHARED', label: '共享空间' },
+                { id: 'PRIVATE', label: '私密空间' },
+              ] as const)"
+              :key="opt.id"
+              type="button"
+              size="sm"
+              :variant="createSpaceKind === opt.id ? 'default' : 'outline'"
+              @click="createSpaceKind = opt.id"
+            >
+              {{ opt.label }}
+            </Button>
+          </div>
+          <label class="block space-y-1.5 text-sm">
+            <span>空间名称</span>
+            <Input v-model="createSpaceName" placeholder="例如：工作资料 / 家庭相册 / 机密文档" :disabled="createSpaceBusy" />
+          </label>
+          <label class="block space-y-1.5 text-sm">
+            <span>空间简介（可选）</span>
+            <Input v-model="createSpaceDesc" placeholder="简短描述此空间用途" :disabled="createSpaceBusy" />
+          </label>
+          <p v-if="createSpaceKind === 'PRIVATE'" class="text-xs text-muted-foreground">
+            私密空间默认隔离搜索与分享，访问时需输入账号登录密码二次解锁。
+          </p>
+          <p v-if="createSpaceError" role="alert" class="text-destructive text-sm">{{ createSpaceError }}</p>
+          <DialogFooter>
+            <Button variant="outline" type="button" :disabled="createSpaceBusy" @click="createSpaceOpen = false">取消</Button>
+            <Button type="submit" :disabled="createSpaceBusy">{{ createSpaceBusy ? '正在创建…' : '创建空间' }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="privateUnlockOpen" @update:open="value => { if (!value && !privateUnlockBusy) privateUnlockOpen = false }">
       <DialogContent>

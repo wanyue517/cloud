@@ -22,7 +22,9 @@
     "cn": "^0.5.2",
     "dompurify": "^3.5.0",
     "highlight.js": "^11.12.0",
+    "katex": "^0.19.1",
     "markdown-it": "^15.0.3",
+    "mermaid": "^12.3.0",
     "pdfjs-dist": "^6.5.438",
     "reka-ui": "^2.11.0",
     "vee-validate": "^4.15.1",
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
     "@types/dompurify": "^3.2.0",
+    "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^6.0.10",

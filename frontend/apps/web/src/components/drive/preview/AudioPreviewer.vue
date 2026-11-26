@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Music, Pause, Play, Volume2, VolumeX } from '@lucide/vue'
+import { Music, Pause, Play, Repeat, Repeat1, Volume2, VolumeX } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { drive, type DriveNode, type Version } from '@/api/drive'
 
@@ -12,6 +12,7 @@ const objectUrl = ref('')
 const audioRef = ref<HTMLAudioElement | null>(null)
 const playing = ref(false)
 const muted = ref(false)
+const loopMode = ref<'none' | 'one'>('none')
 const currentTime = ref(0)
 const duration = ref(0)
 const playbackRate = ref(1)
@@ -113,6 +114,7 @@ onBeforeUnmount(() => {
       <audio
         ref="audioRef"
         :src="objectUrl"
+        :loop="loopMode === 'one'"
         preload="metadata"
         @play="playing = true"
         @pause="playing = false"
@@ -148,6 +150,17 @@ onBeforeUnmount(() => {
           <Button variant="outline" size="icon-sm" :aria-label="muted ? '取消静音' : '静音'" @click="toggleMute">
             <VolumeX v-if="muted" :size="15" />
             <Volume2 v-else :size="15" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            :class="loopMode === 'one' ? 'border-primary text-primary' : ''"
+            :aria-label="loopMode === 'one' ? '关闭单曲循环' : '开启单曲循环'"
+            :title="loopMode === 'one' ? '单曲循环已开启' : '顺序播放'"
+            @click="loopMode = loopMode === 'one' ? 'none' : 'one'"
+          >
+            <Repeat1 v-if="loopMode === 'one'" :size="15" />
+            <Repeat v-else :size="15" />
           </Button>
         </div>
 

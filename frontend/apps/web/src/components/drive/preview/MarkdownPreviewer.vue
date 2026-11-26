@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
+import katex from 'katex'
 import 'highlight.js/styles/github.css'
+import 'katex/dist/katex.min.css'
 import { Code2, Eye, ListTree } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { drive, type DriveNode, type Version } from '@/api/drive'
@@ -37,6 +39,9 @@ function createMarkdownRenderer(): MarkdownItInstance {
     linkify: true,
     typographer: true,
     highlight(str: string, lang: string): string {
+      if (lang && lang.toLowerCase() === 'mermaid') {
+        return `<div class="mermaid-block rounded-lg border border-border bg-muted/20 p-3 my-3 overflow-x-auto" data-mermaid="1"><pre class="text-xs font-mono">${escapeHtml(str)}</pre></div>`
+      }
       if (lang && hljs.getLanguage(lang)) {
         try {
           return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
@@ -59,13 +64,61 @@ function createMarkdownRenderer(): MarkdownItInstance {
 
 const toc = computed<TocHeading[]>(() => extractMarkdownToc(rawText.value))
 
+function renderMathInMarkdown(src: string): string {
+  // 块级公式 $$...$$ 与行内公式 $...$（避开围栏代码块）
+  const segments = src.split(/(```[\s\S]*?```)/g)
+  return segments
+    .map((seg, i) => {
+      if (i % 2 === 1) return seg
+      const withBlock = seg.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr: string) => {
+        try {
+          return `<div class="katex-block my-3 overflow-x-auto">${katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false })}</div>`
+        } catch {
+          return `$$${expr}$$`
+        }
+      })
+      return withBlock.replace(/(?<!\$)\$(?!\$)([^$\n]+?)(?<!\$)\$(?!\$)/g, (_, expr: string) => {
+        try {
+          return katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false })
+        } catch {
+          return `$${expr}$`
+        }
+      })
+    })
+    .join('')
+}
+
 const safeHtml = computed(() => {
   const md = createMarkdownRenderer()
   const rendered = md.render(rawText.value)
-  return DOMPurify.sanitize(rendered, {
-    USE_PROFILES: { html: true },
-    ADD_ATTR: ['id', 'class'],
+  const withMath = renderMathInMarkdown(rendered)
+  return DOMPurify.sanitize(withMath, {
+    USE_PROFILES: { html: true, mathMl: true, svg: true },
+    ADD_ATTR: ['id', 'class', 'data-mermaid'],
   })
+})
+
+async function renderMermaidDiagrams() {
+  if (viewMode.value !== 'rendered' || !contentEl.value) return
+  const blocks = contentEl.value.querySelectorAll<HTMLElement>('[data-mermaid="1"]')
+  if (!blocks.length) return
+  try {
+    const mermaidMod = await import('mermaid')
+    const mermaid = mermaidMod.default
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' })
+    let idx = 0
+    for (const block of blocks) {
+      const code = block.textContent?.trim() || ''
+      if (!code) continue
+      idx += 1
+      const { svg } = await mermaid.render(`md-mermaid-${Date.now()}-${idx}`, code)
+      block.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
+    }
+  } catch { /* 保留源码回退显示 */ }
+}
+
+watch([safeHtml, viewMode], () => {
+  void nextTick(() => { void renderMermaidDiagrams() })
 })
 
 async function loadInitial() {

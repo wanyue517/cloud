@@ -67,6 +67,8 @@ export const drive = {
     request.get<ArchiveListing>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/archive/entries`, { versionId }),
   archiveExtract: (node: DriveNode, entryPath: string, versionId?: string) =>
     request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/archive/extract`, { entryPath, versionId }),
+  thumbnail: (node: DriveNode, width = 320, versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/thumbnail`, { width, versionId }, { silent: true }),
   versions: (node: DriveNode) => request.get<Version[]>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/versions`),
   restoreVersion: (node: DriveNode, version: string) => request.post(`/v1/spaces/${node.spaceId}/nodes/${node.id}/versions/${version}/restore`, undefined, { params: { revision: node.revision } }),
   favorite: (node: DriveNode, enabled: boolean) => request.put(`/v1/spaces/${node.spaceId}/nodes/${node.id}/favorite`, undefined, { params: { enabled } }),
