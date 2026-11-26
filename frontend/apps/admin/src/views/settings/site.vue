@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { Globe, RefreshCw, Save, Trash2, Upload } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
+import { Textarea } from '@repo/ui/textarea'
 import { request } from '@repo/session/request'
 
 interface SiteSettings {
@@ -134,14 +135,13 @@ onMounted(() => { void load() })
 
       <label class="block space-y-1.5 text-sm">
         <span class="font-medium">站点公告</span>
-        <textarea
+        <Textarea
           v-model="siteForm.siteAnnouncement"
           rows="4"
           maxlength="1000"
           :disabled="loading || saving"
           placeholder="可选，将在登录页或顶部通知条展示给所有用户"
-          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        ></textarea>
+        />
       </label>
 
       <div class="flex items-center justify-end gap-2 pt-2">

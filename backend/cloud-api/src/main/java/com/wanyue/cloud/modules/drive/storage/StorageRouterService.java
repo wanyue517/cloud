@@ -48,12 +48,37 @@ public class StorageRouterService {
             String endpoint, String bucket, String region,
             String accessKey, String secretCipher, Long maxFileBytes) {}
 
+    public static final String USAGE_USER_FILES = "user_files";
+    public static final String USAGE_SITE_ASSETS = "site_assets";
+    public static final String USAGE_USER_AVATARS = "user_avatars";
+
     public long resolveDefaultProfileId() {
         var rows = db.queryForList("SELECT id FROM storage_profile WHERE is_default=TRUE ORDER BY id ASC LIMIT 1");
         if (!rows.isEmpty()) {
             return ((Number) rows.get(0).get("id")).longValue();
         }
         return 1L;
+    }
+
+    /** 按业务场景解析对应存储方案（user_files / site_assets / user_avatars），未单独指定时回退到系统默认存储实例。 */
+    public long resolveProfileIdForUsage(String usage) {
+        if (usage != null && !usage.isBlank()) {
+            String key = "storage.route." + usage.strip().toLowerCase(Locale.ROOT);
+            var rows = db.queryForList("SELECT policy_value FROM sys_policy WHERE policy_key=? LIMIT 1", key);
+            if (!rows.isEmpty() && rows.get(0).get("policy_value") != null) {
+                String raw = String.valueOf(rows.get(0).get("policy_value")).strip();
+                if (!raw.isEmpty()) {
+                    try {
+                        long pid = Long.parseLong(raw);
+                        Integer exists = db.queryForObject("SELECT COUNT(*) FROM storage_profile WHERE id=?", Integer.class, pid);
+                        if (exists != null && exists > 0) {
+                            return pid;
+                        }
+                    } catch (NumberFormatException ignored) { /* fallback to default */ }
+                }
+            }
+        }
+        return resolveDefaultProfileId();
     }
 
     public StorageProfileMeta getProfile(long profileId) {

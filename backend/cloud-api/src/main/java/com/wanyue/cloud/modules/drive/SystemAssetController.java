@@ -62,7 +62,10 @@ public class SystemAssetController {
         if (!Set.of("avatar", "site-logo", "general").contains(safeCategory)) {
             safeCategory = "general";
         }
-        long profileId = storageRouter.resolveDefaultProfileId();
+        String usage = "site-logo".equals(safeCategory)
+                ? StorageRouterService.USAGE_SITE_ASSETS
+                : ("avatar".equals(safeCategory) ? StorageRouterService.USAGE_USER_AVATARS : null);
+        long profileId = storageRouter.resolveProfileIdForUsage(usage);
         var stored = storageRouter.write(profileId, file.getInputStream(), MAX_IMAGE_BYTES);
         long assetId = IdWorker.getId();
         long uid = DriveController.user(auth);

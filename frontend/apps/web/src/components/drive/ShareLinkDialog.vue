@@ -4,6 +4,7 @@ import { Check, Copy, Dices, Link2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import { Switch } from '@repo/ui/switch'
 import { toast } from '@repo/ui/toast'
 import type { DriveNode } from '@/api/drive'
@@ -104,15 +105,20 @@ async function copyLink() {
       </div>
 
       <form v-else class="space-y-3" @submit.prevent="createLink">
-        <label class="block space-y-1 text-sm">
+        <div class="block space-y-1 text-sm">
           <span>有效期</span>
-          <select v-model="expireDays" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" :disabled="busy">
-            <option value="1">1 天</option>
-            <option value="7">7 天</option>
-            <option value="30">30 天</option>
-            <option value="0">永久有效</option>
-          </select>
-        </label>
+          <Select
+            v-model="expireDays"
+            :disabled="busy"
+            aria-label="有效期"
+            :options="[
+              { value: '1', label: '1 天' },
+              { value: '7', label: '7 天' },
+              { value: '30', label: '30 天' },
+              { value: '0', label: '永久有效' },
+            ]"
+          />
+        </div>
         <label class="block space-y-1 text-sm">
           <span>提取码（可选，留空表示免密访问）</span>
           <div class="flex items-center gap-2">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
-import { ChevronLeft, ChevronRight, ListTree, Search, ZoomIn, ZoomOut } from '@lucide/vue'
+import { ChevronLeft, ChevronRight, ListTree, Maximize, Search, ZoomIn, ZoomOut } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { drive, type DriveNode, type Version } from '@/api/drive'
@@ -30,10 +30,11 @@ const loading = ref(true)
 const rendering = ref(false)
 const error = ref('')
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const viewerRef = ref<HTMLElement | null>(null)
 const currentPage = ref(1)
 const pageInput = ref('1')
 const totalPages = ref(0)
-const scale = ref(1.2)
+const scale = ref(1.25)
 const showOutline = ref(false)
 const outline = ref<OutlineEntry[]>([])
 const searchQuery = ref('')
@@ -105,6 +106,20 @@ function saveCurrentPage(pageNum: number) {
   } catch { /* ignore */ }
 }
 
+async function computeFitWidthScale(pageNum: number): Promise<number> {
+  if (!pdfDoc || !viewerRef.value) return 1.25
+  const page = await pdfDoc.getPage(pageNum)
+  const base = page.getViewport({ scale: 1 })
+  const available = Math.max(320, viewerRef.value.clientWidth - 48)
+  const ratio = available / base.width
+  return Math.max(0.75, Math.min(2.2, Number(ratio.toFixed(2))))
+}
+
+async function fitToWidth() {
+  scale.value = await computeFitWidthScale(currentPage.value)
+  await renderPage(currentPage.value)
+}
+
 async function renderPage(num: number) {
   if (!pdfDoc || !canvasRef.value) return
   const safePage = Math.max(1, Math.min(totalPages.value, num))
@@ -122,13 +137,14 @@ async function renderPage(num: number) {
     const canvas = canvasRef.value
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const dpr = window.devicePixelRatio || 1
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
     canvas.width = Math.floor(viewport.width * dpr)
     canvas.height = Math.floor(viewport.height * dpr)
     canvas.style.width = `${Math.floor(viewport.width)}px`
     canvas.style.height = `${Math.floor(viewport.height)}px`
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const task = page.render({ canvasContext: ctx, viewport, canvas })
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    const transform = dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined
+    const task = page.render({ canvasContext: ctx, viewport, transform, canvas })
     activeRenderTask = task
     await task.promise
   } catch (e) {
@@ -173,6 +189,8 @@ async function loadPdf() {
     outline.value = await flattenOutline(doc, rawOutline)
     showOutline.value = outline.value.length > 0
     loading.value = false
+    await nextTick()
+    scale.value = await computeFitWidthScale(initialPage)
     await renderPage(initialPage)
   } catch (e) {
     if (seq !== loadSeq) return
@@ -259,6 +277,7 @@ onBeforeUnmount(() => {
         <Button variant="outline" size="icon-sm" aria-label="缩小" @click="zoomBy(-0.2)"><ZoomOut :size="15" /></Button>
         <span class="min-w-[3.2rem] text-center text-xs tabular-nums text-muted-foreground">{{ scalePercent }}%</span>
         <Button variant="outline" size="icon-sm" aria-label="放大" @click="zoomBy(0.2)"><ZoomIn :size="15" /></Button>
+        <Button variant="outline" size="sm" title="适应窗口宽度" @click="fitToWidth"><Maximize :size="13" /> 适应宽度</Button>
       </div>
 
       <form class="flex items-center gap-1.5" @submit.prevent="runSearch">
@@ -309,7 +328,7 @@ onBeforeUnmount(() => {
         </ul>
       </aside>
 
-      <div class="flex min-h-0 flex-1 flex-col items-center overflow-auto p-6">
+      <div ref="viewerRef" class="flex min-h-0 flex-1 flex-col items-center overflow-auto p-6">
         <p v-if="loading" role="status" class="my-auto text-sm text-muted-foreground">正在解析 PDF 文档…</p>
         <p v-else-if="error" role="alert" class="my-auto text-sm text-destructive">{{ error }}</p>
         <div v-else class="relative rounded-md border border-border bg-white shadow-sm">

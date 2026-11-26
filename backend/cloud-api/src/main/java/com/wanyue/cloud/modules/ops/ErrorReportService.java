@@ -22,7 +22,7 @@ import java.util.*;
  */
 @Service
 public class ErrorReportService {
-    private static final int MAX_STACK_CHARS = 4000;
+    private static final int MAX_STACK_CHARS = 65536;
     private final JdbcTemplate db;
 
     public ErrorReportService(JdbcTemplate db) {

@@ -5,6 +5,7 @@ import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import type { DriveNode } from '@/api/drive'
 import { opsApi, type BatchRenamePreviewItem, type BatchRenameRequest, type UndoTokenReceipt } from '@/api/ops'
 
@@ -90,23 +91,33 @@ watch([mode, prefix, suffix, find, replace, template, startNumber, keepExtension
       </DialogHeader>
 
       <div class="grid gap-3 md:grid-cols-2">
-        <label class="block space-y-1 text-xs">
+        <div class="block space-y-1 text-xs">
           <span>重命名规则</span>
-          <select v-model="mode" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
-            <option value="PREFIX">添加前缀</option>
-            <option value="SUFFIX">添加后缀</option>
-            <option value="REPLACE">查找并替换</option>
-            <option value="SEQUENCE">序号模板 ({n})</option>
-          </select>
-        </label>
-        <label class="block space-y-1 text-xs">
+          <Select
+            :model-value="mode"
+            aria-label="重命名规则"
+            :options="[
+              { value: 'PREFIX', label: '添加前缀' },
+              { value: 'SUFFIX', label: '添加后缀' },
+              { value: 'REPLACE', label: '查找并替换' },
+              { value: 'SEQUENCE', label: '序号模板 ({n})' },
+            ]"
+            @update:model-value="v => { mode = v as 'PREFIX' | 'SUFFIX' | 'REPLACE' | 'SEQUENCE' }"
+          />
+        </div>
+        <div class="block space-y-1 text-xs">
           <span>同名冲突策略</span>
-          <select v-model="conflictPolicy" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
-            <option value="AUTO_NUMBER">自动追加序号</option>
-            <option value="SKIP">跳过冲突项</option>
-            <option value="ABORT">存在冲突时阻止提交</option>
-          </select>
-        </label>
+          <Select
+            :model-value="conflictPolicy"
+            aria-label="同名冲突策略"
+            :options="[
+              { value: 'AUTO_NUMBER', label: '自动追加序号' },
+              { value: 'SKIP', label: '跳过冲突项' },
+              { value: 'ABORT', label: '存在冲突时阻止提交' },
+            ]"
+            @update:model-value="v => { conflictPolicy = v as 'ABORT' | 'SKIP' | 'AUTO_NUMBER' }"
+          />
+        </div>
       </div>
 
       <div v-if="mode === 'PREFIX'" class="space-y-1 text-xs">

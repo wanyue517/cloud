@@ -8,6 +8,7 @@ import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import { Separator } from '@repo/ui/separator'
 import { Switch } from '@repo/ui/switch'
 import { toast } from '@repo/ui/toast'
@@ -938,14 +939,20 @@ onMounted(() => {
             autofocus
           />
         </label>
-        <label class="settings-field">
+        <div class="settings-field">
           <span>空闲自动锁定时间</span>
-          <select v-model.number="vaultIdleMinutes" class="h-9 rounded-md border border-input bg-background px-3 text-sm" :disabled="vaultUnlockBusy">
-            <option :value="15">15 分钟</option>
-            <option :value="30">30 分钟</option>
-            <option :value="60">60 分钟</option>
-          </select>
-        </label>
+          <Select
+            :model-value="vaultIdleMinutes"
+            :disabled="vaultUnlockBusy"
+            aria-label="空闲自动锁定时间"
+            :options="[
+              { value: '15', label: '15 分钟' },
+              { value: '30', label: '30 分钟' },
+              { value: '60', label: '60 分钟' },
+            ]"
+            @update:model-value="v => { vaultIdleMinutes = Number(v) || 30 }"
+          />
+        </div>
         <Button type="submit" class="w-full" :disabled="vaultUnlockBusy || !vaultPassword">
           <Unlock :size="14" /> {{ vaultUnlockBusy ? '正在验证…' : '验证密码并进入' }}
         </Button>
@@ -1006,14 +1013,13 @@ onMounted(() => {
                 <p class="text-xs text-muted-foreground">可从现有空间添加私密项，或直接上传私密文件、新建私密文件夹。</p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <select
+                <Select
                   v-if="privateSpaces.length"
                   v-model="createPrivateSpaceId"
-                  class="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  class="h-8 w-36 text-xs"
                   aria-label="新增私密项所属空间"
-                >
-                  <option v-for="s in privateSpaces" :key="s.id" :value="s.id">{{ s.name }}</option>
-                </select>
+                  :options="privateSpaces.map(s => ({ value: s.id, label: s.name }))"
+                />
                 <Button variant="outline" size="sm" @click="openPicker">
                   <Plus :size="13" /> 从空间添加
                 </Button>
@@ -1072,14 +1078,13 @@ onMounted(() => {
           <p>查看各空间中已移入回收站的文件与文件夹，支持恢复或彻底销毁。</p>
         </div>
         <div class="flex items-center gap-2">
-          <select
-            v-model="trashSpaceId"
-            class="h-8 rounded-md border border-input bg-background px-2.5 text-xs"
+          <Select
+            :model-value="trashSpaceId"
+            class="h-8 w-36 text-xs"
             aria-label="选择回收站空间"
-            @change="loadTrash(1)"
-          >
-            <option v-for="s in trashSpaces" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
+            :options="trashSpaces.map(s => ({ value: s.id, label: s.name }))"
+            @update:model-value="v => { trashSpaceId = v; void loadTrash(1) }"
+          />
           <Button variant="outline" size="sm" :disabled="trashLoading" @click="loadTrash(trashPage)">
             <RefreshCw :size="13" :class="{ 'animate-spin': trashLoading }" /> 刷新
           </Button>
@@ -1159,13 +1164,13 @@ onMounted(() => {
         </DialogHeader>
         <div class="space-y-3">
           <div class="flex items-center gap-2">
-            <select
-              v-model="pickerSpaceId"
-              class="h-9 flex-1 rounded-md border border-input bg-background px-2.5 text-sm"
-              @change="pickerParentId = '0'; pickerStack = []; loadPickerNodes()"
-            >
-              <option v-for="s in spaces" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
+            <Select
+              :model-value="pickerSpaceId"
+              class="flex-1"
+              aria-label="选择添加私密项的空间"
+              :options="spaces.map(s => ({ value: s.id, label: s.name }))"
+              @update:model-value="v => { pickerSpaceId = v; pickerParentId = '0'; pickerStack = []; void loadPickerNodes() }"
+            />
           </div>
           <div class="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <button type="button" class="hover:text-foreground underline-offset-2 hover:underline" @click="jumpPickerBreadcrumb(-1)">根目录</button>

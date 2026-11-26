@@ -74,11 +74,16 @@ export interface components {
       accessKey?: string
       secretKey?: string
     }
+    AdminController_StorageRoutingInput: {
+      userFilesProfileId?: string
+      siteAssetsProfileId?: string
+      userAvatarsProfileId?: string
+    }
     ApiResponse: {
-      data?: null
-      msg: string
-      traceId?: string | null
       code: number
+      traceId?: string | null
+      msg: string
+      data?: null
     }
     AuthController_ResetPasswordReq: {
       email?: string
@@ -2685,6 +2690,25 @@ export interface paths {
         code: number
         msg: string
         data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/admin/storage-routing": {
+    get: {
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, string>
+        traceId?: string | null
+      }
+    }
+    put: {
+      requestBody: components['schemas']["AdminController_StorageRoutingInput"]
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, string>
         traceId?: string | null
       }
     }

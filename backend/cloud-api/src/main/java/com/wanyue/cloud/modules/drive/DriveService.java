@@ -598,7 +598,8 @@ public class DriveService {
             Node current=getNode(space,id,false);
             if(!current.nodeType().equals("FILE") || expectedRevision==null || current.revision()!=expectedRevision) throw BizException.conflict("文件版本已变更");
         }
-        long profileId = targetProfileId != null ? targetProfileId : storageRouter.resolveDefaultProfileId();
+        long profileId = targetProfileId != null ? targetProfileId : storageRouter.resolveProfileIdForUsage(
+                com.wanyue.cloud.modules.drive.storage.StorageRouterService.USAGE_USER_FILES);
         long maxBytes = Math.min(length, policy.uploadMaxFileBytes());
         var blob = storageRouter.write(profileId, input, maxBytes);
         if(blob.size()!=length) { storageRouter.delete(profileId, blob.key()); throw new IOException("文件长度不一致"); }

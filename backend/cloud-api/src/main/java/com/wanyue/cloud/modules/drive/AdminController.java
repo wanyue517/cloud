@@ -309,8 +309,55 @@ public class AdminController {
         if ((blobCount != null && blobCount > 0) || (assetCount != null && assetCount > 0)) {
             throw BizException.conflict("该存储实例仍关联有文件对象，无法直接删除");
         }
+        Long routedCount = db.queryForObject(
+                "SELECT COUNT(*) FROM sys_policy WHERE policy_key IN ('storage.route.user_files','storage.route.site_assets','storage.route.user_avatars') AND policy_value=?",
+                Long.class, String.valueOf(id));
+        if (routedCount != null && routedCount > 0) {
+            throw BizException.conflict("该存储实例已被业务存储路由绑定，请先在业务存储策略中解绑");
+        }
         db.update("DELETE FROM storage_profile WHERE id=?", id);
         return R.ok();
+    }
+
+    public record StorageRoutingInput(
+            @Size(max = 32) String userFilesProfileId,
+            @Size(max = 32) String siteAssetsProfileId,
+            @Size(max = 32) String userAvatarsProfileId) {}
+
+    @GetMapping("/storage-routing")
+    public R<Map<String, String>> getStorageRouting() {
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("userFilesProfileId", readPolicy("storage.route.user_files", "").strip());
+        out.put("siteAssetsProfileId", readPolicy("storage.route.site_assets", "").strip());
+        out.put("userAvatarsProfileId", readPolicy("storage.route.user_avatars", "").strip());
+        return R.ok(out);
+    }
+
+    @PutMapping("/storage-routing")
+    @Transactional
+    public R<Map<String, String>> updateStorageRouting(@Valid @RequestBody StorageRoutingInput input) {
+        saveStorageRoute("storage.route.user_files", input.userFilesProfileId());
+        saveStorageRoute("storage.route.site_assets", input.siteAssetsProfileId());
+        saveStorageRoute("storage.route.user_avatars", input.userAvatarsProfileId());
+        policyService.invalidateCache();
+        return getStorageRouting();
+    }
+
+    private void saveStorageRoute(String key, String rawProfileId) {
+        String val = rawProfileId == null ? "" : rawProfileId.strip();
+        if (!val.isEmpty()) {
+            long pid;
+            try {
+                pid = Long.parseLong(val);
+            } catch (NumberFormatException e) {
+                throw new BizException(HttpStatus.BAD_REQUEST, 400, "无效的存储实例 ID");
+            }
+            Integer exists = db.queryForObject("SELECT COUNT(*) FROM storage_profile WHERE id=?", Integer.class, pid);
+            if (exists == null || exists == 0) {
+                throw BizException.notFound("指定的存储实例不存在");
+            }
+        }
+        upsertPolicy(key, val);
     }
 
     @PostMapping("/storage-profiles/{id}/test")

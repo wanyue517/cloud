@@ -6,6 +6,7 @@ import { Checkbox } from '@repo/ui/checkbox'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
 import type { Space } from '@/api/drive'
 import { roleLabel, shareApi, type SpaceMembersOverview } from '@/api/share'
@@ -25,6 +26,11 @@ const keepMembersOnConvert = ref(true)
 
 const canManage = computed(() => overview.value?.myRole === 'OWNER' || overview.value?.myRole === 'MANAGER')
 const retainedMembersCount = computed(() => (overview.value?.members || []).filter(m => m.role !== 'OWNER').length)
+const roleOptions = computed(() => [
+  { value: 'VIEWER', label: '仅查看' },
+  { value: 'EDITOR', label: '可编辑' },
+  ...(overview.value?.myRole === 'OWNER' ? [{ value: 'MANAGER', label: '管理员' }] : []),
+])
 
 async function load() {
   loading.value = true
@@ -189,11 +195,14 @@ onMounted(() => { void load() })
           <div class="text-xs font-semibold text-muted-foreground">邀请新成员</div>
           <div class="flex flex-wrap items-center gap-2">
             <Input v-model="inviteTarget" class="min-w-[180px] flex-1" placeholder="输入成员邮箱或用户 ID" :disabled="busy" />
-            <select v-model="inviteRole" class="h-9 rounded-md border border-input bg-background px-2 text-xs" :disabled="busy">
-              <option value="VIEWER">仅查看 (VIEWER)</option>
-              <option value="EDITOR">可编辑 (EDITOR)</option>
-              <option v-if="overview.myRole === 'OWNER'" value="MANAGER">管理员 (MANAGER)</option>
-            </select>
+            <Select
+              :model-value="inviteRole"
+              :disabled="busy"
+              class="w-28 shrink-0 text-xs"
+              aria-label="邀请角色"
+              :options="roleOptions"
+              @update:model-value="v => { inviteRole = v as 'MANAGER' | 'EDITOR' | 'VIEWER' }"
+            />
             <Button type="submit" size="sm" :disabled="busy || !inviteTarget.trim()">
               <UserPlus :size="14" /> 发送邀请
             </Button>
@@ -210,17 +219,15 @@ onMounted(() => { void load() })
                 <div class="truncate text-xs text-muted-foreground">{{ m.email || `ID: ${m.userId}` }}</div>
               </div>
               <div class="flex shrink-0 items-center gap-2">
-                <select
+                <Select
                   v-if="canManage && m.role !== 'OWNER'"
-                  :value="m.role"
-                  class="h-8 rounded border border-input bg-background px-2 text-xs"
+                  :model-value="m.role"
+                  class="h-8 w-24 text-xs"
                   :disabled="busy"
-                  @change="changeRole(m.userId, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="VIEWER">仅查看</option>
-                  <option value="EDITOR">可编辑</option>
-                  <option v-if="overview.myRole === 'OWNER'" value="MANAGER">管理员</option>
-                </select>
+                  aria-label="成员角色"
+                  :options="roleOptions"
+                  @update:model-value="v => changeRole(m.userId, v)"
+                />
                 <span v-else class="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">{{ roleLabel(m.role) }}</span>
                 <Button
                   v-if="canManage && m.role !== 'OWNER'"

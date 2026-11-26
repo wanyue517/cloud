@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github.css'
-import { ChevronDown, ChevronUp, Search, WrapText } from '@lucide/vue'
+import { ChevronDown, ChevronUp, Code2, Eye, Search, WrapText } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { drive, type DriveNode, type Version } from '@/api/drive'
@@ -25,6 +25,8 @@ const scrollContainer = ref<HTMLElement | null>(null)
 let loadSeq = 0
 
 const language = computed(() => detectCodeLanguage(props.node.name))
+const isHtml = computed(() => /\.(html?|xhtml)$/i.test(props.node.name) || props.node.mimeType === 'text/html')
+const htmlViewMode = ref<'render' | 'source'>('render')
 
 const lines = computed(() => rawText.value.split(/\r?\n/))
 
@@ -117,7 +119,10 @@ async function loadMore() {
   }
 }
 
-watch(() => [props.node.id, props.version?.id], () => { void loadInitial() })
+watch(() => [props.node.id, props.version?.id], () => {
+  htmlViewMode.value = 'render'
+  void loadInitial()
+})
 onMounted(() => { void loadInitial() })
 </script>
 
@@ -131,24 +136,50 @@ onMounted(() => { void loadInitial() })
       </div>
 
       <div class="flex items-center gap-1.5">
-        <div class="relative">
-          <Search :size="14" class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input v-model="searchQuery" class="h-7 w-44 pl-7 text-xs" placeholder="在已加载内容中搜索…" />
-        </div>
-        <template v-if="searchQuery.trim()">
-          <span class="min-w-[3.5rem] text-center text-xs text-muted-foreground">
-            {{ matchedLineIndexes.length ? `${activeMatchIdx + 1}/${matchedLineIndexes.length}` : '0 处' }}
-          </span>
-          <Button variant="outline" size="icon-sm" :disabled="!matchedLineIndexes.length" aria-label="上一处" @click="stepMatch(-1)">
-            <ChevronUp :size="14" />
+        <div v-if="isHtml" class="inline-flex rounded-md border border-input p-0.5 mr-1" role="tablist" aria-label="HTML 预览模式">
+          <Button
+            type="button"
+            size="sm"
+            class="h-6 px-2.5 text-xs"
+            :variant="htmlViewMode === 'render' ? 'default' : 'ghost'"
+            role="tab"
+            :aria-selected="htmlViewMode === 'render'"
+            @click="htmlViewMode = 'render'"
+          >
+            <Eye :size="13" /> 效果预览
           </Button>
-          <Button variant="outline" size="icon-sm" :disabled="!matchedLineIndexes.length" aria-label="下一处" @click="stepMatch(1)">
-            <ChevronDown :size="14" />
+          <Button
+            type="button"
+            size="sm"
+            class="h-6 px-2.5 text-xs"
+            :variant="htmlViewMode === 'source' ? 'default' : 'ghost'"
+            role="tab"
+            :aria-selected="htmlViewMode === 'source'"
+            @click="htmlViewMode = 'source'"
+          >
+            <Code2 :size="13" /> 源码模式
+          </Button>
+        </div>
+        <template v-if="!isHtml || htmlViewMode === 'source'">
+          <div class="relative">
+            <Search :size="14" class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input v-model="searchQuery" class="h-7 w-44 pl-7 text-xs" placeholder="在已加载内容中搜索…" />
+          </div>
+          <template v-if="searchQuery.trim()">
+            <span class="min-w-[3.5rem] text-center text-xs text-muted-foreground">
+              {{ matchedLineIndexes.length ? `${activeMatchIdx + 1}/${matchedLineIndexes.length}` : '0 处' }}
+            </span>
+            <Button variant="outline" size="icon-sm" :disabled="!matchedLineIndexes.length" aria-label="上一处" @click="stepMatch(-1)">
+              <ChevronUp :size="14" />
+            </Button>
+            <Button variant="outline" size="icon-sm" :disabled="!matchedLineIndexes.length" aria-label="下一处" @click="stepMatch(1)">
+              <ChevronDown :size="14" />
+            </Button>
+          </template>
+          <Button variant="outline" size="sm" :class="wrapLines ? 'border-primary text-primary' : ''" @click="wrapLines = !wrapLines">
+            <WrapText :size="14" /> 换行
           </Button>
         </template>
-        <Button variant="outline" size="sm" :class="wrapLines ? 'border-primary text-primary' : ''" @click="wrapLines = !wrapLines">
-          <WrapText :size="14" /> 换行
-        </Button>
       </div>
     </div>
 
@@ -157,6 +188,15 @@ onMounted(() => { void loadInitial() })
     <div v-else-if="binaryDetected" class="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
       <p class="text-sm font-medium">检测到二进制数据</p>
       <p class="text-xs text-muted-foreground">该文件不适合作为纯文本阅读，请点击右上角「下载」到本地查看。</p>
+    </div>
+    <div v-else-if="isHtml && htmlViewMode === 'render'" class="min-h-0 flex-1 bg-white">
+      <iframe
+        :srcdoc="rawText"
+        sandbox="allow-same-origin"
+        referrerpolicy="no-referrer"
+        title="HTML 渲染预览"
+        class="h-full w-full border-0"
+      />
     </div>
     <div v-else ref="scrollContainer" class="min-h-0 flex-1 overflow-auto font-mono text-xs leading-6">
       <table class="w-full border-collapse">

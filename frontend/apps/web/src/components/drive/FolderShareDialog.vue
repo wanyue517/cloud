@@ -4,6 +4,7 @@ import { Share2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import type { DriveNode } from '@/api/drive'
 import { shareApi } from '@/api/share'
 
@@ -46,13 +47,19 @@ async function submit() {
           <span>目标用户（邮箱或 ID）</span>
           <Input v-model="target" placeholder="user@example.com" :disabled="busy" />
         </label>
-        <label class="block space-y-1 text-sm">
+        <div class="block space-y-1 text-sm">
           <span>访问权限</span>
-          <select v-model="permission" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" :disabled="busy">
-            <option value="VIEWER">仅查看与下载 (VIEWER)</option>
-            <option value="EDITOR">可编辑与上传 (EDITOR)</option>
-          </select>
-        </label>
+          <Select
+            :model-value="permission"
+            :disabled="busy"
+            aria-label="访问权限"
+            :options="[
+              { value: 'VIEWER', label: '仅查看与下载' },
+              { value: 'EDITOR', label: '可编辑与上传' },
+            ]"
+            @update:model-value="v => { permission = v as 'VIEWER' | 'EDITOR' }"
+          />
+        </div>
         <p v-if="error" role="alert" class="text-xs text-destructive">{{ error }}</p>
         <DialogFooter>
           <Button type="button" variant="outline" :disabled="busy" @click="emit('close')">取消</Button>

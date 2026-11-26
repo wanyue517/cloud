@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { CheckCircle2, Cloud, Database, HardDrive, KeyRound, Pencil, Plus, RefreshCw, Trash2, Wrench } from '@lucide/vue'
+import { CheckCircle2, Cloud, Database, HardDrive, KeyRound, Pencil, Plus, RefreshCw, Route, Save, Trash2, Wrench } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
+import { Select, type SelectOption } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
@@ -29,6 +30,28 @@ const loading = ref(false)
 const busyId = ref('')
 const error = ref('')
 const notice = ref('')
+
+// 按业务分离的存储路由策略
+const routingUserFiles = ref('')
+const routingSiteAssets = ref('')
+const routingUserAvatars = ref('')
+const routingSaving = ref(false)
+
+const routingOptions = computed<SelectOption[]>(() => [
+  { value: '', label: '跟随系统默认存储实例' },
+  ...profiles.value.map(p => ({
+    value: p.id,
+    label: `${p.name} (${p.provider}${p.isDefault ? ' · 默认' : ''})`,
+  })),
+])
+
+function profileUsageBadges(id: string): string[] {
+  const tags: string[] = []
+  if (routingUserFiles.value === id) tags.push('网盘文件')
+  if (routingSiteAssets.value === id) tags.push('网站公共资源')
+  if (routingUserAvatars.value === id) tags.push('用户头像')
+  return tags
+}
 
 const modalOpen = ref(false)
 const editingId = ref<string | null>(null)
@@ -83,11 +106,41 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    profiles.value = await request.get<StorageProfileItem[]>('/v1/admin/storage-profiles')
+    const [list, routing] = await Promise.all([
+      request.get<StorageProfileItem[]>('/v1/admin/storage-profiles'),
+      request.get<{ userFilesProfileId: string; siteAssetsProfileId: string; userAvatarsProfileId: string }>('/v1/admin/storage-routing'),
+    ])
+    profiles.value = list
+    routingUserFiles.value = routing.userFilesProfileId || ''
+    routingSiteAssets.value = routing.siteAssetsProfileId || ''
+    routingUserAvatars.value = routing.userAvatarsProfileId || ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : '加载存储实例失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function saveStorageRouting() {
+  if (routingSaving.value) return
+  routingSaving.value = true
+  error.value = ''
+  try {
+    const res = await request.put<{ userFilesProfileId: string; siteAssetsProfileId: string; userAvatarsProfileId: string }>('/v1/admin/storage-routing', {
+      userFilesProfileId: routingUserFiles.value,
+      siteAssetsProfileId: routingSiteAssets.value,
+      userAvatarsProfileId: routingUserAvatars.value,
+    })
+    routingUserFiles.value = res.userFilesProfileId || ''
+    routingSiteAssets.value = res.siteAssetsProfileId || ''
+    routingUserAvatars.value = res.userAvatarsProfileId || ''
+    toast.success('业务存储路由策略已保存并即时生效（历史对象按原记录正常读取）')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '保存业务存储路由失败'
+    error.value = msg
+    toast.error(msg)
+  } finally {
+    routingSaving.value = false
   }
 }
 
@@ -305,6 +358,35 @@ onMounted(() => { void load() })
       </section>
     </div>
 
+    <section class="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-semibold flex items-center gap-2"><Route class="size-4 text-primary" /> 业务存储路由策略</h3>
+          <p class="text-xs text-muted-foreground mt-0.5">为不同业务场景独立指定存储方案（例如网站公共资源用服务器本地存储、用户网盘文件用 S3 对象存储），未单独指定时跟随系统默认实例。</p>
+        </div>
+        <Button size="sm" :disabled="routingSaving || loading" @click="saveStorageRouting">
+          <Save class="size-3.5" /> {{ routingSaving ? '保存中…' : '保存路由策略' }}
+        </Button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">用户网盘文件</label>
+          <Select v-model="routingUserFiles" :options="routingOptions" :disabled="routingSaving" aria-label="用户网盘文件存储方案" />
+          <p class="text-[11px] text-muted-foreground">个人、共享、私密空间的所有文件上传</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">网站公共资源</label>
+          <Select v-model="routingSiteAssets" :options="routingOptions" :disabled="routingSaving" aria-label="网站公共资源存储方案" />
+          <p class="text-[11px] text-muted-foreground">站点 Logo 等全站公开静态图片</p>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium text-foreground">用户头像资源</label>
+          <Select v-model="routingUserAvatars" :options="routingOptions" :disabled="routingSaving" aria-label="用户头像存储方案" />
+          <p class="text-[11px] text-muted-foreground">用户个人中心上传的头像图片</p>
+        </div>
+      </div>
+    </section>
+
     <section class="rounded-xl border border-border bg-card overflow-x-auto">
       <table class="w-full min-w-[760px] text-sm text-left">
         <thead class="text-muted-foreground bg-muted/50">
@@ -329,6 +411,13 @@ onMounted(() => { void load() })
                 <span class="max-w-[160px] truncate" :title="item.name">{{ item.name }}</span>
                 <span v-if="item.isDefault" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-primary/15 text-primary whitespace-nowrap shrink-0">
                   <CheckCircle2 class="size-3 shrink-0" /> 默认
+                </span>
+                <span
+                  v-for="badge in profileUsageBadges(item.id)"
+                  :key="badge"
+                  class="inline-flex items-center px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px] font-medium whitespace-nowrap shrink-0"
+                >
+                  {{ badge }}
                 </span>
               </div>
             </td>

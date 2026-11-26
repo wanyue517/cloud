@@ -2,7 +2,9 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Eye, File, Folder, FolderOpen, Globe, Search } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { Checkbox } from '@repo/ui/checkbox'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import type { Space } from '@/api/drive'
 import { searchApi, type SearchHit } from '@/api/search'
 
@@ -157,14 +159,13 @@ onMounted(async () => {
             <Globe :size="13" /> 全局检索
           </Button>
         </div>
-        <select
+        <Select
           v-if="scope === 'space'"
           v-model="scopeSpaceId"
-          class="h-9 shrink-0 rounded-md border border-input bg-background px-2.5 text-xs"
+          class="w-36 shrink-0 text-xs"
           aria-label="选择搜索空间"
-        >
-          <option v-for="s in spaces" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
+          :options="spaces.map(s => ({ value: s.id, label: s.name }))"
+        />
         <Input v-model="extension" class="w-24 shrink-0 text-xs" placeholder="后缀 如 md" aria-label="文件后缀" />
       </div>
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -181,8 +182,8 @@ onMounted(async () => {
             {{ c.label }}
           </Button>
         </div>
-        <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <input v-model="includeContent" type="checkbox" />
+        <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+          <Checkbox :model-value="includeContent" @update:model-value="v => { includeContent = v === true }" />
           <span>含正文全文</span>
         </label>
       </div>

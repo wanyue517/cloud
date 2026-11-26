@@ -44,6 +44,7 @@
     "./form/FormMessage.vue": "./src/components/form/FormMessage.vue",
     "./input/Input.vue": "./src/components/input/Input.vue",
     "./label/Label.vue": "./src/components/label/Label.vue",
+    "./select/Select.vue": "./src/components/select/Select.vue",
     "./separator/Separator.vue": "./src/components/separator/Separator.vue",
     "./sheet/Sheet.vue": "./src/components/sheet/Sheet.vue",
     "./sheet/SheetClose.vue": "./src/components/sheet/SheetClose.vue",

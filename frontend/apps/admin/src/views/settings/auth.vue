@@ -4,6 +4,7 @@ import { KeyRound, Mail, RefreshCw, Save, ShieldCheck } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { Switch } from '@repo/ui/switch'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
@@ -167,29 +168,29 @@ onMounted(() => { void load() })
           <span>注册与登录策略</span>
         </div>
 
-        <label class="flex items-center justify-between gap-3 py-2 border-b border-border/60 text-sm cursor-pointer">
+        <div class="flex items-center justify-between gap-3 py-2 border-b border-border/60 text-sm">
           <div>
             <p class="font-medium">允许公开注册</p>
             <p class="text-xs text-muted-foreground">关闭后仅管理员可创建新账号</p>
           </div>
-          <input v-model="form.allowRegister" type="checkbox" class="size-4 accent-primary" :disabled="loading || savingAuth" />
-        </label>
+          <Switch :model-value="form.allowRegister" :disabled="loading || savingAuth" @update:model-value="v => { form.allowRegister = v }" />
+        </div>
 
-        <label class="flex items-center justify-between gap-3 py-2 border-b border-border/60 text-sm cursor-pointer">
+        <div class="flex items-center justify-between gap-3 py-2 border-b border-border/60 text-sm">
           <div>
             <p class="font-medium">注册强制邮箱验证</p>
             <p class="text-xs text-muted-foreground">要求新用户通过邮箱验证码确认归属</p>
           </div>
-          <input v-model="form.requireEmailVerify" type="checkbox" class="size-4 accent-primary" :disabled="loading || savingAuth" />
-        </label>
+          <Switch :model-value="form.requireEmailVerify" :disabled="loading || savingAuth" @update:model-value="v => { form.requireEmailVerify = v }" />
+        </div>
 
-        <label class="flex items-center justify-between gap-3 py-2 text-sm cursor-pointer">
+        <div class="flex items-center justify-between gap-3 py-2 text-sm">
           <div>
             <p class="font-medium">允许账号密码登录</p>
             <p class="text-xs text-muted-foreground">关闭后仅允许邮箱验证码或第三方 OAuth 登录</p>
           </div>
-          <input v-model="form.allowPasswordLogin" type="checkbox" class="size-4 accent-primary" :disabled="loading || savingAuth" />
-        </label>
+          <Switch :model-value="form.allowPasswordLogin" :disabled="loading || savingAuth" @update:model-value="v => { form.allowPasswordLogin = v }" />
+        </div>
       </section>
 
       <section class="rounded-xl border border-border bg-card p-6 space-y-4">
@@ -274,10 +275,10 @@ onMounted(() => { void load() })
                 <KeyRound class="size-3" /> 已配置 Secret
               </span>
             </div>
-            <label class="inline-flex items-center gap-2 text-sm cursor-pointer">
-              <input v-model="item.enabled" type="checkbox" class="size-4 accent-primary" />
+            <div class="inline-flex items-center gap-2 text-sm">
+              <Switch :model-value="item.enabled" @update:model-value="v => { item.enabled = v }" />
               <span>启用</span>
-            </label>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -2,6 +2,7 @@
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@repo/ui/dialog'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@repo/ui/context-menu'
@@ -1228,11 +1229,17 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           </div>
 
           <div v-else class="toolbar-actions">
-            <select class="drive-sort" v-model="sort" aria-label="文件排序">
-              <option value="name">名称排序</option>
-              <option value="updated">最近修改</option>
-              <option value="size">文件大小</option>
-            </select>
+            <Select
+              :model-value="sort"
+              class="h-8 w-28 text-xs"
+              aria-label="文件排序"
+              :options="[
+                { value: 'name', label: '名称排序' },
+                { value: 'updated', label: '最近修改' },
+                { value: 'size', label: '文件大小' },
+              ]"
+              @update:model-value="v => { sort = v as typeof sort }"
+            />
             <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="16" /></Button>
             <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="16" /></Button>
             <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="刷新文件" @click="refresh"><RefreshCw :size="15" /></Button>
@@ -1558,7 +1565,15 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           </div>
         </div>
         <small>{{ statusLabel(task.status, task.message) }} · {{ task.percent }}%</small>
-        <progress :value="task.percent" max="100" />
+        <div
+          role="progressbar"
+          :aria-valuenow="task.percent"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          class="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <div class="h-full rounded-full bg-primary transition-[width] duration-200" :style="{ width: `${Math.min(100, Math.max(0, task.percent))}%` }" />
+        </div>
       </div>
     </aside>
 
@@ -1614,14 +1629,20 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <span>账号密码</span>
             <Input v-model="privateUnlockPassword" type="password" autocomplete="current-password" placeholder="输入登录密码" :disabled="privateUnlockBusy" />
           </label>
-          <label class="block space-y-1.5 text-sm">
+          <div class="block space-y-1.5 text-sm">
             <span>空闲自动锁定时间（分钟）</span>
-            <select v-model.number="privateUnlockIdle" class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" :disabled="privateUnlockBusy">
-              <option :value="15">15 分钟</option>
-              <option :value="30">30 分钟</option>
-              <option :value="60">60 分钟</option>
-            </select>
-          </label>
+            <Select
+              :model-value="privateUnlockIdle"
+              :disabled="privateUnlockBusy"
+              aria-label="空闲自动锁定时间"
+              :options="[
+                { value: '15', label: '15 分钟' },
+                { value: '30', label: '30 分钟' },
+                { value: '60', label: '60 分钟' },
+              ]"
+              @update:model-value="v => { privateUnlockIdle = Number(v) || 30 }"
+            />
+          </div>
           <p v-if="privateUnlockError" role="alert" class="text-destructive text-sm">{{ privateUnlockError }}</p>
           <DialogFooter>
             <Button variant="outline" type="button" :disabled="privateUnlockBusy" @click="privateUnlockOpen = false">取消</Button>

@@ -4,6 +4,7 @@ import { Megaphone, RefreshCw, Send } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { Select } from '@repo/ui/select'
 import { Textarea } from '@repo/ui/textarea'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
@@ -103,13 +104,18 @@ onMounted(() => { void load() })
     <form class="space-y-3 rounded-xl border border-border bg-card p-5" @submit.prevent="publish">
       <h2 class="text-sm font-semibold">发布新消息</h2>
       <div class="grid gap-3 md:grid-cols-2">
-        <label class="block space-y-1 text-xs">
+        <div class="block space-y-1 text-xs">
           <span>发送范围</span>
-          <select v-model="scope" class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
-            <option value="ALL">全员广播</option>
-            <option value="DIRECT">定向用户</option>
-          </select>
-        </label>
+          <Select
+            :model-value="scope"
+            aria-label="发送范围"
+            :options="[
+              { value: 'ALL', label: '全员广播' },
+              { value: 'DIRECT', label: '定向用户' },
+            ]"
+            @update:model-value="v => { scope = v as 'ALL' | 'DIRECT' }"
+          />
+        </div>
         <label v-if="scope === 'DIRECT'" class="block space-y-1 text-xs">
           <span>目标用户（邮箱或 ID）</span>
           <Input v-model="target" placeholder="user@example.com" />

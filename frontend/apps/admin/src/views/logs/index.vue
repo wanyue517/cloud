@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Database, RefreshCw, SearchCheck, Trash2 } from '@lucide/vue'
+import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, Copy, Database, RefreshCw, SearchCheck, Trash2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
 import { toast } from '@repo/ui/toast'
@@ -67,6 +67,42 @@ interface GcPayload {
 const activeTab = ref<'errors' | 'requests'>('errors')
 const errorFilter = ref<'unresolved' | 'all' | 'resolved'>('unresolved')
 const expandedId = ref<string | null>(null)
+const copiedErrorId = ref<string | null>(null)
+
+async function copyErrorDetail(item: ErrorReportItem) {
+  const lines = [
+    `时间: ${new Date(item.createdAt).toLocaleString('zh-CN')}`,
+    `状态: HTTP ${item.httpStatus} (code=${item.errorCode}, level=${item.level})`,
+    `接口: ${item.method} ${item.path}`,
+    `TraceId: ${item.traceId || '—'}`,
+    `用户ID: ${item.userId || '匿名'}`,
+    `异常类: ${item.exceptionClass || '—'}`,
+    `错误信息: ${item.message || '—'}`,
+    '',
+    '完整堆栈:',
+    item.stackTrace || '(无堆栈信息)',
+  ]
+  const text = lines.join('\n')
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      ta.remove()
+    }
+    copiedErrorId.value = item.id
+    toast.success('已复制完整错误信息与堆栈')
+    window.setTimeout(() => { if (copiedErrorId.value === item.id) copiedErrorId.value = null }, 2000)
+  } catch {
+    toast.error('复制失败，请手动选中复制')
+  }
+}
 
 const errorReports = ref<ErrorReportsPayload | null>(null)
 const logsData = ref<LogsPayload | null>(null)
@@ -298,13 +334,16 @@ onMounted(() => { void loadAll() })
               <td class="px-4 py-2.5 text-right whitespace-nowrap">
                 <div class="inline-flex items-center gap-1.5">
                   <Button
-                    v-if="item.stackTrace"
                     size="sm"
                     variant="outline"
                     @click="expandedId = expandedId === item.id ? null : item.id"
                   >
                     <ChevronUp v-if="expandedId === item.id" class="size-3.5" />
-                    <ChevronDown v-else class="size-3.5" /> 堆栈
+                    <ChevronDown v-else class="size-3.5" /> 详情与堆栈
+                  </Button>
+                  <Button size="sm" variant="outline" @click="copyErrorDetail(item)">
+                    <Check v-if="copiedErrorId === item.id" class="size-3.5 text-emerald-500" />
+                    <Copy v-else class="size-3.5" /> {{ copiedErrorId === item.id ? '已复制' : '复制' }}
                   </Button>
                   <Button v-if="!item.resolved" size="sm" variant="outline" :disabled="busy" @click="resolveError(item.id)">
                     <CheckCircle2 class="size-3.5" /> 标为已处理
@@ -312,9 +351,29 @@ onMounted(() => { void loadAll() })
                 </div>
               </td>
             </tr>
-            <tr v-if="expandedId === item.id && item.stackTrace" class="border-t border-border bg-muted/30">
-              <td colspan="4" class="px-4 py-3">
-                <pre class="max-h-64 overflow-auto rounded-md bg-background p-3 text-[11px] font-mono leading-relaxed border border-border">{{ item.stackTrace }}</pre>
+            <tr v-if="expandedId === item.id" class="border-t border-border bg-muted/30">
+              <td colspan="4" class="px-4 py-3 space-y-2.5">
+                <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+                    <span><strong>完整接口：</strong><code class="font-mono text-foreground">{{ item.method }} {{ item.path }}</code></span>
+                    <span><strong>TraceId：</strong><code class="font-mono text-foreground">{{ item.traceId || '—' }}</code></span>
+                    <span><strong>用户 ID：</strong><code class="font-mono text-foreground">{{ item.userId || '匿名' }}</code></span>
+                    <span><strong>错误码：</strong><code class="font-mono text-foreground">{{ item.errorCode }}</code></span>
+                  </div>
+                  <Button size="sm" variant="outline" class="h-7 px-2.5 text-xs" @click="copyErrorDetail(item)">
+                    <Check v-if="copiedErrorId === item.id" class="size-3.5 text-emerald-500" />
+                    <Copy v-else class="size-3.5" /> {{ copiedErrorId === item.id ? '已复制完整堆栈' : '复制完整堆栈' }}
+                  </Button>
+                </div>
+                <div class="rounded-md border border-border bg-background px-3 py-2 text-xs">
+                  <div class="font-medium text-foreground break-all">{{ item.message }}</div>
+                  <div v-if="item.exceptionClass" class="mt-0.5 font-mono text-[11px] text-muted-foreground break-all">{{ item.exceptionClass }}</div>
+                </div>
+                <pre
+                  v-if="item.stackTrace"
+                  class="overflow-x-auto whitespace-pre-wrap break-all rounded-md border border-border bg-background p-3 text-[11px] font-mono leading-relaxed select-text"
+                >{{ item.stackTrace }}</pre>
+                <p v-else class="text-xs text-muted-foreground">该异常无堆栈信息。</p>
               </td>
             </tr>
           </template>

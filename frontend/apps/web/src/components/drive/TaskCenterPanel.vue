@@ -165,7 +165,15 @@ onMounted(() => { void loadServerSessions() })
               <Button v-if="task.status !== 'completed' && task.status !== 'cancelled'" variant="outline" size="sm" class="text-destructive" @click="emit('cancel', task.id)">取消</Button>
             </div>
           </div>
-          <progress :value="task.percent" max="100" class="w-full h-1.5 accent-primary" />
+          <div
+            role="progressbar"
+            :aria-valuenow="task.percent"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            class="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          >
+            <div class="h-full rounded-full bg-primary transition-[width] duration-200" :style="{ width: `${Math.min(100, Math.max(0, task.percent))}%` }" />
+          </div>
         </div>
       </div>
     </section>

@@ -86,7 +86,7 @@ public class UploadService {
         }
         int chunkSize = policy.uploadChunkSizeBytes();
         int ttlHours = policy.uploadSessionTtlHours();
-        long profileId = storageRouter.resolveDefaultProfileId();
+        long profileId = storageRouter.resolveProfileIdForUsage(StorageRouterService.USAGE_USER_FILES);
         long id = IdWorker.getId();
         int count = (int) Math.max(1, (input.size() + chunkSize - 1) / chunkSize);
         db.update(
