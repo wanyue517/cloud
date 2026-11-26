@@ -2,7 +2,9 @@
 import { onMounted, reactive, ref } from 'vue'
 import { KeyRound, Mail, RefreshCw, Save, ShieldCheck } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
 interface OAuthProviderItem {
@@ -80,6 +82,18 @@ async function load() {
 
 async function saveAuthAndSmtp() {
   if (savingAuth.value) return
+  if (!form.allowPasswordLogin) {
+    const hasEnabledOauth = providers.value.some(p => p.enabled)
+    const ok = await confirm({
+      title: '高危操作：关闭账号密码登录',
+      description: hasEnabledOauth
+        ? '关闭账号密码登录后，所有用户（含管理员）将只能通过已启用的 OAuth 方式登录。请确认管理员账号已绑定 OAuth！'
+        : '当前尚未启用任何 OAuth 第三方登录，关闭账号密码登录可能导致全站（含超级管理员）彻底无法登录！确定继续吗？',
+      confirmText: '确认关闭并保存',
+      variant: 'destructive',
+    })
+    if (!ok) return
+  }
   savingAuth.value = true
   error.value = ''
   notice.value = ''
@@ -95,9 +109,11 @@ async function saveAuthAndSmtp() {
       smtpPassword: form.smtpPassword.trim() || null,
     })
     applyResponse(res)
-    notice.value = '注册策略与 SMTP 配置已加密保存（密钥字段不会明文回显）。'
+    toast.success('注册策略与 SMTP 配置已加密保存')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '保存认证与 SMTP 配置失败'
+    const msg = e instanceof Error ? e.message : '保存认证与 SMTP 配置失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     savingAuth.value = false
   }

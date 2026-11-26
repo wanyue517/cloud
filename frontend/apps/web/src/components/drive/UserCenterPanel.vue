@@ -6,8 +6,10 @@ import {
 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
 import { Separator } from '@repo/ui/separator'
+import { toast } from '@repo/ui/toast'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { accentColors, theme, type ColorMode } from '@repo/ui/theme'
 import { clearPrivateSpaceToken, hasVaultToken, request, RequestError, setVaultToken } from '@/utils/request'
@@ -479,18 +481,18 @@ async function onPrivateFileSelected(event: Event) {
   try {
     let count = 0
     for (const file of files) {
-      await uploadFile(targetSpace, '0', file, () => {})
-      const list = await drive.nodes(targetSpace, { parentId: '0', page: 1, pageSize: 50, query: file.name })
-      const uploaded = list.items.find(n => n.name === file.name && n.nodeType === 'FILE')
-      if (uploaded) {
-        await opsApi.setHidden(targetSpace, uploaded.id, true)
+      const fileId = await uploadFile(targetSpace, '0', file, () => {})
+      if (fileId) {
+        await opsApi.setHidden(targetSpace, fileId, true)
         count++
       }
     }
-    feedback.value = `已上传并设为私密 ${count} 个文件`
+    toast.success(`已上传并设为私密 ${count} 个文件`)
     await loadPrivateOverview()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '上传私密文件失败'
+    const msg = e instanceof Error ? e.message : '上传私密文件失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     privateUploadBusy.value = false
   }
@@ -500,27 +502,34 @@ async function onPrivateFileSelected(event: Event) {
 const trashSpaces = computed(() => props.spaces.filter(s => s.kind !== 'PRIVATE' || vaultUnlocked.value))
 const trashSpaceId = ref('')
 const trashNodes = ref<DriveNode[]>([])
+const trashPage = ref(1)
+const trashTotal = ref(0)
+const TRASH_PAGE_SIZE = 50
 const trashLoading = ref(false)
 const trashSelected = ref(new Set<string>())
 const trashBusy = ref(false)
 const trashAllSelected = computed(() => trashNodes.value.length > 0 && trashSelected.value.size === trashNodes.value.length)
 
-async function loadTrash() {
+async function loadTrash(targetPage = trashPage.value) {
   if (!trashSpaceId.value) {
     const preferred = props.currentSpaceId && trashSpaces.value.some(s => s.id === props.currentSpaceId)
       ? props.currentSpaceId
       : trashSpaces.value[0]?.id || ''
     trashSpaceId.value = preferred
   }
-  if (!trashSpaceId.value) { trashNodes.value = []; return }
+  if (!trashSpaceId.value) { trashNodes.value = []; trashTotal.value = 0; return }
   trashLoading.value = true
   error.value = ''
   trashSelected.value = new Set()
   try {
-    const res = await drive.nodes(trashSpaceId.value, { parentId: '0', page: 1, pageSize: 100, trash: true })
+    const res = await drive.nodes(trashSpaceId.value, { parentId: '0', page: targetPage, pageSize: TRASH_PAGE_SIZE, trash: true })
     trashNodes.value = res.items
+    trashTotal.value = res.total
+    trashPage.value = targetPage
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '加载回收站失败'
+    const msg = e instanceof Error ? e.message : '加载回收站失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     trashLoading.value = false
   }
@@ -545,10 +554,12 @@ async function restoreTrashItems(targets: DriveNode[]) {
   feedback.value = ''
   try {
     for (const node of targets) await drive.restore(node)
-    feedback.value = `已恢复 ${targets.length} 项`
-    await loadTrash()
+    toast.success(`已恢复 ${targets.length} 项`)
+    await loadTrash(trashPage.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '恢复失败'
+    const msg = e instanceof Error ? e.message : '恢复失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     trashBusy.value = false
   }
@@ -556,33 +567,49 @@ async function restoreTrashItems(targets: DriveNode[]) {
 
 async function purgeTrashItems(targets: DriveNode[]) {
   if (!targets.length || trashBusy.value) return
-  if (!window.confirm(`确定彻底删除所选 ${targets.length} 项？此操作不可恢复。`)) return
+  const ok = await confirm({
+    title: '彻底删除确认',
+    description: `确定永久销毁所选 ${targets.length} 项吗？此操作不可恢复。`,
+    confirmText: '彻底删除',
+    variant: 'destructive',
+  })
+  if (!ok) return
   trashBusy.value = true
   error.value = ''
   feedback.value = ''
   try {
     for (const node of targets) await drive.purgeTrashNode(node)
-    feedback.value = `已彻底删除 ${targets.length} 项`
-    await loadTrash()
+    toast.success(`已彻底删除 ${targets.length} 项`)
+    await loadTrash(trashPage.value)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '彻底删除失败'
+    const msg = e instanceof Error ? e.message : '彻底删除失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     trashBusy.value = false
   }
 }
 
 async function emptyTrashSpace() {
-  if (!trashSpaceId.value || !trashNodes.value.length || trashBusy.value) return
-  if (!window.confirm('确定清空当前空间回收站？所有项目将被永久销毁且不可恢复。')) return
+  if (!trashSpaceId.value || !trashTotal.value || trashBusy.value) return
+  const ok = await confirm({
+    title: '清空回收站',
+    description: `确定清空当前空间回收站中的全部 ${trashTotal.value} 项吗？所有项目将被永久销毁且不可恢复。`,
+    confirmText: '确认清空',
+    variant: 'destructive',
+  })
+  if (!ok) return
   trashBusy.value = true
   error.value = ''
   feedback.value = ''
   try {
     const removed = await drive.emptyTrash(trashSpaceId.value)
-    feedback.value = `已清空回收站（共彻底删除 ${removed} 项）`
-    await loadTrash()
+    toast.success(`已清空回收站（共彻底删除 ${removed} 项）`)
+    await loadTrash(1)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '清空回收站失败'
+    const msg = e instanceof Error ? e.message : '清空回收站失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     trashBusy.value = false
   }
@@ -1039,14 +1066,14 @@ onMounted(() => {
             v-model="trashSpaceId"
             class="h-8 rounded-md border border-input bg-background px-2.5 text-xs"
             aria-label="选择回收站空间"
-            @change="loadTrash"
+            @change="loadTrash(1)"
           >
             <option v-for="s in trashSpaces" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
-          <Button variant="outline" size="sm" :disabled="trashLoading" @click="loadTrash">
+          <Button variant="outline" size="sm" :disabled="trashLoading" @click="loadTrash(trashPage)">
             <RefreshCw :size="13" :class="{ 'animate-spin': trashLoading }" /> 刷新
           </Button>
-          <Button variant="outline" size="sm" class="text-destructive" :disabled="!trashNodes.length || trashBusy" @click="emptyTrashSpace">
+          <Button variant="outline" size="sm" class="text-destructive" :disabled="!trashTotal || trashBusy" @click="emptyTrashSpace">
             <Trash2 :size="13" /> 清空回收站
           </Button>
         </div>
@@ -1104,6 +1131,11 @@ onMounted(() => {
             <Button variant="outline" size="sm" class="h-7 px-2 text-xs" :disabled="trashBusy" @click="restoreTrashItems([node])">恢复</Button>
             <Button variant="ghost" size="sm" class="h-7 px-2 text-xs text-destructive" :disabled="trashBusy" @click="purgeTrashItems([node])">彻底删除</Button>
           </div>
+        </div>
+        <div v-if="trashTotal > TRASH_PAGE_SIZE" class="flex items-center justify-between bg-muted/20 px-3.5 py-2 text-xs text-muted-foreground">
+          <Button variant="outline" size="sm" :disabled="trashPage <= 1 || trashLoading" @click="loadTrash(trashPage - 1)">上一页</Button>
+          <span>第 {{ trashPage }} / {{ Math.ceil(trashTotal / TRASH_PAGE_SIZE) }} 页（共 {{ trashTotal }} 项）</span>
+          <Button variant="outline" size="sm" :disabled="trashPage * TRASH_PAGE_SIZE >= trashTotal || trashLoading" @click="loadTrash(trashPage + 1)">下一页</Button>
         </div>
       </div>
     </section>

@@ -3,8 +3,10 @@ import { computed, onMounted, ref } from 'vue'
 import { Shield, Trash2, UserMinus, UserPlus, Users } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
+import { toast } from '@repo/ui/toast'
 import type { Space } from '@/api/drive'
 import { roleLabel, shareApi, type SpaceMembersOverview } from '@/api/share'
 
@@ -56,14 +58,23 @@ async function convertToShared() {
 }
 
 async function convertToPersonal() {
+  const ok = await confirm({
+    title: '转为个人空间',
+    description: keepMembersOnConvert.value
+      ? '转换后其他成员将立即失去该空间访问权限，待处理邀请自动取消；成员名单将被保留，下次再转为共享空间时自动恢复。'
+      : '转换后将清空所有共享成员且下次不会恢复，其他成员立即失去访问权限。确定继续吗？',
+    confirmText: '确认转换',
+    variant: keepMembersOnConvert.value ? 'default' : 'destructive',
+  })
+  if (!ok) return
   busy.value = true
   error.value = ''
   notice.value = ''
   try {
     await shareApi.convertToPersonal(props.space.id, keepMembersOnConvert.value)
-    notice.value = keepMembersOnConvert.value
-      ? '已转为个人空间（成员名单已保留，下次再转为共享空间时可自动恢复）'
-      : '已转为个人空间（已清空所有共享成员，下次共享不会恢复）'
+    toast.success(keepMembersOnConvert.value
+      ? '已转为个人空间（成员名单已保留）'
+      : '已转为个人空间（已清空所有共享成员）')
     emit('updated')
     await load()
   } catch (e) {
@@ -110,11 +121,18 @@ async function changeRole(memberUserId: string, role: string) {
 }
 
 async function removeMember(memberUserId: string) {
+  const ok = await confirm({
+    title: '移除成员',
+    description: '移除后该成员将立即失去此空间的访问权限。确定移除吗？',
+    confirmText: '确认移除',
+    variant: 'destructive',
+  })
+  if (!ok) return
   busy.value = true
   error.value = ''
   try {
     await shareApi.removeMember(props.space.id, memberUserId)
-    notice.value = '已移除该成员，其访问权限即时失效'
+    toast.success('已移除该成员，其访问权限即时失效')
     emit('updated')
     await load()
   } catch (e) {

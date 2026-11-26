@@ -8,6 +8,7 @@ import { getAccessToken } from '@/lib/auth'
 import { shareApi, type MessageItem } from '@/api/share'
 
 const router = useRouter()
+const open = ref(false)
 const unreadCount = ref(0)
 const items = ref<MessageItem[]>([])
 const loading = ref(false)
@@ -36,6 +37,7 @@ async function openMessage(msg: MessageItem) {
     } catch { /* ignore */ }
   }
   if (msg.actionUrl && msg.actionUrl.startsWith('/app')) {
+    open.value = false
     await router.push(msg.actionUrl)
   }
 }
@@ -94,7 +96,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <DropdownMenu @update:open="open => { if (open) void loadInbox() }">
+  <DropdownMenu v-model:open="open" @update:open="v => { if (v) void loadInbox() }">
     <DropdownMenuTrigger as-child>
       <Button variant="ghost" size="icon-sm" class="relative" aria-label="站内消息" title="站内消息">
         <Bell :size="17" />

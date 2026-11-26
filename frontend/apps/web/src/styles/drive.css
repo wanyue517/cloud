@@ -1238,6 +1238,12 @@
   height: 5px;
   accent-color: var(--drive-accent);
 }
+@media (hover: none) {
+  .grid .file-card-check,
+  .grid .item-more-wrap {
+    opacity: 1;
+  }
+}
 @media (max-width: 1100px) {
   .drive-content {
     padding: var(--app-page-padding);
@@ -1246,11 +1252,11 @@
     padding: 0 20px;
   }
   .file-columns,
-  .file-item {
-    grid-template-columns: minmax(180px, 1fr) 80px 140px;
+  .list .file-item {
+    grid-template-columns: minmax(180px, 1fr) 84px 150px 40px;
   }
-  .file-columns > span:last-child,
-  .list .file-item > small {
+  .file-columns .col-type,
+  .list .file-item .col-type {
     display: none;
   }
   .heading-actions {
@@ -1338,13 +1344,15 @@
     flex-wrap: wrap;
   }
   .file-columns,
-  .file-item {
-    grid-template-columns: minmax(130px, 1fr) 70px;
-    padding: 12px;
-    gap: 6px;
+  .list .file-item {
+    grid-template-columns: minmax(140px, 1fr) 74px 40px;
+    padding: 10px 12px;
+    gap: 8px;
   }
-  .list .file-item time,
-  .file-columns > span:nth-child(3) {
+  .file-columns .col-time,
+  .file-columns .col-type,
+  .list .file-item .col-time,
+  .list .file-item .col-type {
     display: none;
   }
   .file-name {

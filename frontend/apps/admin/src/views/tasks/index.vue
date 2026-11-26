@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { RefreshCw, RotateCcw, Trash2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
+import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
 interface AdminTaskItem {
@@ -94,15 +96,24 @@ async function load() {
 }
 
 async function cleanupExpired() {
+  const ok = await confirm({
+    title: '清理过期分片会话',
+    description: '将删除所有已过期的未完成分片上传会话及临时分片文件，释放磁盘空间。确定执行吗？',
+    confirmText: '确认清理',
+    variant: 'destructive',
+  })
+  if (!ok) return
   cleaning.value = true
   error.value = ''
   notice.value = ''
   try {
     const res = await request.post<{ cleaned: number }>('/v1/admin/tasks/cleanup-expired')
-    notice.value = `已完成过期分片清理，共回收 ${res.cleaned} 个过期上传会话`
+    toast.success(`已完成过期分片清理，共回收 ${res.cleaned} 个过期上传会话`)
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '清理失败'
+    const msg = e instanceof Error ? e.message : '清理失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     cleaning.value = false
   }

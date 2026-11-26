@@ -2,6 +2,7 @@
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
 import { Input } from '@repo/ui/input'
+import { toast } from '@repo/ui/toast'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@repo/ui/dialog'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@repo/ui/context-menu'
 import {
@@ -188,7 +189,7 @@ const fileInput = ref<HTMLInputElement>(), folderInput = ref<HTMLInputElement>()
 const replacing = ref<DriveNode>(), uploadTasks = ref<UploadQueueItem[]>([])
 const uploadPanelVisible = ref(false)
 const activeUploadCount = computed(() => uploadTasks.value.filter(t => t.status === 'uploading' || t.status === 'queued').length)
-const moving = ref<DriveNode>()
+const movingNodes = ref<DriveNode[]>([])
 const membersDialogOpen = ref(false)
 const sharingNode = ref<DriveNode>()
 const shareLinkNode = ref<DriveNode>()
@@ -375,10 +376,6 @@ const dialog = ref<{ title: string; label: string; value: string; submit: (value
 const dialogBusy = ref(false)
 const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceSortOrder = ref(0), spaceDeleteConfirm = ref('')
 
-function ask(title: string, label: string, value: string, submit: (value: string) => Promise<unknown>) {
-  dialog.value = { title, label, value, submit }
-  error.value = ''
-}
 async function submitDialog() {
   if (!dialog.value || dialogBusy.value) return
   dialogBusy.value = true; error.value = ''
@@ -417,7 +414,14 @@ async function confirmDeleteSpace() {
   } catch (e) { fail(e) } finally { spaceSaving.value = false }
 }
 
-function fail(e: unknown) { error.value = e instanceof Error ? e.message : '操作失败，请重试' }
+function fail(e: unknown) {
+  const msg = e instanceof Error ? e.message : '操作失败，请重试'
+  error.value = msg
+  toast.error(msg)
+}
+function notify(msg: string) {
+  toast.success(msg)
+}
 
 const includeSubdirs = ref(false)
 const privateUnlockOpen = ref(false)
@@ -673,13 +677,43 @@ async function move(source: string, target: string) {
     } catch { /* non-blocking */ }
   } catch (e) { fail(e) }
 }
-function moveSelection() { moving.value = currentSelection.value[0] }
+function moveSelection() { movingNodes.value = [...currentSelection.value] }
 async function batch(action: (node: DriveNode) => Promise<unknown>) {
   let success = 0; const failures: string[] = []
   for (const node of currentSelection.value) { try { await action(node); success++ } catch (e) { failures.push(`${node.name}：${e instanceof Error ? e.message : '失败'}`) } }
-  await refresh(); treeRevision.value++; notice.value = `成功 ${success} 项${failures.length ? `；${failures.join('；')}` : ''}`
+  await refresh(); treeRevision.value++
+  if (failures.length) toast.warning(`成功 ${success} 项；失败：${failures.join('；')}`)
+  else if (success > 0) toast.success(`已完成 ${success} 项操作`)
 }
-function deleteSelection() { const count = selected.value.size; ask('移到回收站', `输入“删除”确认将 ${count} 项移入回收站`, '', async value => { if (value !== '删除') throw new Error('请输入“删除”确认'); await batch(drive.trash) }) }
+async function deleteSelection() {
+  const targets = [...currentSelection.value]
+  if (!targets.length) return
+  let success = 0; const failures: string[] = []
+  let lastTrashed: DriveNode | undefined
+  for (const node of targets) {
+    try { await drive.trash(node); success++; lastTrashed = node }
+    catch (e) { failures.push(`${node.name}：${e instanceof Error ? e.message : '失败'}`) }
+  }
+  await refresh(); treeRevision.value++
+  if (failures.length) {
+    toast.warning(`已移入回收站 ${success} 项；失败：${failures.join('；')}`)
+  } else if (success > 0) {
+    notify(success === 1 ? `已将「${lastTrashed?.name}」移入回收站` : `已将 ${success} 项移入回收站`)
+    if (success === 1 && lastTrashed) {
+      try {
+        const receipt = await opsApi.issueUndo({
+          spaceId: lastTrashed.spaceId,
+          actionType: 'TRASH',
+          summary: `已移入回收站「${lastTrashed.name}」`,
+          nodeId: lastTrashed.id,
+          oldName: lastTrashed.name,
+          oldParentId: lastTrashed.parentId,
+        })
+        showUndo(receipt)
+      } catch { /* non-blocking */ }
+    }
+  }
+}
 async function download(node: DriveNode) { try { saveBlob(await drive.content(node), node.name) } catch (e) { fail(e) } }
 async function showVersions(node: DriveNode) { try { versions.value = await drive.versions(node); versionNode.value = node } catch (e) { fail(e) } }
 async function restoreVersion(version: Version) {
@@ -965,16 +999,16 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
         </div>
 
         <div class="topbar-trailing">
-          <label v-if="mode !== 'settings' && mode !== 'search'" class="drive-search cursor-text" @click="openSearch('space', query)">
-            <Search :size="16" />
-            <input
-              :value="query"
-              readonly
-              aria-label="搜索当前空间或全局检索"
-              placeholder="搜索当前空间 / 全局检索… (Ctrl+F)"
-              @focus="openSearch('space', query)"
-            />
-          </label>
+          <button
+            v-if="mode !== 'settings' && mode !== 'search'"
+            type="button"
+            class="drive-search cursor-pointer text-left"
+            aria-label="搜索当前空间或全局检索"
+            @click="openSearch('space', query)"
+          >
+            <Search :size="16" class="shrink-0" />
+            <span class="truncate text-sm">{{ query || '搜索当前空间 / 全局检索… (Ctrl+F)' }}</span>
+          </button>
 
           <MessagePopover />
 
@@ -1115,10 +1149,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               <Settings :size="16" />
             </Button>
             <Button variant="outline" size="sm" @click="newFolder"><FolderPlus :size="15" /> 新建文件夹</Button>
-            <Button variant="outline" size="sm" :disabled="uploading || !spaceId" @click="folderInput?.click()">
+            <Button variant="outline" size="sm" :disabled="!spaceId" @click="folderInput?.click()">
               <FolderUp :size="15" /> 上传文件夹
             </Button>
-            <Button variant="default" size="sm" :disabled="uploading || !spaceId" @click="fileInput?.click()">
+            <Button variant="default" size="sm" :disabled="!spaceId" @click="fileInput?.click()">
               <Upload :size="15" /> 上传文件
             </Button>
           </div>
@@ -1172,7 +1206,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <Button v-if="selected.size > 1 && mode === 'files'" variant="outline" size="sm" @click="downloadZipSelection">
               <FileArchive :size="14" /> 打包下载
             </Button>
-            <Button v-if="selected.size === 1" variant="outline" size="sm" @click="moveSelection">移动</Button>
+            <Button variant="outline" size="sm" @click="moveSelection">移动</Button>
             <Button variant="outline" size="sm" @click="batch(node => drive.favorite(node, mode !== 'favorites'))">
               {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
             </Button>
@@ -1212,7 +1246,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               />
               <span>名称</span>
             </span>
-            <span>大小</span><span>修改时间</span><span>类型</span><span class="text-right">操作</span>
+            <span class="col-size">大小</span><span class="col-time">修改时间</span><span class="col-type">类型</span><span class="col-actions text-right">操作</span>
           </div>
           <div v-if="inlineCreateActive" class="file-item selected" role="listitem">
             <template v-if="view === 'grid'">
@@ -1290,7 +1324,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                           <DropdownMenuItem @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
-                          <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
+                          <DropdownMenuItem @select="movingNodes = [node]">移动到…</DropdownMenuItem>
                           <DropdownMenuItem @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</DropdownMenuItem>
                           <DropdownMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
                             {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
@@ -1359,10 +1393,10 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                     />
                     <span v-else class="filename" :title="node.name">{{ node.name }}</span>
                   </span>
-                  <span>{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span>
-                  <time :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time>
-                  <small>{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
-                  <span class="item-more-wrap flex justify-end" @click.stop @dblclick.stop>
+                  <span class="col-size">{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span>
+                  <time class="col-time" :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time>
+                  <small class="col-type">{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
+                  <span class="col-actions item-more-wrap flex justify-end" @click.stop @dblclick.stop>
                     <DropdownMenu>
                       <DropdownMenuTrigger as-child>
                         <Button variant="ghost" size="icon-xs" :aria-label="`更多操作：${node.name}`">
@@ -1384,7 +1418,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                         <DropdownMenuItem @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
-                        <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
+                        <DropdownMenuItem @select="movingNodes = [node]">移动到…</DropdownMenuItem>
                         <DropdownMenuItem @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</DropdownMenuItem>
                         <DropdownMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
                           {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
@@ -1413,7 +1447,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               <ContextMenuItem class="gap-2" @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</ContextMenuItem>
               <ContextMenuSeparator class="my-1 h-px bg-border" />
               <ContextMenuItem class="gap-2" @select="rename(node)">重命名</ContextMenuItem>
-              <ContextMenuItem class="gap-2" @select="moving = node">移动到…</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="movingNodes = [node]">移动到…</ContextMenuItem>
               <ContextMenuItem class="gap-2" @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</ContextMenuItem>
               <ContextMenuItem class="gap-2" @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
                 {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
@@ -1472,7 +1506,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       </DialogContent>
     </Dialog>
 
-    <MoveDialog v-if="moving" :node="moving" @close="moving = undefined" @moved="refresh(); treeRevision++" />
+    <MoveDialog v-if="movingNodes.length" :nodes="movingNodes" @close="movingNodes = []" @moved="selected = new Set(); refresh(); treeRevision++" />
     <SpaceMembersDialog v-if="membersDialogOpen && currentSpace" :space="currentSpace" @close="membersDialogOpen = false" @updated="reloadSpaces" />
     <FolderShareDialog v-if="sharingNode" :node="sharingNode" @close="sharingNode = undefined" @shared="notice = '文件夹共享授权已生效'" />
     <ShareLinkDialog v-if="shareLinkNode" :node="shareLinkNode" @close="shareLinkNode = undefined" />

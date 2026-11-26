@@ -27,8 +27,11 @@ const includeContent = ref(true)
 const loading = ref(false)
 const error = ref('')
 const total = ref(0)
+const page = ref(1)
+const PAGE_SIZE = 50
 const items = ref<SearchHit[]>([])
 const inputRef = ref<InstanceType<typeof Input>>()
+let searchGeneration = 0
 
 const scopeSpace = computed(() => props.spaces.find(s => s.id === scopeSpaceId.value))
 
@@ -69,12 +72,13 @@ function matchBadge(hit: SearchHit): string {
   return '文件名命中'
 }
 
-async function runSearch() {
+async function runSearch(targetPage = page.value) {
   if (!query.value.trim() && !category.value && !extension.value.trim()) {
     items.value = []
     total.value = 0
     return
   }
+  const gen = ++searchGeneration
   loading.value = true
   error.value = ''
   try {
@@ -84,21 +88,25 @@ async function runSearch() {
       category: category.value || undefined,
       extension: extension.value.trim() || undefined,
       includeContent: includeContent.value,
-      page: 1,
-      pageSize: 50,
+      page: targetPage,
+      pageSize: PAGE_SIZE,
     })
+    if (gen !== searchGeneration) return
     items.value = res.items
     total.value = res.total
+    page.value = targetPage
   } catch (e) {
+    if (gen !== searchGeneration) return
     error.value = e instanceof Error ? e.message : '搜索失败'
   } finally {
-    loading.value = false
+    if (gen === searchGeneration) loading.value = false
   }
 }
 
 watch([query, scope, scopeSpaceId, category, extension, includeContent], () => {
+  page.value = 1
   if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => { void runSearch() }, 250)
+  debounceTimer = setTimeout(() => { void runSearch(1) }, 250)
 })
 watch(() => props.currentSpaceId, id => { if (id) scopeSpaceId.value = id })
 
@@ -224,6 +232,11 @@ onMounted(async () => {
               <FolderOpen :size="13" /> 定位目录
             </Button>
           </div>
+        </div>
+        <div v-if="total > PAGE_SIZE" class="flex items-center justify-between bg-muted/20 px-3.5 py-2 text-xs text-muted-foreground">
+          <Button variant="outline" size="sm" :disabled="page <= 1 || loading" @click="runSearch(page - 1)">上一页</Button>
+          <span>第 {{ page }} / {{ Math.ceil(total / PAGE_SIZE) }} 页（共 {{ total }} 项）</span>
+          <Button variant="outline" size="sm" :disabled="page * PAGE_SIZE >= total || loading" @click="runSearch(page + 1)">下一页</Button>
         </div>
       </div>
     </div>

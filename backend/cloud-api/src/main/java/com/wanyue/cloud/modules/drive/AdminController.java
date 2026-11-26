@@ -58,11 +58,61 @@ public class AdminController {
     }
 
     @GetMapping("/users")
-    public R<List<Map<String, Object>>> users(@RequestParam(defaultValue = "1") int page) {
+    public R<List<Map<String, Object>>> users(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int pageSize,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) Integer status) {
         int safe = Math.max(1, page);
-        return R.ok(db.queryForList(
-                "SELECT CAST(id AS CHAR) id,display_name displayName,status,registered_at registeredAt FROM sys_user WHERE deleted=0 ORDER BY registered_at,id LIMIT 100 OFFSET ?",
-                (long) (safe - 1) * 100));
+        int limit = Math.max(1, Math.min(100, pageSize));
+        StringBuilder sql = new StringBuilder(
+                "SELECT CAST(u.id AS CHAR) id, u.display_name displayName, u.status, u.registered_at registeredAt, "
+                        + "COALESCE((SELECT ai.identifier FROM auth_identity ai WHERE ai.user_id=u.id AND ai.identity_type='EMAIL' AND ai.deleted=0 ORDER BY ai.is_primary DESC, ai.id ASC LIMIT 1), '') email, "
+                        + "EXISTS(SELECT 1 FROM auth_user_role ur JOIN auth_role r ON r.id=ur.role_id WHERE ur.user_id=u.id AND ur.deleted=0 AND r.role_code='SUPER_ADMIN') isAdmin "
+                        + "FROM sys_user u WHERE u.deleted=0 ");
+        List<Object> args = new ArrayList<>();
+        if (status != null) {
+            sql.append("AND u.status=? ");
+            args.add(status);
+        }
+        String q = query == null ? "" : query.strip();
+        if (!q.isEmpty()) {
+            sql.append("AND (LOWER(u.display_name) LIKE ? OR CAST(u.id AS CHAR)=? OR EXISTS(SELECT 1 FROM auth_identity ai WHERE ai.user_id=u.id AND ai.deleted=0 AND LOWER(ai.identifier) LIKE ?)) ");
+            String like = "%" + q.toLowerCase(Locale.ROOT) + "%";
+            args.add(like);
+            args.add(q);
+            args.add(like);
+        }
+        sql.append("ORDER BY u.registered_at DESC, u.id DESC LIMIT ? OFFSET ?");
+        args.add(limit);
+        args.add((long) (safe - 1) * limit);
+        var rows = db.queryForList(sql.toString(), args.toArray());
+        for (var row : rows) {
+            row.put("isAdmin", toBool(row.get("isAdmin")));
+        }
+        return R.ok(rows);
+    }
+
+    @GetMapping("/users/count")
+    public R<Long> usersCount(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) Integer status) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM sys_user u WHERE u.deleted=0 ");
+        List<Object> args = new ArrayList<>();
+        if (status != null) {
+            sql.append("AND u.status=? ");
+            args.add(status);
+        }
+        String q = query == null ? "" : query.strip();
+        if (!q.isEmpty()) {
+            sql.append("AND (LOWER(u.display_name) LIKE ? OR CAST(u.id AS CHAR)=? OR EXISTS(SELECT 1 FROM auth_identity ai WHERE ai.user_id=u.id AND ai.deleted=0 AND LOWER(ai.identifier) LIKE ?)) ");
+            String like = "%" + q.toLowerCase(Locale.ROOT) + "%";
+            args.add(like);
+            args.add(q);
+            args.add(like);
+        }
+        Long count = db.queryForObject(sql.toString(), Long.class, args.toArray());
+        return R.ok(count == null ? 0L : count);
     }
 
     public record Status(@Min(0) @Max(2) int status) {}
@@ -243,6 +293,23 @@ public class AdminController {
         if (exists == null || exists == 0) throw BizException.notFound("存储实例不存在");
         db.update("UPDATE storage_profile SET is_default=FALSE WHERE is_default=TRUE");
         db.update("UPDATE storage_profile SET is_default=TRUE WHERE id=?", id);
+        return R.ok();
+    }
+
+    @DeleteMapping("/storage-profiles/{id}")
+    @Transactional
+    public R<Void> deleteStorageProfile(@PathVariable long id) {
+        var rows = db.queryForList("SELECT is_default FROM storage_profile WHERE id=?", id);
+        if (rows.isEmpty()) throw BizException.notFound("存储实例不存在");
+        if (toBool(rows.get(0).get("is_default"))) {
+            throw BizException.conflict("默认存储实例不能删除，请先切换其他实例为默认");
+        }
+        Long blobCount = db.queryForObject("SELECT COUNT(*) FROM blob_object WHERE storage_profile_id=?", Long.class, id);
+        Long assetCount = db.queryForObject("SELECT COUNT(*) FROM sys_asset WHERE storage_profile_id=?", Long.class, id);
+        if ((blobCount != null && blobCount > 0) || (assetCount != null && assetCount > 0)) {
+            throw BizException.conflict("该存储实例仍关联有文件对象，无法直接删除");
+        }
+        db.update("DELETE FROM storage_profile WHERE id=?", id);
         return R.ok();
     }
 

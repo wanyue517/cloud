@@ -75,7 +75,7 @@ export const drive = {
   replace: (node: DriveNode, file: File) => request.upload(`/v1/spaces/${node.spaceId}/files`, file, { extraData: { parentId: node.parentId, replaceId: node.id, revision: node.revision } }),
 }
 
-export async function uploadFile(spaceId: string, parentId: string, file: File, progress: (percent: number) => void, signal?: AbortSignal) {
+export async function uploadFile(spaceId: string, parentId: string, file: File, progress: (percent: number) => void, signal?: AbortSignal): Promise<string> {
   const key = `cloudlane.upload.${spaceId}.${parentId}.${file.name}.${file.size}.${file.lastModified}`
   let upload: Upload | undefined
   const previous = localStorage.getItem(key)
@@ -87,6 +87,7 @@ export async function uploadFile(spaceId: string, parentId: string, file: File, 
     upload = await request.post<Upload>('/v1/uploads', { spaceId, parentId, name: file.name, size: file.size, mimeType: file.type }, { signal })
     localStorage.setItem(key, upload.id)
   }
+  let fileId = upload.fileId || ''
   if (upload.status !== 'COMPLETED') {
     const received = new Set(upload.received ?? [])
     for (let index = 0; index < upload.chunkCount; index++) {
@@ -113,7 +114,8 @@ export async function uploadFile(spaceId: string, parentId: string, file: File, 
       }
       progress(Math.round((index + 1) / upload.chunkCount * 100))
     }
-    await request.post(`/v1/uploads/${upload.id}/complete`, undefined, { signal, timeout: 120_000 })
+    fileId = await request.post<string>(`/v1/uploads/${upload.id}/complete`, undefined, { signal, timeout: 120_000 })
   }
   localStorage.removeItem(key)
+  return fileId
 }

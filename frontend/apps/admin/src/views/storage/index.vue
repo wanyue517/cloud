@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { CheckCircle2, Cloud, Database, HardDrive, KeyRound, Pencil, Plus, RefreshCw, Wrench } from '@lucide/vue'
+import { CheckCircle2, Cloud, Database, HardDrive, KeyRound, Pencil, Plus, RefreshCw, Trash2, Wrench } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
+import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
 interface StorageProfileItem {
@@ -104,24 +106,58 @@ async function testConnection(item: StorageProfileItem) {
       elapsedMs: number
     }>(`/v1/admin/storage-profiles/${item.id}/test`)
     const target = res.path || (res.endpoint ? `${res.endpoint}/${res.bucket || ''} (HTTP ${res.statusCode})` : res.provider || item.provider)
-    notice.value = `「${item.name}」连通性正常（${target}，耗时 ${res.elapsedMs}ms）`
+    toast.success(`「${item.name}」连通性正常（${target}，耗时 ${res.elapsedMs}ms）`)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '连接测试失败'
+    const msg = e instanceof Error ? e.message : '连接测试失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busyId.value = ''
   }
 }
 
 async function setDefault(item: StorageProfileItem) {
+  const ok = await confirm({
+    title: '切换全站默认存储',
+    description: `确定将「${item.name} (${item.provider})」设为全站默认存储实例吗？切换后所有新上传文件与图片将立即写入该实例，请确保已通过连通性测试。`,
+    confirmText: '确认切换',
+  })
+  if (!ok) return
   busyId.value = item.id
   error.value = ''
   notice.value = ''
   try {
     await request.put(`/v1/admin/storage-profiles/${item.id}/default`)
     await load()
-    notice.value = `已将「${item.name}」设为默认存储实例（新写入对象将路由至此实例，历史对象按原记录正常读取）。`
+    toast.success(`已将「${item.name}」设为默认存储实例`)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '切换默认存储失败'
+    const msg = e instanceof Error ? e.message : '切换默认存储失败'
+    error.value = msg
+    toast.error(msg)
+  } finally {
+    busyId.value = ''
+  }
+}
+
+async function deleteProfile(item: StorageProfileItem) {
+  const ok = await confirm({
+    title: '删除存储实例',
+    description: `确定删除存储实例「${item.name}」吗？此操作不可恢复。`,
+    confirmText: '确认删除',
+    variant: 'destructive',
+  })
+  if (!ok) return
+  busyId.value = item.id
+  error.value = ''
+  notice.value = ''
+  try {
+    await request.delete(`/v1/admin/storage-profiles/${item.id}`)
+    toast.success(`已删除存储实例「${item.name}」`)
+    await load()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '删除存储实例失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busyId.value = ''
   }
@@ -324,6 +360,16 @@ onMounted(() => { void load() })
                 <Button variant="outline" size="sm" :disabled="Boolean(item.isDefault) || busyId === item.id" @click="setDefault(item)">
                   {{ item.isDefault ? '默认' : '设为默认' }}
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive"
+                  :disabled="Boolean(item.isDefault) || Number(item.objectCount || 0) > 0 || busyId === item.id"
+                  :title="item.isDefault ? '默认实例不可删除' : Number(item.objectCount || 0) > 0 ? '该实例仍有对象，不可删除' : '删除存储实例'"
+                  @click="deleteProfile(item)"
+                >
+                  <Trash2 class="size-3.5" /> 删除
+                </Button>
               </div>
             </td>
           </tr>
@@ -345,7 +391,7 @@ onMounted(() => { void load() })
               type="button"
               size="sm"
               :variant="formProvider === kind ? 'default' : 'outline'"
-              :disabled="saving || formTesting"
+              :disabled="saving || formTesting || Boolean(editingId)"
               @click="formProvider = kind; formTestError = ''; formTestNotice = ''"
             >
               {{ kind === 'LOCAL' ? '本地目录' : kind === 'S3' ? 'S3 对象存储' : '数据库存储' }}

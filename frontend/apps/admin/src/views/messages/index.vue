@@ -2,7 +2,9 @@
 import { onMounted, ref } from 'vue'
 import { Megaphone, RefreshCw, Send } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Input } from '@repo/ui/input'
+import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
 interface AdminMessageRecord {
@@ -43,6 +45,19 @@ async function load() {
 
 async function publish() {
   if (!title.value.trim()) return
+  if (scope.value === 'DIRECT' && !target.value.trim()) {
+    toast.error('请输入目标用户的邮箱或 ID')
+    return
+  }
+  if (scope.value === 'ALL') {
+    const ok = await confirm({
+      title: '确认发布全员广播',
+      description: `消息「${title.value.trim()}」将立即推送给全站所有用户且发布后不可撤回，确定发布吗？`,
+      confirmText: '确认发布',
+      variant: 'destructive',
+    })
+    if (!ok) return
+  }
   publishing.value = true
   error.value = ''
   notice.value = ''
@@ -57,10 +72,12 @@ async function publish() {
     title.value = ''
     content.value = ''
     target.value = ''
-    notice.value = '系统消息已发布并通过实时通道推送给在线用户'
+    toast.success('系统消息已发布并推送给在线用户')
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '发布消息失败'
+    const msg = e instanceof Error ? e.message : '发布消息失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     publishing.value = false
   }

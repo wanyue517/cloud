@@ -75,9 +75,9 @@ export interface components {
       secretKey?: string
     }
     ApiResponse: {
-      traceId?: string | null
-      msg: string
       data?: null
+      msg: string
+      traceId?: string | null
       code: number
     }
     AuthController_ResetPasswordReq: {
@@ -2620,6 +2620,19 @@ export interface paths {
     }
   }
   "/api/v1/admin/storage-profiles/{id}": {
+    delete: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
     put: {
       parameters: {
         path: {
@@ -2732,6 +2745,9 @@ export interface paths {
       parameters: {
         query?: {
           page?: number
+          pageSize?: number
+          query?: string
+          status?: number
         }
       }
       response: {
@@ -2754,6 +2770,22 @@ export interface paths {
         code: number
         msg: string
         data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/admin/users/count": {
+    get: {
+      parameters: {
+        query?: {
+          query?: string
+          status?: number
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: number
         traceId?: string | null
       }
     }

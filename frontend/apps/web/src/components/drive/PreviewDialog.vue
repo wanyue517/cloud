@@ -92,6 +92,12 @@ function onKeydown(event: KeyboardEvent) {
   const tag = (event.target as HTMLElement | null)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (event.key === 'Escape') {
+    if (fullscreen.value) {
+      event.preventDefault()
+      event.stopPropagation()
+      void toggleFullscreen()
+      return
+    }
     emit('close')
   } else if (event.key === 'ArrowLeft' && canPrev.value) {
     goPrev()
@@ -147,7 +153,7 @@ onBeforeUnmount(() => {
               <Minimize2 v-if="fullscreen" :size="16" />
               <Maximize2 v-else :size="16" />
             </Button>
-            <Button variant="outline" size="icon-sm" autofocus aria-label="关闭预览" @click="emit('close')">
+            <Button variant="outline" size="icon-sm" aria-label="关闭预览" @click="emit('close')">
               <X :size="17" />
             </Button>
           </div>

@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Database, RefreshCw, SearchCheck, Trash2 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { confirm } from '@repo/ui/confirm-dialog'
+import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 
 interface RequestLogEntry {
@@ -118,15 +120,24 @@ async function resolveError(id: string) {
 }
 
 async function clearResolvedErrors() {
+  const ok = await confirm({
+    title: '清理已处理异常记录',
+    description: '将永久删除所有已标记为“已处理”的后台错误上报记录，确定清理吗？',
+    confirmText: '确认清理',
+    variant: 'destructive',
+  })
+  if (!ok) return
   busy.value = true
   error.value = ''
   notice.value = ''
   try {
     const res = await request.delete<{ deleted: number }>('/v1/admin/error-reports/resolved')
-    notice.value = `已清理 ${res.deleted} 条已处理的异常记录`
+    toast.success(`已清理 ${res.deleted} 条已处理的异常记录`)
     await loadAll()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '清理失败'
+    const msg = e instanceof Error ? e.message : '清理失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busy.value = false
   }
@@ -139,10 +150,12 @@ async function runRebuildSearch() {
   notice.value = ''
   try {
     await request.post('/v1/admin/search/rebuild')
-    notice.value = '已触发全站搜索索引重建任务，后台 Outbox 将自动同步。'
+    toast.success('已触发全站搜索索引重建任务，后台 Outbox 将自动同步。')
     await loadAll()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '触发索引重建失败'
+    const msg = e instanceof Error ? e.message : '触发索引重建失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busy.value = false
   }
@@ -150,17 +163,28 @@ async function runRebuildSearch() {
 
 async function runStorageGc(dryRun: boolean) {
   if (busy.value) return
+  if (!dryRun) {
+    const ok = await confirm({
+      title: '高危操作：执行物理对象延迟回收',
+      description: '将真实物理删除无引用且超过 60 分钟宽限期的孤儿存储对象，删除后不可恢复。建议先执行“孤儿演练扫描”确认范围。确定继续吗？',
+      confirmText: '确认执行回收',
+      variant: 'destructive',
+    })
+    if (!ok) return
+  }
   busy.value = true
   error.value = ''
   notice.value = ''
   try {
     const res = await request.post<GcPayload>(`/v1/admin/storage/gc?dryRun=${dryRun ? 'true' : 'false'}&graceMinutes=60`)
     gcReport.value = res
-    notice.value = dryRun
-      ? `孤儿扫描演练完成：发现 ${res.orphanCount} 个无引用孤儿对象（可回收 ${formatBytes(res.reclaimedBytes)}）。`
-      : `孤儿回收完成：安全清理 ${res.deletedCount} 个孤儿对象，释放 ${formatBytes(res.reclaimedBytes)}。`
+    toast.success(dryRun
+      ? `孤儿扫描演练完成：发现 ${res.orphanCount} 个孤儿对象（可回收 ${formatBytes(res.reclaimedBytes)}）`
+      : `孤儿回收完成：安全清理 ${res.deletedCount} 个孤儿对象，释放 ${formatBytes(res.reclaimedBytes)}`)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '执行孤儿扫描失败'
+    const msg = e instanceof Error ? e.message : '执行孤儿扫描失败'
+    error.value = msg
+    toast.error(msg)
   } finally {
     busy.value = false
   }
@@ -330,7 +354,7 @@ onMounted(() => { void loadAll() })
             </div>
             <div class="flex items-center gap-2">
               <Button size="sm" variant="outline" :disabled="busy" @click="runStorageGc(true)">孤儿演练扫描</Button>
-              <Button size="sm" variant="outline" :disabled="busy" @click="runStorageGc(false)">
+              <Button size="sm" variant="destructive" :disabled="busy" @click="runStorageGc(false)">
                 <Trash2 class="size-3.5" /> 执行延迟回收
               </Button>
             </div>
@@ -338,8 +362,8 @@ onMounted(() => { void loadAll() })
           <p class="text-xs text-muted-foreground">
             仅回收无任何文件版本引用且超过 60 分钟宽限期的物理对象，二次引用保护防止并发误删。
           </p>
-          <p v-if="gcReport" class="text-xs font-mono bg-muted/40 rounded px-3 py-2">
-            最近结果：mode={{ gcReport.dryRun ? 'DRY_RUN' : 'EXECUTE' }} · orphans={{ gcReport.orphanCount }} · deleted={{ gcReport.deletedCount }} · bytes={{ formatBytes(gcReport.reclaimedBytes) }}
+          <p v-if="gcReport" class="text-xs bg-muted/40 rounded px-3 py-2">
+            最近结果：模式「{{ gcReport.dryRun ? '演练扫描' : '正式回收' }}」 · 发现孤儿 {{ gcReport.orphanCount }} 个 · 已清理 {{ gcReport.deletedCount }} 个 · 释放空间 {{ formatBytes(gcReport.reclaimedBytes) }}
           </p>
         </section>
       </div>
