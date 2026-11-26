@@ -66,6 +66,39 @@ public class ShareService {
             db.update("INSERT INTO space_member(id,space_id,user_id,role,created_by,updated_by) VALUES (?,?,?,'OWNER',?,?)",
                     IdWorker.getId(), spaceId, user, user, user);
         }
+        List<Long> retained = db.queryForList(
+                "SELECT user_id FROM space_member WHERE space_id=? AND user_id<>? AND deleted=0",
+                Long.class, spaceId, user);
+        for (Long memberId : retained) {
+            eventHub.notifyAccessChanged(memberId, "SPACE_CONVERTED_SHARED", String.valueOf(spaceId));
+        }
+    }
+
+    @Transactional
+    public void convertToPersonalSpace(long user, long spaceId, boolean keepMembers) {
+        drive.requireSpaceOwner(user, spaceId, true);
+        String kind = db.queryForObject("SELECT kind FROM space WHERE id=?", String.class, spaceId);
+        if ("PERSONAL".equals(kind)) return;
+        if (!"SHARED".equals(kind)) {
+            throw BizException.conflict("仅共享空间可转为个人空间");
+        }
+        List<Long> affectedMembers = db.queryForList(
+                "SELECT user_id FROM space_member WHERE space_id=? AND user_id<>? AND deleted=0",
+                Long.class, spaceId, user);
+        db.update("UPDATE space SET kind='PERSONAL', access_version=access_version+1, version=version+1 WHERE id=?", spaceId);
+        db.update(
+                "UPDATE share_invitation SET status='CANCELLED', responded_at=UTC_TIMESTAMP(3) "
+                        + "WHERE space_id=? AND target_type='SPACE' AND status='PENDING'",
+                spaceId);
+        if (!keepMembers) {
+            db.update(
+                    "UPDATE space_member SET deleted=id, updated_by=?, version=version+1 "
+                            + "WHERE space_id=? AND user_id<>? AND deleted=0",
+                    user, spaceId, user);
+        }
+        for (Long memberId : affectedMembers) {
+            eventHub.notifyAccessChanged(memberId, "SPACE_CONVERTED_PERSONAL", String.valueOf(spaceId));
+        }
     }
 
     public SpaceMembersOverview spaceMembers(long user, long spaceId) {

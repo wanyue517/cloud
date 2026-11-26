@@ -75,10 +75,10 @@ export interface components {
       secretKey?: string
     }
     ApiResponse: {
-      code: number
-      data?: null
-      msg: string
       traceId?: string | null
+      msg: string
+      data?: null
+      code: number
     }
     AuthController_ResetPasswordReq: {
       email?: string
@@ -3348,6 +3348,24 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["PersonalAndBatchService_BatchJobView"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/spaces/{space}/convert-personal": {
+    post: {
+      parameters: {
+        path: {
+          space: string
+        }
+        query?: {
+          keepMembers?: boolean
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
         traceId?: string | null
       }
     }

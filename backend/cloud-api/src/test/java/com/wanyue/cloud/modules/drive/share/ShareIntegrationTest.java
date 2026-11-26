@@ -188,4 +188,51 @@ class ShareIntegrationTest {
         mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes/" + docId + "/content").header("Authorization", "Bearer " + bobToken))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    void convertSharedToPersonalWithKeepAndDropMembers() throws Exception {
+        var json = new tools.jackson.databind.json.JsonMapper();
+        mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/convert-shared").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+        String invJson = mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/invitations")
+                        .header("Authorization", "Bearer " + aliceToken)
+                        .contentType("application/json")
+                        .content("{\"target\":\"bob-" + bob + "@test.local\",\"role\":\"VIEWER\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String invId = json.readTree(invJson).get("data").asString();
+        mvc.perform(post("/api/v1/shares/invitations/" + invId + "/accept").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isOk());
+
+        // Bob can access shared space
+        mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isOk());
+
+        // Convert to PERSONAL with keepMembers=true -> Bob loses access immediately
+        mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/convert-personal")
+                        .param("keepMembers", "true")
+                        .header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isNotFound());
+
+        // Convert back to SHARED -> Bob's access is automatically restored
+        mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/convert-shared").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isOk());
+
+        // Convert to PERSONAL with keepMembers=false -> Bob loses access and is removed
+        mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/convert-personal")
+                        .param("keepMembers", "false")
+                        .header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isNotFound());
+
+        // Convert back to SHARED again -> Bob is NOT restored
+        mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/convert-shared").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + aliceSpace + "/nodes").header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isNotFound());
+    }
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Shield, Trash2, UserPlus, Users } from '@lucide/vue'
+import { Shield, Trash2, UserMinus, UserPlus, Users } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { Checkbox } from '@repo/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
 import type { Space } from '@/api/drive'
@@ -18,8 +19,10 @@ const overview = ref<SpaceMembersOverview | null>(null)
 const inviteTarget = ref('')
 const inviteRole = ref<'MANAGER' | 'EDITOR' | 'VIEWER'>('VIEWER')
 const inviteMessage = ref('')
+const keepMembersOnConvert = ref(true)
 
 const canManage = computed(() => overview.value?.myRole === 'OWNER' || overview.value?.myRole === 'MANAGER')
+const retainedMembersCount = computed(() => (overview.value?.members || []).filter(m => m.role !== 'OWNER').length)
 
 async function load() {
   loading.value = true
@@ -36,13 +39,35 @@ async function load() {
 async function convertToShared() {
   busy.value = true
   error.value = ''
+  notice.value = ''
   try {
+    const retained = retainedMembersCount.value
     await shareApi.convertToShared(props.space.id)
-    notice.value = '已转为共享空间，原有文件完整保留'
+    notice.value = retained > 0
+      ? `已转为共享空间，已自动恢复 ${retained} 位保留成员的访问权限`
+      : '已转为共享空间，原有文件完整保留'
     emit('updated')
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : '转换共享空间失败'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function convertToPersonal() {
+  busy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    await shareApi.convertToPersonal(props.space.id, keepMembersOnConvert.value)
+    notice.value = keepMembersOnConvert.value
+      ? '已转为个人空间（成员名单已保留，下次再转为共享空间时可自动恢复）'
+      : '已转为个人空间（已清空所有共享成员，下次共享不会恢复）'
+    emit('updated')
+    await load()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '转为个人空间失败'
   } finally {
     busy.value = false
   }
@@ -130,9 +155,12 @@ onMounted(() => { void load() })
 
       <div v-if="loading" class="py-8 text-center text-sm text-muted-foreground">正在加载成员信息…</div>
       <div v-else-if="overview && overview.kind !== 'SHARED'" class="space-y-4 py-4">
-        <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+        <div class="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-1">
           <p class="font-medium">当前为个人空间</p>
-          <p class="mt-1 text-xs text-muted-foreground">转为共享空间后，可邀请团队成员协作查看或编辑，原有目录与文件完整保留。</p>
+          <p class="text-xs text-muted-foreground">转为共享空间后，可邀请团队成员协作查看或编辑，原有目录与文件完整保留。</p>
+          <p v-if="retainedMembersCount > 0" class="text-xs text-primary">
+            已保留 {{ retainedMembersCount }} 位原共享成员，转为共享空间后将自动恢复其协作权限。
+          </p>
         </div>
         <Button :disabled="busy" @click="convertToShared">
           <Shield :size="15" /> {{ busy ? '正在转换…' : '转为共享空间' }}
@@ -200,6 +228,25 @@ onMounted(() => { void load() })
               <Button variant="ghost" size="sm" class="h-7 text-destructive" :disabled="busy" @click="cancelInvite(inv.id)">取消邀请</Button>
             </div>
           </div>
+        </div>
+
+        <div v-if="overview.myRole === 'OWNER'" class="space-y-3 rounded-lg border border-border bg-muted/20 p-3.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="text-xs font-semibold">转为个人空间</div>
+              <p class="text-[11px] text-muted-foreground">转换后其他成员将立即失去该空间访问权限，待处理邀请自动取消。</p>
+            </div>
+            <Button variant="outline" size="sm" :disabled="busy" @click="convertToPersonal">
+              <UserMinus :size="14" /> {{ busy ? '正在转换…' : '转为个人空间' }}
+            </Button>
+          </div>
+          <label class="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              :model-value="keepMembersOnConvert"
+              @update:model-value="v => { keepMembersOnConvert = v === true }"
+            />
+            <span>保留当前成员（下次再次转为共享空间时自动恢复；取消勾选则清空成员，下次不恢复）</span>
+          </label>
         </div>
       </div>
     </DialogContent>

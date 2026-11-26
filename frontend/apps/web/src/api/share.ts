@@ -131,6 +131,8 @@ export interface InboxResponse {
 
 export const shareApi = {
   convertToShared: (spaceId: string) => request.post<void>(`/v1/spaces/${spaceId}/convert-shared`),
+  convertToPersonal: (spaceId: string, keepMembers = true) =>
+    request.post<void>(`/v1/spaces/${spaceId}/convert-personal`, undefined, { params: { keepMembers } }),
   spaceMembers: (spaceId: string) => request.get<SpaceMembersOverview>(`/v1/spaces/${spaceId}/members`),
   inviteToSpace: (spaceId: string, payload: { target: string; role: 'MANAGER' | 'EDITOR' | 'VIEWER'; message?: string }) =>
     request.post<string>(`/v1/spaces/${spaceId}/invitations`, payload),

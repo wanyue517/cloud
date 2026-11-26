@@ -32,6 +32,15 @@ public class ShareController {
         return R.ok();
     }
 
+    @PostMapping("/spaces/{space}/convert-personal")
+    public R<Void> convertToPersonal(
+            Authentication auth,
+            @PathVariable long space,
+            @RequestParam(defaultValue = "true") boolean keepMembers) {
+        shareService.convertToPersonalSpace(user(auth), space, keepMembers);
+        return R.ok();
+    }
+
     @GetMapping("/spaces/{space}/members")
     public R<SpaceMembersOverview> spaceMembers(Authentication auth, @PathVariable long space) {
         return R.ok(shareService.spaceMembers(user(auth), space));

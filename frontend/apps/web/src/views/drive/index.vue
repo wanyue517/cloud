@@ -94,8 +94,18 @@ const layout = reactive<LayoutPreferences>(loadLayoutPreferences())
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
 const viewportTier = computed(() => resolveViewportTier(viewportWidth.value))
 const mobileNavOpen = ref(false), drawerTreeOpen = ref(false), resizingTree = ref(false)
+const mode = computed<'files' | 'favorites' | 'settings' | 'tasks' | 'shared' | 'recent' | 'search'>(() => {
+  if (route.name === 'settings') return 'settings'
+  if (route.name === 'search') return 'search'
+  if (route.name === 'tasks') return 'tasks'
+  if (route.name === 'shared') return 'shared'
+  if (route.name === 'recent') return 'recent'
+  if (route.name === 'favorites') return 'favorites'
+  return 'files'
+})
+const hasSecondaryPane = computed(() => mode.value === 'settings' || mode.value === 'files')
 const sidebarVisible = computed(() => viewportTier.value === 'mobile' ? mobileNavOpen.value : !layout.sidebarCollapsed)
-const treeVisible = computed(() => hasSecondaryPane.value && (viewportTier.value === 'desktop' ? !layout.treeCollapsed : drawerTreeOpen.value))
+const treeVisible = computed(() => hasSecondaryPane.value && (viewportTier.value === 'desktop' ? (mode.value === 'settings' || !layout.treeCollapsed) : drawerTreeOpen.value))
 const hasDrawerOpen = computed(() => (viewportTier.value === 'mobile' && mobileNavOpen.value) || (viewportTier.value !== 'desktop' && hasSecondaryPane.value && drawerTreeOpen.value))
 let stopResize: (() => void) | undefined
 
@@ -159,15 +169,6 @@ const SETTINGS_NAV: { key: SettingsSection; label: string; description: string }
   { key: 'trash', label: '回收站', description: '恢复或彻底清理已删除资源' },
 ]
 
-const mode = computed<'files' | 'favorites' | 'settings' | 'tasks' | 'shared' | 'recent' | 'search'>(() => {
-  if (route.name === 'settings') return 'settings'
-  if (route.name === 'search') return 'search'
-  if (route.name === 'tasks') return 'tasks'
-  if (route.name === 'shared') return 'shared'
-  if (route.name === 'recent') return 'recent'
-  if (route.name === 'favorites') return 'favorites'
-  return 'files'
-})
 const settingsSection = computed<SettingsSection>(() => {
   const sec = String(route.params.section || 'profile')
   return (['profile', 'security', 'appearance', 'files', 'private', 'trash'].includes(sec) ? sec : 'profile') as SettingsSection
@@ -175,7 +176,6 @@ const settingsSection = computed<SettingsSection>(() => {
 
 const lastSpaceId = ref('')
 const spaceId = computed(() => String(route.params.spaceId || lastSpaceId.value || visibleSpaces.value[0]?.id || spaces.value[0]?.id || ''))
-const hasSecondaryPane = computed(() => mode.value === 'settings' || (mode.value === 'files' && !!spaceId.value))
 const parentId = computed(() => String(route.params.folderId || '0'))
 const currentSpace = computed(() => spaces.value.find(s => s.id === spaceId.value))
 const currentSelection = computed(() => nodes.value.filter(n => selected.value.has(n.id)))
@@ -778,7 +778,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     class="drive-app"
     :class="{
       'is-sidebar-collapsed': viewportTier !== 'mobile' && layout.sidebarCollapsed,
-      'is-tree-collapsed': viewportTier === 'desktop' && layout.treeCollapsed,
+      'is-tree-collapsed': viewportTier === 'desktop' && mode === 'files' && layout.treeCollapsed,
       'is-resizing': resizingTree,
     }"
     :style="{ '--drive-tree-width': `${layout.treeWidth}px` }"
@@ -919,7 +919,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             </Button>
           </div>
         </template>
-        <template v-else>
+        <template v-else-if="spaceId">
           <Button variant="ghost" size="sm" class="tree-root-button" :class="{ active: parentId === '0' }" @click="navigate('0')">
             <Folder :size="15" /><span>全部文件</span>
           </Button>
@@ -948,7 +948,19 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       <header class="drive-topbar">
         <div class="topbar-leading">
           <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="sidebarVisible ? '收起导航栏' : '展开导航栏'" :aria-pressed="sidebarVisible" @click="toggleSidebar"><PanelLeft :size="17" /></Button>
-          <Button v-if="hasSecondaryPane" variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="treeVisible ? '收起目录树' : '展开目录树'" :aria-pressed="treeVisible" @click="toggleTree"><ListTree :size="17" /></Button>
+          <Button
+            v-if="mode === 'files'"
+            variant="ghost"
+            :size="treeVisible ? 'icon-sm' : 'sm'"
+            class="layout-toggle-btn"
+            :aria-label="treeVisible ? '收起目录树' : '展开目录树'"
+            :aria-pressed="treeVisible"
+            :title="treeVisible ? '收起目录树' : '展开目录树'"
+            @click="toggleTree"
+          >
+            <ListTree :size="17" />
+            <span v-if="!treeVisible" class="text-xs">目录树</span>
+          </Button>
           <span class="topbar-crumb">{{ topbarTitle }}</span>
         </div>
 
