@@ -501,7 +501,7 @@ onMounted(() => { void load() })
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label class="block space-y-1 text-sm">
                 <span>Endpoint</span>
-                <Input v-model="formEndpoint" placeholder="输入 S3 端点地址" :disabled="saving || formTesting" />
+                <Input v-model="formEndpoint" placeholder="https://s3.example.com 或 http://127.0.0.1:9000" :disabled="saving || formTesting" />
               </label>
               <label class="block space-y-1 text-sm">
                 <span>Bucket</span>

@@ -8,6 +8,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,6 +20,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Map;
 
 @Component
@@ -27,7 +29,9 @@ public class S3StorageProvider implements StorageProvider {
     private static final DateTimeFormatter DATE_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(8))
+            .version(HttpClient.Version.HTTP_1_1)
+            .proxy(ProxySelector.getDefault())
+            .connectTimeout(Duration.ofSeconds(15))
             .build();
 
     @Override
@@ -40,22 +44,36 @@ public class S3StorageProvider implements StorageProvider {
         if (endpoint == null || endpoint.isBlank() || bucket == null || bucket.isBlank()) {
             throw new BizException(HttpStatus.BAD_REQUEST, 400, "S3 Endpoint 与 Bucket 不能为空");
         }
-        String base = endpoint.strip().replaceAll("/+$", "");
         String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
-        URI uri = URI.create(base + "/" + bucket.strip());
+        URI uri = buildBucketUri(endpoint, bucket);
         long start = System.currentTimeMillis();
         try {
-            HttpRequest req = buildSignedRequest("HEAD", uri, safeRegion, accessKey, secretKey, new byte[0], null);
+            HttpRequest req = buildSignedRequest("HEAD", uri, safeRegion, accessKey, secretKey, new byte[0], null, Duration.ofSeconds(20));
             HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
             long elapsed = System.currentTimeMillis() - start;
             if (resp.statusCode() >= 200 && resp.statusCode() < 400) {
-                return Map.of("ok", true, "endpoint", base, "bucket", bucket.strip(), "statusCode", resp.statusCode(), "elapsedMs", elapsed);
+                return Map.of(
+                        "ok", true,
+                        "endpoint", uri.toString(),
+                        "bucket", bucket.strip(),
+                        "statusCode", resp.statusCode(),
+                        "elapsedMs", elapsed);
             }
-            throw new BizException(HttpStatus.BAD_GATEWAY, 16004, "S3 存储连接测试失败，HTTP 状态码: " + resp.statusCode());
+            String hint = switch (resp.statusCode()) {
+                case 403 -> "（请检查 AccessKey/SecretKey、Region 或桶访问权限）";
+                case 404 -> "（目标 Bucket 不存在或 Endpoint 路径不匹配）";
+                default -> "";
+            };
+            throw new BizException(HttpStatus.BAD_GATEWAY, 16004,
+                    "S3 存储连接测试失败，HTTP 状态码: " + resp.statusCode() + hint + " [" + uri + "]");
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw new BizException(HttpStatus.SERVICE_UNAVAILABLE, 16004, "S3 存储不可达: " + e.getMessage());
+            String reason = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage()
+                    : e.getClass().getSimpleName();
+            throw new BizException(HttpStatus.SERVICE_UNAVAILABLE, 16004,
+                    "S3 存储不可达 (" + uri + "): " + reason + "（请检查服务器能否连通该 Endpoint/端口，或防火墙与代理设置）");
         }
     }
 
@@ -131,10 +149,67 @@ public class S3StorageProvider implements StorageProvider {
         }
     }
 
+    private static URI normalizeEndpoint(String rawEndpoint) {
+        String base = rawEndpoint.strip().replaceAll("/+$", "");
+        if (!base.contains("://")) {
+            base = "https://" + base;
+        }
+        URI parsed;
+        try {
+            parsed = URI.create(base);
+        } catch (IllegalArgumentException e) {
+            throw new BizException(HttpStatus.BAD_REQUEST, 400, "S3 Endpoint 格式无效: " + rawEndpoint);
+        }
+        if (parsed.getHost() == null || parsed.getHost().isBlank()) {
+            throw new BizException(HttpStatus.BAD_REQUEST, 400, "S3 Endpoint 缺少有效主机名，请填写完整地址如 https://s3.example.com");
+        }
+        return parsed;
+    }
+
+    private static boolean requiresVirtualHostStyle(String host) {
+        String lower = host.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".aliyuncs.com")
+                || lower.endsWith(".myqcloud.com")
+                || lower.endsWith(".myhuaweicloud.com")
+                || lower.endsWith(".amazonaws.com");
+    }
+
+    private static URI buildBucketUri(String endpoint, String bucket) {
+        URI base = normalizeEndpoint(endpoint);
+        String cleanBucket = bucket.strip();
+        String host = base.getHost();
+        String authority = base.getPort() > 0 ? host + ":" + base.getPort() : host;
+        if (host.toLowerCase(Locale.ROOT).startsWith(cleanBucket.toLowerCase(Locale.ROOT) + ".")) {
+            return URI.create(base.getScheme() + "://" + authority + "/");
+        }
+        if (requiresVirtualHostStyle(host)) {
+            return URI.create(base.getScheme() + "://" + cleanBucket + "." + authority + "/");
+        }
+        String basePath = base.getRawPath() == null ? "" : base.getRawPath().replaceAll("/+$", "");
+        return URI.create(base.getScheme() + "://" + authority + basePath + "/" + cleanBucket);
+    }
+
     private static URI buildObjectUri(String endpoint, String bucket, String key) {
-        String base = endpoint.strip().replaceAll("/+$", "");
+        URI base = normalizeEndpoint(endpoint);
+        String cleanBucket = bucket.strip();
         String cleanKey = key.replaceAll("^/+", "");
-        return URI.create(base + "/" + bucket.strip() + "/" + cleanKey);
+        String host = base.getHost();
+        String authority = base.getPort() > 0 ? host + ":" + base.getPort() : host;
+        if (host.toLowerCase(Locale.ROOT).startsWith(cleanBucket.toLowerCase(Locale.ROOT) + ".")) {
+            return URI.create(base.getScheme() + "://" + authority + "/" + cleanKey);
+        }
+        if (requiresVirtualHostStyle(host)) {
+            return URI.create(base.getScheme() + "://" + cleanBucket + "." + authority + "/" + cleanKey);
+        }
+        String basePath = base.getRawPath() == null ? "" : base.getRawPath().replaceAll("/+$", "");
+        return URI.create(base.getScheme() + "://" + authority + basePath + "/" + cleanBucket + "/" + cleanKey);
+    }
+
+    private static String canonicalHostHeader(URI uri) {
+        int port = uri.getPort();
+        boolean isDefaultPort = (port == 80 && "http".equalsIgnoreCase(uri.getScheme()))
+                || (port == 443 && "https".equalsIgnoreCase(uri.getScheme()));
+        return (port > 0 && !isDefaultPort) ? uri.getHost() + ":" + port : uri.getHost();
     }
 
     /** 生成标准 AWS SigV4 Query String 预签名 PUT URL（需求 7.6 S3 直传） */
@@ -148,7 +223,7 @@ public class S3StorageProvider implements StorageProvider {
             ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
             String amzDate = AMZ_DATE.format(now);
             String dateStamp = DATE_STAMP.format(now);
-            String host = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+            String host = canonicalHostHeader(uri);
             String canonicalUri = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
             String scope = dateStamp + "/" + safeRegion + "/s3/aws4_request";
             String credential = (accessKey == null ? "" : accessKey.strip()) + "/" + scope;
@@ -161,7 +236,7 @@ public class S3StorageProvider implements StorageProvider {
             String canonicalRequest = "PUT\n" + canonicalUri + "\n" + canonicalQuery + "\nhost:" + host + "\n\nhost\nUNSIGNED-PAYLOAD";
             String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n"
                     + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
-            byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey, dateStamp, safeRegion, "s3");
+            byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey.strip(), dateStamp, safeRegion, "s3");
             String signature = HexFormat.of().formatHex(hmacSha256(signingKey, stringToSign));
             return uri + "?" + canonicalQuery + "&X-Amz-Signature=" + signature;
         } catch (Exception e) {
@@ -171,24 +246,29 @@ public class S3StorageProvider implements StorageProvider {
 
     public HttpRequest buildSignedRequest(
             String method, URI uri, String region, String accessKey, String secretKey, byte[] payload, String rangeHeader) throws Exception {
+        return buildSignedRequest(method, uri, region, accessKey, secretKey, payload, rangeHeader, Duration.ofSeconds(120));
+    }
+
+    public HttpRequest buildSignedRequest(
+            String method, URI uri, String region, String accessKey, String secretKey, byte[] payload, String rangeHeader, Duration timeout) throws Exception {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         String amzDate = AMZ_DATE.format(now);
         String dateStamp = DATE_STAMP.format(now);
         String payloadHash = sha256Hex(payload);
-        String host = uri.getPort() > 0 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+        String host = canonicalHostHeader(uri);
         String canonicalUri = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String canonicalHeaders = "host:" + host + "\nx-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + amzDate + "\n";
         String signedHeaders = "host;x-amz-content-sha256;x-amz-date";
         String canonicalRequest = method + "\n" + canonicalUri + "\n\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
         String scope = dateStamp + "/" + region + "/s3/aws4_request";
         String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
-        byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey, dateStamp, region, "s3");
+        byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey.strip(), dateStamp, region, "s3");
         String signature = HexFormat.of().formatHex(hmacSha256(signingKey, stringToSign));
-        String authHeader = "AWS4-HMAC-SHA256 Credential=" + (accessKey == null ? "" : accessKey) + "/" + scope
+        String authHeader = "AWS4-HMAC-SHA256 Credential=" + (accessKey == null ? "" : accessKey.strip()) + "/" + scope
                 + ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
 
         var builder = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofSeconds(15))
+                .timeout(timeout)
                 .header("x-amz-date", amzDate)
                 .header("x-amz-content-sha256", payloadHash)
                 .header("Authorization", authHeader);
