@@ -1,0 +1,17 @@
+spring:
+  config:
+    import: optional:file:./application-local.yaml,optional:file:../application-local.yaml
+  application:
+    name: cloud-worker
+  main:
+    web-application-type: none
+
+cloud:
+  storage:
+    root: ${CLOUD_STORAGE_ROOT:data/objects}
+    preview-root: ${CLOUD_PREVIEW_ROOT:data/previews}
+    worker-tmp: ${CLOUD_WORKER_TMP:data/worker-tmp}
+  worker:
+    enabled: ${CLOUD_WORKER_ENABLED:true}
+    node-id: ${CLOUD_WORKER_NODE_ID:worker-local-1}
+    heartbeat-interval-ms: ${CLOUD_WORKER_HEARTBEAT_INTERVAL_MS:30000}

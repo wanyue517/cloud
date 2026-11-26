@@ -1,0 +1,14 @@
+{
+  "name": "@repo/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./generated": "./src/generated/openapi.d.ts"
+  },
+  "scripts": {
+    "generate": "node ./scripts/generate-types.mjs",
+    "check": "node ./scripts/generate-types.mjs --check"
+  }
+}

@@ -1,0 +1,154 @@
+package com.wanyue.cloud.modules.drive.preview;
+
+import com.wanyue.cloud.common.result.R;
+import com.wanyue.cloud.common.security.UserIdPrincipal;
+import com.wanyue.cloud.modules.drive.DriveModels;
+import com.wanyue.cloud.modules.drive.DriveService;
+import com.wanyue.cloud.modules.drive.preview.PreviewModels.*;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+
+@RestController
+@RequestMapping("/api/v1/spaces/{space}/nodes/{id}/preview")
+public class PreviewController {
+    private final DriveService drive;
+    private final PreviewAssetService assetService;
+    private final ExcelPreviewService excelService;
+    private final ArchivePreviewService archiveService;
+
+    public PreviewController(
+            DriveService drive,
+            PreviewAssetService assetService,
+            ExcelPreviewService excelService,
+            ArchivePreviewService archiveService) {
+        this.drive = drive;
+        this.assetService = assetService;
+        this.excelService = excelService;
+        this.archiveService = archiveService;
+    }
+
+    private static long user(Authentication auth) {
+        return ((UserIdPrincipal) auth.getPrincipal()).userId();
+    }
+
+    private long resolveVersionId(long userId, long space, long id, Long versionId) {
+        if (versionId != null) return versionId;
+        var versions = drive.versions(userId, space, id);
+        return versions.isEmpty() ? id : Long.parseLong(versions.get(0).id());
+    }
+
+    @GetMapping("/assets/{assetType}")
+    public R<PreviewAsset> getOrTriggerAsset(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @PathVariable String assetType,
+            @RequestParam(required = false) Long versionId) {
+        long uid = user(auth);
+        DriveModels.Content content = drive.content(uid, space, id, versionId);
+        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        return R.ok(assetService.getOrTriggerAsset(id, resolvedVersion, assetType, content));
+    }
+
+    @PostMapping("/assets/{assetType}/retry")
+    public R<PreviewAsset> retryAsset(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @PathVariable String assetType,
+            @RequestParam(required = false) Long versionId) {
+        long uid = user(auth);
+        DriveModels.Content content = drive.content(uid, space, id, versionId);
+        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        return R.ok(assetService.retryAsset(id, resolvedVersion, assetType, content));
+    }
+
+    @GetMapping("/assets/{assetType}/content")
+    public ResponseEntity<FileSystemResource> assetContent(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @PathVariable String assetType,
+            @RequestParam(required = false) Long versionId) {
+        long uid = user(auth);
+        drive.content(uid, space, id, versionId);
+        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        Path assetPath = assetService.resolveReadyAssetPath(resolvedVersion, assetType);
+        String mime = "OFFICE_PDF".equalsIgnoreCase(assetType) ? "application/pdf" : "video/mp4";
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(assetPath.getFileName().toString(), StandardCharsets.UTF_8).build().toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'")
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.parseMediaType(mime))
+                .body(new FileSystemResource(assetPath));
+    }
+
+    @GetMapping("/excel/sheets")
+    public R<ExcelMetadata> excelSheets(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId) throws IOException {
+        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
+        return R.ok(excelService.readMetadata(content.path(), content.name()));
+    }
+
+    @GetMapping("/excel/rows")
+    public R<ExcelRowsPage> excelRows(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId,
+            @RequestParam(defaultValue = "0") int sheetIndex,
+            @RequestParam(defaultValue = "0") int rowOffset,
+            @RequestParam(defaultValue = "100") int rowLimit) throws IOException {
+        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
+        return R.ok(excelService.readRows(content.path(), content.name(), sheetIndex, rowOffset, rowLimit));
+    }
+
+    @GetMapping("/video/probe")
+    public R<VideoProbe> videoProbe(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId) {
+        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
+        return R.ok(assetService.probeVideo(content));
+    }
+
+    @GetMapping("/archive/entries")
+    public R<ArchiveListing> archiveEntries(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId) throws IOException {
+        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
+        return R.ok(archiveService.listEntries(content.path(), content.name()));
+    }
+
+    @GetMapping("/archive/extract")
+    public ResponseEntity<ByteArrayResource> archiveExtract(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId,
+            @RequestParam String entryPath) throws IOException {
+        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
+        ArchivePreviewService.ExtractedEntry extracted = archiveService.extractEntry(content.path(), content.name(), entryPath);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(extracted.fileName(), StandardCharsets.UTF_8).build().toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'")
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(new ByteArrayResource(extracted.data()));
+    }
+}

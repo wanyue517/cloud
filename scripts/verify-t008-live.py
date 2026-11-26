@@ -51,7 +51,8 @@ def main():
     sql(f'CREATE DATABASE {schema} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;')
     print('Created disposable schema:', schema, flush=True)
     try:
-        return subprocess.run([shutil.which('mvn') or 'mvn', '-B', '-Dtest=FrontendSessionE2ETest', 'test'],
+        return subprocess.run([shutil.which('mvn') or 'mvn', '-B', '-pl', 'cloud-api', '-am',
+                               '-Dsurefire.failIfNoSpecifiedTests=false', '-Dtest=FrontendSessionE2ETest', 'test'],
                               cwd=ROOT / 'backend', env=env).returncode
     finally:
         sql(f'DROP DATABASE {schema};')

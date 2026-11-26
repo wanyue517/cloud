@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS resource_share (
+    id BIGINT NOT NULL PRIMARY KEY,
+    space_id BIGINT NOT NULL,
+    node_id BIGINT NOT NULL COMMENT '被共享的文件夹或文件节点ID，原路径不变',
+    owner_user_id BIGINT NOT NULL COMMENT '资源所有者ID',
+    target_user_id BIGINT NOT NULL COMMENT '被授权用户ID',
+    permission VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'VIEWER' COMMENT 'VIEWER | EDITOR',
+    source_type VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'DIRECT' COMMENT '权限来源：DIRECT',
+    granted_by BIGINT NOT NULL,
+    expires_at DATETIME(3) NULL,
+    revoked_at DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uk_resource_share_node_target (node_id, target_user_id),
+    KEY idx_resource_share_target (target_user_id, revoked_at, space_id),
+    KEY idx_resource_share_owner (owner_user_id, revoked_at, created_at),
+    KEY idx_resource_share_space_node (space_id, node_id, revoked_at),
+    CONSTRAINT ck_resource_share_perm CHECK (permission IN ('VIEWER', 'EDITOR'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='任意文件夹/文件定向共享授权表';
+
+CREATE TABLE IF NOT EXISTS share_invitation (
+    id BIGINT NOT NULL PRIMARY KEY,
+    target_type VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'SPACE | FOLDER',
+    space_id BIGINT NOT NULL,
+    node_id BIGINT NULL COMMENT 'FOLDER 邀请时为目标文件夹ID，SPACE 邀请为 NULL',
+    inviter_user_id BIGINT NOT NULL,
+    invitee_user_id BIGINT NOT NULL,
+    role VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'MANAGER | EDITOR | VIEWER',
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING | ACCEPTED | REJECTED | CANCELLED | EXPIRED',
+    message VARCHAR(255) NOT NULL DEFAULT '',
+    expires_at DATETIME(3) NULL,
+    responded_at DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    KEY idx_invitation_invitee (invitee_user_id, status, created_at),
+    KEY idx_invitation_space (space_id, status, created_at),
+    KEY idx_invitation_inviter (inviter_user_id, created_at),
+    CONSTRAINT ck_invitation_target CHECK (target_type IN ('SPACE', 'FOLDER')),
+    CONSTRAINT ck_invitation_role CHECK (role IN ('MANAGER', 'EDITOR', 'VIEWER')),
+    CONSTRAINT ck_invitation_status CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED', 'EXPIRED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='共享空间与共享文件夹邀请记录表';

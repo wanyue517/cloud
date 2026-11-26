@@ -12,6 +12,7 @@ export interface R<T> {
     code: number
     msg: string
     data: T
+    traceId?: string | null
 }
 
 export interface RequestOptions extends AxiosRequestConfig {

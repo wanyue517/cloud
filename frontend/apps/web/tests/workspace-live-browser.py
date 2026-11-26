@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import shutil
 import tempfile
@@ -87,6 +88,185 @@ def verify_shared_dialog(page, app):
     expect(trigger).to_be_focused()
     print('PASS: ' + app + ' shared Dialog styling, Chinese label, focus trap, Escape/click close and focus restore', flush=True)
 
+def verify_theme_tokens(page, context):
+    token = page.evaluate("sessionStorage.getItem('cloudlane.accessToken')")
+    headers = {'Authorization': 'Bearer ' + token}
+    created = context.request.post(BASE + '/api/v1/spaces', data={'name': 'Theme tokens'}, headers=headers)
+    assert created.status == 200
+    space = created.json()['data']
+    folder = context.request.post(BASE + '/api/v1/spaces/' + space + '/folders',
+                                  data={'parentId': '0', 'name': 'Theme row'}, headers=headers)
+    assert folder.status == 200
+    workspace = BASE + '/app/spaces/' + space
+    page.goto(workspace)
+    row = page.locator('.list .file-item').first
+    expect(row).to_be_visible()
+    expect(row).to_have_css('height', '48px')
+    expect(page.locator('.drive-app')).to_have_css('font-size', '14px')
+    expect(page.locator('.drive-topbar')).to_have_css('height', '56px')
+    expect(page.locator('.drive-sidebar')).to_have_css('width', '240px')
+    upload = page.locator('.upload-main')
+    expect(upload).to_be_enabled()
+    expect(upload).to_have_css('height', '36px')
+    assert page.locator('body').evaluate('(el) => getComputedStyle(el).fontFamily') == page.locator('.drive-app').evaluate('(el) => getComputedStyle(el).fontFamily')
+    mode = 'dev' if os.environ.get('T008_USE_DEV') == '1' else 'prod'
+    def appearance():
+        page.get_by_role('button', name='外观设置', exact=True).click()
+        dialog = page.get_by_role('dialog', name='外观设置', exact=True)
+        expect(dialog).to_be_visible()
+        expect(dialog).to_have_css('opacity', '1')
+        return dialog
+    def primary(value):
+        expect(page.locator('html')).to_have_css('--primary', value)
+    dialog = appearance()
+    light = [('海蓝', '#2563eb'), ('紫罗兰', '#7c3aed'), ('森林', '#15803d'), ('玫瑰', '#be185d'), ('暖橙', '#c2410c')]
+    dark = [('海蓝', '#60a5fa'), ('紫罗兰', '#a78bfa'), ('森林', '#4ade80'), ('玫瑰', '#fb7185'), ('暖橙', '#fb923c')]
+    for label, pairs in [('浅色', light), ('深色', dark)]:
+        dialog.get_by_role('button', name=label, exact=True).click()
+        for name, color in pairs:
+            dialog.get_by_role('button', name=name, exact=True).click()
+            primary(color)
+    dialog.get_by_role('button', name='浅色', exact=True).click()
+    dialog.get_by_role('button', name='紫罗兰', exact=True).click()
+    dialog.get_by_role('button', name='直角', exact=True).click()
+    dialog.get_by_label('紧凑文件列表', exact=True).check()
+    expect(dialog).to_have_css('border-top-left-radius', '0px')
+    expect(dialog.get_by_role('button', name='浅色', exact=True)).to_have_css('border-top-left-radius', '0px')
+    expect(row).to_have_css('height', '36px')
+    expect(upload).to_have_css('height', '36px')
+    page.screenshot(path=str(OUTPUT / ('theme-light-' + mode + '.png')), full_page=True, animations='disabled')
+    page.keyboard.press('Escape')
+    page.reload()
+    expect(row).to_have_css('height', '36px')
+    primary('#7c3aed')
+    expect(upload).to_have_css('border-top-left-radius', '0px')
+    dialog = appearance()
+    expect(dialog.get_by_role('button', name='直角', exact=True)).to_have_attribute('aria-pressed', 'true')
+    dialog.get_by_role('button', name='深色', exact=True).click()
+    dialog.get_by_role('button', name='森林', exact=True).click()
+    dialog.get_by_role('button', name='16px', exact=True).click()
+    dialog.get_by_label('紧凑文件列表', exact=True).uncheck()
+    expect(row).to_have_css('height', '48px')
+    expect(dialog).to_have_css('border-top-left-radius', '16px')
+    expect(dialog).to_have_css('background-color', 'rgb(16, 17, 20)')
+    primary('#4ade80')
+    page.screenshot(path=str(OUTPUT / ('theme-dark-' + mode + '.png')), full_page=True, animations='disabled')
+    page.keyboard.press('Escape')
+    expect(upload).to_have_css('background-color', 'rgb(74, 222, 128)')
+    expect(upload).to_have_css('color', 'rgb(16, 17, 20)')
+    upload.hover()
+    expect(upload).not_to_have_css('background-color', 'rgb(74, 222, 128)')
+    page.mouse.move(0, 0)
+    expect(upload).to_have_css('background-color', 'rgb(74, 222, 128)')
+    expect(upload).to_have_css('height', '36px')
+    # Full-page admin navigation and a second tab both restore the same preferences.
+    page.goto(BASE + '/admin/')
+    expect(page.get_by_role('heading', name='Cloudlane 管理后台')).to_be_visible()
+    primary('#4ade80')
+    expect(page.locator('body')).to_have_css('background-color', 'rgb(16, 17, 20)')
+    dialog = appearance()
+    expect(dialog).to_have_css('border-top-left-radius', '16px')
+    page.screenshot(path=str(OUTPUT / ('theme-admin-dark-' + mode + '.png')), full_page=True, animations='disabled')
+    page.keyboard.press('Escape')
+    page.goto(workspace)
+    expect(row).to_have_css('height', '48px')
+    other = context.new_page()
+    try:
+        other.goto(BASE + '/auth/login')
+        expect(other.locator('html')).to_have_class('dark')
+        expect(other.locator('html')).to_have_css('--primary', '#4ade80')
+        dialog = appearance()
+        dialog.get_by_role('button', name='暖橙', exact=True).click()
+        expect(other.locator('html')).to_have_css('--primary', '#fb923c')
+        dialog.get_by_role('button', name='跟随系统', exact=True).click()
+        page.emulate_media(color_scheme='light')
+        expect(page.locator('html')).not_to_have_class('dark')
+        primary('#c2410c')
+        page.emulate_media(color_scheme='dark')
+        expect(page.locator('html')).to_have_class('dark')
+        primary('#fb923c')
+        assert page.evaluate("JSON.parse(localStorage.getItem('cloudlane.theme')).mode") == 'system'
+        dialog.get_by_role('button', name='海蓝', exact=True).click()
+        dialog.get_by_role('button', name='12px', exact=True).click()
+        page.keyboard.press('Escape')
+        page.emulate_media(color_scheme='light')
+        page.evaluate("localStorage.setItem('cloudlane.theme', 'broken JSON')")
+        page.reload()
+        primary('#2563eb')
+        expect(row).to_have_css('height', '48px')
+        expect(page.locator('html')).to_have_css('--radius', '0.75rem')
+    finally:
+        other.close()
+    print('PASS: theme color pairs, zero radius, row density, persistence, admin consistency, cross-tab sync, OS changes and corrupt-preference recovery', flush=True)
+
+
+def verify_three_pane_layout(page):
+    mode = 'dev' if os.environ.get('T008_USE_DEV') == '1' else 'prod'
+    sidebar = page.locator('.drive-sidebar')
+    tree = page.locator('.drive-tree-pane')
+    main = page.locator('.drive-main')
+    resizer = page.get_by_role('separator', name='调整目录树宽度')
+
+    page.set_viewport_size({'width': 1280, 'height': 720})
+    expect(sidebar).to_have_css('width', '240px')
+    expect(tree).to_have_css('width', '260px')
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), 'Desktop overflow'
+    initial_main = main.bounding_box()['width']
+
+    # Keyboard resize + persistence + double-click reset
+    resizer.focus()
+    page.keyboard.press('ArrowRight')
+    expect(tree).to_have_css('width', '276px')
+    page.reload()
+    expect(tree).to_have_css('width', '276px')
+    resizer.dblclick()
+    expect(tree).to_have_css('width', '260px')
+
+    # Collapse tree & sidebar and verify main area expands
+    page.get_by_role('button', name='收起目录树', exact=True).click()
+    expect(tree).to_have_css('width', '0px')
+    after_tree_collapse = main.bounding_box()['width']
+    assert after_tree_collapse > initial_main + 200
+    page.get_by_role('button', name='收起导航栏', exact=True).click()
+    expect(sidebar).to_have_css('width', '0px')
+    after_both_collapse = main.bounding_box()['width']
+    assert after_both_collapse > after_tree_collapse + 200
+    page.get_by_role('button', name='展开导航栏', exact=True).click()
+    page.get_by_role('button', name='展开目录树', exact=True).click()
+    expect(sidebar).to_have_css('width', '240px')
+    expect(tree).to_have_css('width', '260px')
+    page.screenshot(path=str(OUTPUT / ('layout-desktop-' + mode + '.png')), full_page=True, animations='disabled')
+
+    # Tablet breakpoint: sidebar visible, tree as overlay drawer
+    page.set_viewport_size({'width': 900, 'height': 720})
+    expect(sidebar).to_have_css('width', '216px')
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), 'Tablet overflow'
+    page.get_by_role('button', name='展开目录树', exact=True).click()
+    expect(tree).to_have_class(re.compile(r'is-open'))
+    page.keyboard.press('Escape')
+    expect(tree).not_to_have_class(re.compile(r'is-open'))
+
+    # Mobile breakpoint: both panes as drawers, main takes full width
+    page.set_viewport_size({'width': 390, 'height': 844})
+    assert main.bounding_box()['width'] >= 380
+    assert page.evaluate('document.documentElement.scrollWidth <= document.documentElement.clientWidth'), 'Mobile overflow'
+    page.get_by_role('button', name='展开导航栏', exact=True).click()
+    expect(sidebar).to_have_class(re.compile(r'is-open'))
+    page.screenshot(path=str(OUTPUT / ('layout-mobile-drawer-' + mode + '.png')), full_page=False, animations='disabled')
+    page.locator('.drive-drawer-backdrop').click(position={'x': 380, 'y': 700})
+    expect(sidebar).not_to_have_class(re.compile(r'is-open'))
+    page.get_by_role('button', name='展开目录树', exact=True).click()
+    expect(tree).to_have_class(re.compile(r'is-open'))
+    page.keyboard.press('Escape')
+    expect(tree).not_to_have_class(re.compile(r'is-open'))
+
+    # Restore desktop viewport for remaining checks
+    page.set_viewport_size({'width': 1280, 'height': 720})
+    expect(sidebar).to_have_css('width', '240px')
+    expect(tree).to_have_css('width', '260px')
+    print('PASS: three-pane desktop layout, tree resize persistence, pane collapse, tablet/mobile drawers without overflow', flush=True)
+
+
 def run_browser():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, channel=os.environ.get('T008_BROWSER_CHANNEL', 'msedge'))
@@ -136,12 +316,24 @@ def run_browser():
             next_page = page.get_by_role('button', name='下一页', exact=True)
             expect(next_page).to_be_disabled()
             expect(next_page).to_have_css('opacity', '0.5')
+            # T013: verify independent admin layout navigation across dashboard, users, and planned routes.
+            page.get_by_role('link', name='仪表盘', exact=True).click()
+            page.wait_for_url('**/admin/')
+            expect(page.get_by_role('heading', name='系统概览', exact=True)).to_be_visible()
+            page.locator('nav a[href="/admin/storage"]').click()
+            page.wait_for_url('**/admin/storage')
+            expect(page.get_by_role('heading', name='存储配置', exact=True)).to_be_visible()
+            page.get_by_role('link', name='用户管理', exact=True).click()
+            page.wait_for_url('**/admin/users')
+            expect(page.get_by_role('heading', name='用户管理', exact=True)).to_be_visible()
             verify_shared_dialog(page, 'admin')
             # The default /app child must render the real workbench after returning from admin.
             page.get_by_role('link', name='返回网盘', exact=True).click()
             page.wait_for_url('**/app')
             expect(page.locator('.drive-app')).to_be_visible()
             verify_shared_dialog(page, 'web')
+            verify_theme_tokens(page, context)
+            verify_three_pane_layout(page)
             expect(page.get_by_role('link', name='管理后台', exact=True)).to_be_visible()
             page.get_by_role('link', name='管理后台', exact=True).click()
             expect(page.get_by_role('heading', name='Cloudlane 管理后台')).to_be_visible()
@@ -199,6 +391,11 @@ def run_browser():
                 print('PASS: real login return, deep refresh, HttpOnly cookie rotation, replay rejection, server logout revocation, member404/API403', flush=True)
             finally:
                 isolated.dispose()
+        except Exception:
+            page.screenshot(path=str(OUTPUT / 'latest-failure.png'), full_page=True)
+            print('Failed browser URL:', page.url, flush=True)
+            print('Visible page:', page.locator('body').inner_text()[:800], flush=True)
+            raise
         finally:
             browser.close()
 

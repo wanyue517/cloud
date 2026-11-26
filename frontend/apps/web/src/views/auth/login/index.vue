@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { Cloud, Eye, EyeOff } from '@lucide/vue'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -9,10 +9,12 @@ import { Input } from '@repo/ui/input'
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@repo/ui/form'
 import { loginSchema } from './schema'
 import { useLogin } from './useLogin'
+import { useSiteConfig } from '@/composables/useSiteConfig'
 
 import { safeReturnPath, isAdminPath } from '@repo/session/navigation'
 const route = useRoute()
 const router = useRouter()
+const { siteConfig, loadSiteConfig } = useSiteConfig()
 const form = useForm({
   validationSchema: toTypedSchema(loginSchema),
   initialValues: { email: '', password: '' },
@@ -27,6 +29,7 @@ const onSubmit = form.handleSubmit(async (values) => {
     else await router.replace(destination)
   }
 })
+onMounted(() => { void loadSiteConfig() })
 </script>
 
 <template>
@@ -34,13 +37,17 @@ const onSubmit = form.handleSubmit(async (values) => {
     <div class="w-full max-w-[400px]">
       <header class="mb-9">
         <RouterLink to="/" class="mb-8 inline-flex items-center gap-2.5 text-sm font-semibold tracking-tight">
-          <span class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Cloud :size="19" aria-hidden="true" />
+          <span class="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground overflow-hidden">
+            <img v-if="siteConfig.siteLogoUrl" :src="siteConfig.siteLogoUrl" :alt="siteConfig.siteName" class="size-full object-contain" />
+            <Cloud v-else :size="19" aria-hidden="true" />
           </span>
-          Cloudlane
+          {{ siteConfig.siteName }}
         </RouterLink>
         <h1 class="text-2xl font-semibold tracking-tight">欢迎回来</h1>
-        <p class="mt-2 text-sm text-muted-foreground">使用邮箱和密码登录 Cloudlane</p>
+        <p class="mt-2 text-sm text-muted-foreground">使用邮箱和密码登录 {{ siteConfig.siteName }}</p>
+        <p v-if="siteConfig.siteAnnouncement" class="mt-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-foreground">
+          {{ siteConfig.siteAnnouncement }}
+        </p>
       </header>
 
       <form class="space-y-5" novalidate @submit="onSubmit">
@@ -102,12 +109,17 @@ const onSubmit = form.handleSubmit(async (values) => {
         </Button>
       </form>
 
-      <p class="mt-7 text-center text-sm text-muted-foreground">
-        还没有账号？
-        <RouterLink to="/auth/register" class="font-medium text-primary hover:underline underline-offset-4">
-          立即注册
+      <div class="mt-7 flex items-center justify-between text-sm text-muted-foreground">
+        <RouterLink to="/auth/forgot-password" class="hover:text-foreground hover:underline underline-offset-4">
+          忘记密码？
         </RouterLink>
-      </p>
+        <span v-if="siteConfig.allowRegister">
+          还没有账号？
+          <RouterLink to="/auth/register" class="font-medium text-primary hover:underline underline-offset-4">
+            立即注册
+          </RouterLink>
+        </span>
+      </div>
     </div>
   </main>
 </template>

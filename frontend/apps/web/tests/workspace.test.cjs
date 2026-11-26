@@ -21,8 +21,8 @@ function load(relative, dependencies = {}, globals = {}) {
 }
 const nav = load('packages/session/navigation.ts')
 test('return allowlist accepts implemented local routes and rejects unsafe input', () => {
-  for (const value of ['/admin', '/admin/', '/admin/users?page=2#row', '/app', '/app/spaces/2124534695294148609/folders/10?preview=20']) assert.equal(nav.safeReturnPath(value), value)
-  for (const value of [null, ['/admin'], '//evil.test/admin', 'https://evil.test', '/adminx', '/admin/../auth/login', '/admin/%2e%2e', '/admin\\evil', '/admin/users\n', '/auth/login', '/admin/storage', '/app/unknown']) assert.equal(nav.safeReturnPath(value), '/app')
+  for (const value of ['/admin', '/admin/', '/admin/users?page=2#row', '/admin/storage', '/admin/tasks', '/admin/settings/site', '/admin/logs', '/app', '/app/favorites', '/app/trash', '/app/tasks', '/app/shared', '/app/recent', '/app/settings/profile', '/app/settings/security', '/app/settings/appearance', '/app/settings/files', '/app/spaces/2124534695294148609/folders/10?preview=20']) assert.equal(nav.safeReturnPath(value), value)
+  for (const value of [null, ['/admin'], '//evil.test/admin', 'https://evil.test', '/adminx', '/admin/../auth/login', '/admin/%2e%2e', '/admin\\evil', '/admin/users\n', '/auth/login', '/admin/unknown', '/admin/settings/unknown', '/app/settings/unknown', '/app/unknown']) assert.equal(nav.safeReturnPath(value), '/app')
   assert.equal(nav.isAdminPath('/admin?x=1'), true)
   assert.equal(nav.isAdminPath('/administrator'), false)
   assert.equal(new URL(nav.loginUrl('/admin/users?page=2'), 'http://local').searchParams.get('returnTo'), '/admin/users?page=2')
@@ -42,8 +42,32 @@ test('admin router redirects guests, hides admin from members, allows deep links
   assert.equal(lookups, 0)
   token = 'member'; router = makeRouter(); await router.push('/users')
   assert.equal(router.currentRoute.value.path, '/404')
+  assert.equal(router.currentRoute.value.matched.length, 1)
+  await router.push('/storage')
+  assert.equal(router.currentRoute.value.path, '/404')
   admin = true; token = 'admin'; router = makeRouter(); await router.push('/users?page=2')
   assert.equal(router.currentRoute.value.fullPath, '/users?page=2')
+  assert.equal(router.currentRoute.value.name, 'admin-users')
+  assert.equal(router.currentRoute.value.matched.length, 2)
+  await router.push('/')
+  assert.equal(router.currentRoute.value.name, 'admin-dashboard')
+  assert.equal(router.currentRoute.value.matched.length, 2)
+  for (const [path, name] of [
+    ['/messages', 'admin-messages'],
+    ['/storage', 'admin-storage'],
+    ['/settings/site', 'admin-settings-site'],
+    ['/settings/auth', 'admin-settings-auth'],
+    ['/settings/files', 'admin-settings-files'],
+    ['/tasks', 'admin-tasks'],
+    ['/logs', 'admin-logs'],
+  ]) {
+    await router.push(path)
+    assert.equal(router.currentRoute.value.name, name)
+    assert.equal(router.currentRoute.value.matched.length, 2)
+  }
+  await router.push('/not-a-real-admin-route')
+  assert.equal(router.currentRoute.value.path, '/404')
+  assert.equal(router.currentRoute.value.matched.length, 1)
   router = makeRouter(); await router.push('/users?page=2')
   assert.equal(router.currentRoute.value.path, '/users')
   token = null; await router.push('/')
@@ -138,6 +162,8 @@ test('web guards known resources, preserves string IDs and leaves unknown pages 
   assert.equal(router.currentRoute.value.name, 'folders')
   assert.equal(router.currentRoute.value.params.spaceId, '2124534695294148609')
   assert.equal(router.currentRoute.value.params.folderId, '2124534695294148999')
+  await router.push('/app/tasks')
+  assert.equal(router.currentRoute.value.name, 'tasks')
   token = null
   for (const value of ['/app/missing', '/app/spaces/invalid', '/app/spaces/1/folders/1e3', '/missing', '/404']) {
     await router.push(value)
@@ -158,4 +184,15 @@ test('shared UI exports resolve existing consumers and configured generated impo
       assert.equal(relative.startsWith('..') || path.isAbsolute(relative), false, name)
     }
   }
+})
+
+test('OpenAPI generated TypeScript types stay in sync with docs/api/openapi.json and keep IDs as strings', () => {
+  const { execFileSync } = require('node:child_process')
+  const generator = path.join(root, 'packages/api-client/scripts/generate-types.mjs')
+  const output = execFileSync(process.execPath, [generator, '--check'], { encoding: 'utf8' })
+  assert.match(output, /up to date/)
+  const dts = fs.readFileSync(path.join(root, 'packages/api-client/src/generated/openapi.d.ts'), 'utf8')
+  assert.match(dts, /export type ResourceId = string/)
+  assert.match(dts, /DriveModels_Node:\s*\{[\s\S]*?id\?: string[\s\S]*?spaceId\?: string[\s\S]*?parentId\?: string/)
+  assert.match(dts, /DriveModels_UploadInput:\s*\{[\s\S]*?spaceId: string[\s\S]*?parentId: string/)
 })

@@ -1,0 +1,127 @@
+server:
+  port: 8000
+
+spring:
+  config:
+    import: optional:file:./application-local.yaml,optional:file:../application-local.yaml
+  application:
+    name: cloud-api
+  servlet:
+    multipart:
+      max-file-size: 64MB
+      max-request-size: 65MB
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/cloud?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
+    username: ${DB_USERNAME:cloud}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:8}
+      minimum-idle: 1
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      database: 0
+      timeout: 3s
+      connect-timeout: 3s
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: 587
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+    # 执行迁移前验证已应用脚本
+    validate-on-migrate: true
+
+    # 严格验证迁移文件命名
+    validate-migration-naming: true
+
+    # 迁移目录丢失时启动失败
+    fail-on-missing-locations: true
+
+    # 禁止清空数据库
+    clean-disabled: true
+
+    # 禁止自动将已有数据库标记为基线
+    baseline-on-migrate: false
+
+    # 不允许乱序执行旧版本迁移
+    out-of-order: false
+
+  sql:
+    init:
+      mode: never
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+  global-config:
+    db-config:
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-not-delete-value: 0
+      logic-delete-value: id
+cloud:
+  storage:
+    root: ${CLOUD_STORAGE_ROOT:data/objects}
+    upload-temp: ${CLOUD_UPLOAD_TEMP:data/uploads}
+    preview-root: ${CLOUD_PREVIEW_ROOT:data/previews}
+    worker-tmp: ${CLOUD_WORKER_TMP:data/worker-tmp}
+  preview:
+    gotenberg-url: ${CLOUD_PREVIEW_GOTENBERG_URL:http://127.0.0.1:3002}
+    ffmpeg-bin: ${CLOUD_PREVIEW_FFMPEG_BIN:ffmpeg}
+    ffprobe-bin: ${CLOUD_PREVIEW_FFPROBE_BIN:ffprobe}
+    timeout-seconds: ${CLOUD_PREVIEW_TIMEOUT_SECONDS:60}
+    max-concurrency: ${CLOUD_PREVIEW_MAX_CONCURRENCY:2}
+    max-source-bytes: ${CLOUD_PREVIEW_MAX_SOURCE_BYTES:209715200}
+    archive-max-entries: ${CLOUD_PREVIEW_ARCHIVE_MAX_ENTRIES:2000}
+    archive-max-extract-bytes: ${CLOUD_PREVIEW_ARCHIVE_MAX_EXTRACT_BYTES:52428800}
+  search:
+    meilisearch-url: ${CLOUD_SEARCH_MEILI_URL:}
+    meilisearch-api-key: ${CLOUD_SEARCH_MEILI_KEY:}
+    tika-url: ${CLOUD_SEARCH_TIKA_URL:}
+    max-index-bytes: ${CLOUD_SEARCH_MAX_INDEX_BYTES:20971520}
+    chunk-chars: ${CLOUD_SEARCH_CHUNK_CHARS:2000}
+  cors:
+    # 多个前端来源用逗号分隔，例如 https://cloud.example.com,https://admin.example.com
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+  verification:
+    hmac-secret: ${VERIFICATION_HMAC_SECRET}
+    email:
+      from: ${SMTP_FROM:noreply@example.com}
+    code-ttl-seconds: 300
+    send-interval-seconds: 60
+    max-failures: 5
+    ip-hourly-limit: 20
+    target-daily-limit: 10
+    global-hourly-limit: 1000
+  auth:
+    jwt:
+      # Base64编码的随机密钥，解码后至少32字节；部署时通过JWT_SECRET配置独立密钥。
+      secret: ${JWT_SECRET}
+      issuer: cloudlane
+      access-token-ttl-seconds: 900
+    default-space-name: '默认空间'
+    default-space-icon: ''
+    default-space-color: '#fff'
+    default-space-description: '默认空间'

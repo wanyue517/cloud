@@ -1,0 +1,12 @@
+**
+!frontend/
+!frontend/**
+!docs/
+!docs/api/
+!docs/api/openapi.json
+**/node_modules
+**/dist
+**/.turbo
+**/test-results
+**/.env*
+**/.idea

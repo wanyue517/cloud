@@ -15,3 +15,7 @@ data/
 .pnpm-store/
 
 **/__pycache__/
+backups/
+release-dist/
+*.dump
+*.dumpstream

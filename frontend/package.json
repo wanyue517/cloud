@@ -11,7 +11,9 @@
     "build:web": "turbo run build --filter=@cloud/web",
     "build:admin": "turbo run build --filter=@cloud/admin",
     "dev": "turbo run dev --filter=@cloud/web --filter=@cloud/admin",
-    "test": "pnpm --filter @cloud/web test"
+    "test": "pnpm --filter @cloud/web test",
+    "api:generate": "node packages/api-client/scripts/generate-types.mjs",
+    "api:check": "node packages/api-client/scripts/generate-types.mjs --check"
   },
   "devDependencies": {
     "prettier": "3.9.6",

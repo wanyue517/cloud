@@ -2,62 +2,548 @@
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@repo/ui/dialog'
-import ThemeSettings from '@/components/drive/ThemeSettings.vue'
-import MoveDialog from '@/components/drive/MoveDialog.vue'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@repo/ui/context-menu'
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Cloud, Folder, File, Upload, FolderPlus, Search, Grid2X2, List, Trash2, Star, LogOut, Plus, ChevronRight, RefreshCw, X } from '@lucide/vue'
-import { drive, uploadFile, type DriveNode, type Space, type Version } from '@/api/drive'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@repo/ui/dropdown-menu'
+import MoveDialog from '@/components/drive/MoveDialog.vue'
 import FolderTree from '@/components/drive/FolderTree.vue'
 import PreviewDialog from '@/components/drive/PreviewDialog.vue'
+import TaskCenterPanel from '@/components/drive/TaskCenterPanel.vue'
+import SharedCenterPanel from '@/components/drive/SharedCenterPanel.vue'
+import SpaceMembersDialog from '@/components/drive/SpaceMembersDialog.vue'
+import FolderShareDialog from '@/components/drive/FolderShareDialog.vue'
+import ShareLinkDialog from '@/components/drive/ShareLinkDialog.vue'
+import BatchRenameDialog from '@/components/drive/BatchRenameDialog.vue'
+import GlobalSearchDialog from '@/components/drive/GlobalSearchDialog.vue'
+import RecentPanel from '@/components/drive/RecentPanel.vue'
+import MessagePopover from '@/components/drive/MessagePopover.vue'
+import UserCenterPanel, { type SettingsSection, type UserProfile } from '@/components/drive/UserCenterPanel.vue'
+import { computed, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  ArrowLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  Clock,
+  Cloud,
+  Download,
+  Eye,
+  EyeOff,
+  File,
+  FileArchive,
+  Folder,
+  FolderPlus,
+  FolderUp,
+  Grid2X2,
+  History,
+  Info,
+  Link2,
+  List,
+  ListTree,
+  LogOut,
+  MoreHorizontal,
+  Palette,
+  PanelLeft,
+  Pin,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Share2,
+  Shield,
+  ShieldCheck,
+  SlidersHorizontal,
+  Star,
+  Trash2,
+  Undo2,
+  Upload,
+  User,
+  Users,
+  Wand2,
+  X,
+} from '@lucide/vue'
+import { drive, uploadFile, type DirectoryStats, type DriveNode, type Space, type Version } from '@/api/drive'
+import { roleLabel, type ResourceShareItem } from '@/api/share'
+import { opsApi, type QuickAccessItem, type RecentAccessItem, type UndoTokenReceipt } from '@/api/ops'
+import type { SearchHit } from '@/api/search'
+import { mainFilenameRange, partitionBreadcrumbs } from '@/lib/tree'
+import { createUploadQueue, statusLabel, type UploadQueueItem } from '@/lib/upload-queue'
+import {
+  DEFAULT_TREE_WIDTH,
+  MAX_TREE_WIDTH,
+  MIN_TREE_WIDTH,
+  clampTreeWidth,
+  loadLayoutPreferences,
+  resolveViewportTier,
+  saveLayoutPreferences,
+  type LayoutPreferences,
+} from '@/lib/layout'
 import { logout as endSession } from '@repo/session/session'
 import { request, saveBlob } from '@/utils/request'
 import '@/styles/drive.css'
 
 const route = useRoute(), router = useRouter()
+const layout = reactive<LayoutPreferences>(loadLayoutPreferences())
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
+const viewportTier = computed(() => resolveViewportTier(viewportWidth.value))
+const mobileNavOpen = ref(false), drawerTreeOpen = ref(false), resizingTree = ref(false)
+const sidebarVisible = computed(() => viewportTier.value === 'mobile' ? mobileNavOpen.value : !layout.sidebarCollapsed)
+const treeVisible = computed(() => viewportTier.value === 'desktop' ? !layout.treeCollapsed : drawerTreeOpen.value)
+const hasDrawerOpen = computed(() => (viewportTier.value === 'mobile' && mobileNavOpen.value) || (viewportTier.value !== 'desktop' && drawerTreeOpen.value))
+let stopResize: (() => void) | undefined
+
+function closeDrawers() { mobileNavOpen.value = false; drawerTreeOpen.value = false }
+function toggleSidebar() {
+  if (viewportTier.value === 'mobile') { mobileNavOpen.value = !mobileNavOpen.value; if (mobileNavOpen.value) drawerTreeOpen.value = false }
+  else { layout.sidebarCollapsed = !layout.sidebarCollapsed }
+}
+function toggleTree() {
+  if (viewportTier.value === 'desktop') { layout.treeCollapsed = !layout.treeCollapsed }
+  else { drawerTreeOpen.value = !drawerTreeOpen.value; if (drawerTreeOpen.value) mobileNavOpen.value = false }
+}
+function nudgeTreeWidth(delta: number) { layout.treeWidth = clampTreeWidth(layout.treeWidth + delta) }
+function startTreeResize(event: PointerEvent) {
+  if (viewportTier.value !== 'desktop') return
+  event.preventDefault()
+  stopResize?.()
+  const startX = event.clientX, startWidth = layout.treeWidth
+  resizingTree.value = true
+  const move = (e: PointerEvent) => { layout.treeWidth = clampTreeWidth(startWidth + (e.clientX - startX)) }
+  const end = () => {
+    resizingTree.value = false
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', end)
+    window.removeEventListener('pointercancel', end)
+    stopResize = undefined
+  }
+  stopResize = end
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', end)
+  window.addEventListener('pointercancel', end)
+}
+function handleResize() {
+  viewportWidth.value = window.innerWidth
+  if (resolveViewportTier(viewportWidth.value) === 'desktop') closeDrawers()
+}
+
 const spaces = ref<Space[]>([]), nodes = ref<DriveNode[]>([]), ancestors = ref<DriveNode[]>([])
-const selected = ref(new Set<string>()), page = ref(1), total = ref(0), sort = ref('name'), query = ref(''), hidden = ref(false)
-const view = ref(localStorage.getItem('cloudlane.view') || 'list'), loading = ref(false), error = ref(''), notice = ref(''), treeRevision = ref(0)
-const mode = ref<'files' | 'trash' | 'favorites'>('files'), preview = ref<DriveNode>(), previewVersion = ref<Version>(), versions = ref<Version[]>([]), versionNode = ref<DriveNode>()
-const spaceId = computed(() => String(route.params.spaceId || spaces.value[0]?.id || ''))
+const selected = ref(new Set<string>()), page = ref(1), total = ref(0)
+const sort = ref(localStorage.getItem('cloudlane.sort') || 'name')
+const query = ref('')
+const hidden = ref(false)
+const hiddenVerifyOpen = ref(false)
+const hiddenPassword = ref('')
+const hiddenVerifyBusy = ref(false)
+const hiddenVerifyError = ref('')
+const view = ref(localStorage.getItem('cloudlane.view') || 'list')
+const category = ref(''), dirStats = ref<DirectoryStats>({ folders: 0, files: 0, categories: {} })
+const crumbMenuOpen = ref(false), draggingId = ref(''), dropTargetId = ref('')
+const inlineCreateActive = ref(false), inlineCreateName = ref('新建文件夹'), inlineCreateBusy = ref(false), inlineCreateInput = ref<HTMLInputElement>()
+const inlineRenameId = ref(''), inlineRenameName = ref(''), inlineRenameBusy = ref(false)
+const searchInput = ref<HTMLInputElement>()
+
+const CATEGORY_LABELS: Record<string, string> = {
+  IMAGE: '图片', PDF: 'PDF', VIDEO: '视频', AUDIO: '音频', WORD: 'Word',
+  EXCEL: '表格', PPT: '演示', CODE: '代码/文本', ARCHIVE: '压缩包', OTHER: '其他',
+}
+const SETTINGS_NAV: { key: SettingsSection; label: string; description: string }[] = [
+  { key: 'profile', label: '个人资料', description: '昵称、头像与基础信息' },
+  { key: 'security', label: '账户与安全', description: '活跃登录设备与会话管理' },
+  { key: 'appearance', label: '显示与外观', description: '主题模式、强调色与密度' },
+  { key: 'files', label: '文件偏好', description: '默认视图、排序与隐藏项' },
+]
+
+const mode = computed<'files' | 'trash' | 'favorites' | 'settings' | 'tasks' | 'shared' | 'recent'>(() => {
+  if (route.name === 'settings') return 'settings'
+  if (route.name === 'tasks') return 'tasks'
+  if (route.name === 'shared') return 'shared'
+  if (route.name === 'recent') return 'recent'
+  if (route.name === 'favorites') return 'favorites'
+  if (route.name === 'trash') return 'trash'
+  return 'files'
+})
+const settingsSection = computed<SettingsSection>(() => {
+  const sec = String(route.params.section || 'profile')
+  return (['profile', 'security', 'appearance', 'files'].includes(sec) ? sec : 'profile') as SettingsSection
+})
+
+const lastSpaceId = ref('')
+const spaceId = computed(() => String(route.params.spaceId || lastSpaceId.value || spaces.value[0]?.id || ''))
 const parentId = computed(() => String(route.params.folderId || '0'))
 const currentSpace = computed(() => spaces.value.find(s => s.id === spaceId.value))
 const currentSelection = computed(() => nodes.value.filter(n => selected.value.has(n.id)))
+const activeCategories = computed(() => Object.entries(dirStats.value.categories || {}).filter(([, count]) => count > 0))
+const breadcrumbParts = computed(() => partitionBreadcrumbs(ancestors.value, 2))
+
+const loading = ref(false), error = ref(''), notice = ref(''), treeRevision = ref(0)
+const preview = ref<DriveNode>(), previewVersion = ref<Version>(), versions = ref<Version[]>([]), versionNode = ref<DriveNode>()
 const fileInput = ref<HTMLInputElement>(), folderInput = ref<HTMLInputElement>(), replacement = ref<HTMLInputElement>()
-const replacing = ref<DriveNode>(), uploadTasks = ref<{ name: string; percent: number; status: string }[]>([])
-const moving = ref<DriveNode>(), admin = ref(false)
-const uploading = ref(false), controller = ref<AbortController>()
+const replacing = ref<DriveNode>(), uploadTasks = ref<UploadQueueItem[]>([])
+const uploadPanelVisible = ref(false)
+const activeUploadCount = computed(() => uploadTasks.value.filter(t => t.status === 'uploading' || t.status === 'queued').length)
+const moving = ref<DriveNode>()
+const membersDialogOpen = ref(false)
+const sharingNode = ref<DriveNode>()
+const shareLinkNode = ref<DriveNode>()
+const detailNode = ref<DriveNode>()
+const batchRenameOpen = ref(false)
+const globalSearchOpen = ref(false)
+
+function locateSearchHit(hit: SearchHit) {
+  globalSearchOpen.value = false
+  navigate(hit.nodeType === 'FOLDER' ? hit.id : hit.parentId, hit.spaceId)
+}
+
+function previewSearchHit(hit: SearchHit) {
+  globalSearchOpen.value = false
+  previewVersion.value = undefined
+  preview.value = {
+    id: hit.id,
+    spaceId: hit.spaceId,
+    parentId: hit.parentId,
+    name: hit.name,
+    nodeType: hit.nodeType,
+    currentVersionId: null,
+    revision: 0,
+    size: hit.size,
+    mimeType: hit.mimeType,
+    hidden: false,
+    updatedAt: hit.updatedAt,
+    hasChildren: false,
+  }
+}
+const quickAccess = ref<QuickAccessItem[]>([])
+const undoReceipt = ref<UndoTokenReceipt | null>(null)
+const undoing = ref(false)
+let undoTimer: ReturnType<typeof setTimeout> | undefined
+
+const allSelected = computed(() => nodes.value.length > 0 && selected.value.size === nodes.value.length)
+const someSelected = computed(() => selected.value.size > 0 && selected.value.size < nodes.value.length)
+
+function ensureNodeSelected(node: DriveNode) {
+  if (!selected.value.has(node.id)) selected.value = new Set([node.id])
+}
+function toggleHiddenItems() {
+  if (hidden.value) {
+    hidden.value = false
+    return
+  }
+  hiddenPassword.value = ''
+  hiddenVerifyError.value = ''
+  hiddenVerifyOpen.value = true
+}
+async function submitHiddenVerify() {
+  if (!hiddenPassword.value || hiddenVerifyBusy.value) return
+  hiddenVerifyBusy.value = true
+  hiddenVerifyError.value = ''
+  try {
+    await request.post<boolean>('/v1/me/verify-password', { password: hiddenPassword.value })
+    hidden.value = true
+    hiddenVerifyOpen.value = false
+    hiddenPassword.value = ''
+  } catch (e) {
+    hiddenVerifyError.value = e instanceof Error ? e.message : '密码验证失败'
+  } finally {
+    hiddenVerifyBusy.value = false
+  }
+}
+function previewDetailNode() {
+  const target = detailNode.value
+  detailNode.value = undefined
+  if (target) open(target)
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selected.value = new Set()
+  } else {
+    selected.value = new Set(nodes.value.map(n => n.id))
+  }
+}
+
+function showUndo(receipt: UndoTokenReceipt | null) {
+  if (undoTimer) clearTimeout(undoTimer)
+  undoReceipt.value = receipt
+  if (receipt) {
+    undoTimer = setTimeout(() => { undoReceipt.value = null }, 10_000)
+  }
+}
+
+async function performUndo() {
+  if (!undoReceipt.value || undoing.value) return
+  undoing.value = true
+  try {
+    await opsApi.executeUndo(undoReceipt.value.tokenId)
+    showUndo(null)
+    notice.value = '已撤销上次操作'
+    await refresh()
+    treeRevision.value++
+  } catch (e) {
+    fail(e)
+  } finally {
+    undoing.value = false
+  }
+}
+
+async function loadQuickAccess() {
+  try { quickAccess.value = await opsApi.listQuickAccess() } catch { /* ignore */ }
+}
+
+async function pinNode(node: DriveNode, enabled: boolean) {
+  try {
+    await opsApi.setPin(node.spaceId, node.id, enabled)
+    notice.value = enabled ? `已将「${node.name}」固定到快捷访问` : `已取消快捷访问`
+    await loadQuickAccess()
+  } catch (e) { fail(e) }
+}
+
+function openQuickAccessItem(item: QuickAccessItem) {
+  closeDrawers()
+  if (item.nodeType === 'FOLDER') {
+    router.push({ name: 'folders', params: { spaceId: item.spaceId, folderId: item.nodeId } })
+  } else {
+    router.push({ name: 'spaces', params: { spaceId: item.spaceId } })
+  }
+}
+
+function openShared() { closeDrawers(); router.push({ name: 'shared' }) }
+function openRecent() { closeDrawers(); router.push({ name: 'recent' }) }
+async function toggleNodeHidden(node: DriveNode) {
+  try {
+    await opsApi.setHidden(node.spaceId, node.id, !node.hidden)
+    notice.value = node.hidden ? `已取消隐藏「${node.name}」` : `已隐藏「${node.name}」`
+    await refresh()
+    await loadQuickAccess()
+  } catch (e) { fail(e) }
+}
+async function downloadZipSelection() {
+  if (!spaceId.value || !currentSelection.value.length) return
+  try {
+    const job = await opsApi.createZipBatch(spaceId.value, currentSelection.value.map(n => n.id))
+    if (job.successCount > 0) {
+      const blob = await opsApi.downloadZipBatch(job.id)
+      saveBlob(blob, `cloudlane-batch-${job.id}.zip`)
+      notice.value = `已打包下载 ${job.successCount} 个文件`
+    } else {
+      error.value = job.errorMessage || '所选条目中没有可打包的文件'
+    }
+  } catch (e) { fail(e) }
+}
+function openRecentItem(item: RecentAccessItem, modeAction: 'locate' | 'preview') {
+  if (modeAction === 'locate') {
+    navigate(item.parentId, item.spaceId)
+    return
+  }
+  previewVersion.value = undefined
+  preview.value = {
+    id: item.id, spaceId: item.spaceId, parentId: item.parentId, name: item.name,
+    nodeType: item.nodeType, currentVersionId: null, revision: 0, size: item.size,
+    mimeType: item.mimeType, hidden: false, updatedAt: item.accessedAt, hasChildren: false,
+  }
+}
+function openSharedFolder(item: ResourceShareItem) {
+  closeDrawers()
+  router.push({ name: 'folders', params: { spaceId: item.spaceId, folderId: item.nodeId } })
+}
+async function reloadSpaces() {
+  spaces.value = await drive.spaces()
+}
+const profile = ref<UserProfile>({ id: '', displayName: '', avatarUrl: null, admin: false })
+const admin = computed(() => profile.value.admin)
+const uploading = computed(() => activeUploadCount.value > 0)
+const folderCache = new Map<string, string>()
+const uploadQueue = createUploadQueue(
+  async (item, onProgress, signal) => {
+    let parent = item.parentId
+    let pathKey = `${item.spaceId}:${item.parentId}`
+    for (const seg of item.name.split('/').slice(0, -1)) {
+      const nextKey = `${pathKey}/${seg}`
+      if (!folderCache.has(nextKey)) {
+        try {
+          folderCache.set(nextKey, (await drive.folder(item.spaceId, parent, seg)).id)
+        } catch (e) {
+          const existing = await drive.nodes(item.spaceId, { parentId: parent, folders: true, pageSize: 200 })
+          const folder = existing.items.find(n => n.name === seg)
+          if (!folder) throw e
+          folderCache.set(nextKey, folder.id)
+        }
+      }
+      parent = folderCache.get(nextKey)!
+      pathKey = nextKey
+    }
+    await uploadFile(item.spaceId, parent, item.file, onProgress, signal)
+    treeRevision.value++
+    await refresh()
+  },
+  items => { uploadTasks.value = items },
+)
 let generation = 0, searchTimer: ReturnType<typeof setTimeout> | undefined
+
 const dialog = ref<{ title: string; label: string; value: string; submit: (value: string) => Promise<unknown> }>()
 const dialogBusy = ref(false)
-function ask(title: string, label: string, value: string, submit: (value: string) => Promise<unknown>) { dialog.value = { title, label, value, submit }; error.value = '' }
+const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceSortOrder = ref(0), spaceDeleteConfirm = ref('')
+
+function ask(title: string, label: string, value: string, submit: (value: string) => Promise<unknown>) {
+  dialog.value = { title, label, value, submit }
+  error.value = ''
+}
 async function submitDialog() {
   if (!dialog.value || dialogBusy.value) return
   dialogBusy.value = true; error.value = ''
   try { await dialog.value.submit(dialog.value.value); dialog.value = undefined; await refresh(); treeRevision.value++ }
   catch (e) { fail(e) } finally { dialogBusy.value = false }
 }
+function openSpaceSettings() {
+  if (!currentSpace.value) return
+  spaceName.value = currentSpace.value.name
+  spaceDescription.value = currentSpace.value.description || ''
+  spaceColor.value = currentSpace.value.color || '#6366f1'
+  spaceSortOrder.value = currentSpace.value.sortOrder || 0
+  spaceDeleteConfirm.value = ''
+  error.value = ''
+  spaceDialogOpen.value = true
+}
+async function saveSpaceSettings() {
+  if (spaceSaving.value || !spaceId.value) return
+  spaceSaving.value = true; error.value = ''
+  try {
+    await drive.updateSpace(spaceId.value, spaceName.value, Number(spaceSortOrder.value) || 0, { description: spaceDescription.value, color: spaceColor.value })
+    await loadSpaces()
+    spaceDialogOpen.value = false
+    notice.value = '空间设置已保存'
+  } catch (e) { fail(e) } finally { spaceSaving.value = false }
+}
+async function confirmDeleteSpace() {
+  if (spaceSaving.value || !spaceId.value || !currentSpace.value) return
+  spaceSaving.value = true; error.value = ''
+  try {
+    await drive.deleteSpace(spaceId.value, spaceDeleteConfirm.value)
+    await loadSpaces()
+    spaceDialogOpen.value = false
+    if (spaces.value[0]) navigate('0', spaces.value[0].id)
+    notice.value = '空间已删除'
+  } catch (e) { fail(e) } finally { spaceSaving.value = false }
+}
+
 function fail(e: unknown) { error.value = e instanceof Error ? e.message : '操作失败，请重试' }
 async function loadSpaces() { spaces.value = await drive.spaces() }
 async function refresh() {
-  if (!spaceId.value) return
+  if (mode.value === 'settings' || mode.value === 'tasks' || !spaceId.value) return
   const current = ++generation; loading.value = true; error.value = ''; selected.value = new Set()
   try {
-    const [result, path] = await Promise.all([
-      drive.nodes(spaceId.value, { parentId: parentId.value, page: page.value, pageSize: 100, sort: sort.value, query: query.value, hidden: hidden.value, trash: mode.value === 'trash', favorites: mode.value === 'favorites' }),
+    const [result, path, statsResult] = await Promise.all([
+      drive.nodes(spaceId.value, {
+        parentId: parentId.value, page: page.value, pageSize: 100, sort: sort.value,
+        query: query.value, hidden: hidden.value, trash: mode.value === 'trash',
+        favorites: mode.value === 'favorites', category: mode.value === 'files' && category.value ? category.value : undefined,
+      }),
       parentId.value === '0' || mode.value !== 'files' ? Promise.resolve([]) : drive.ancestors(spaceId.value, parentId.value),
+      mode.value === 'files' ? drive.stats(spaceId.value, parentId.value, hidden.value) : Promise.resolve({ folders: 0, files: 0, categories: {} }),
     ])
     if (current !== generation) return
-    nodes.value = result.items; total.value = result.total; ancestors.value = path
+    nodes.value = result.items; total.value = result.total; ancestors.value = path; dirStats.value = statsResult
   } catch (e) { if (current === generation) fail(e) } finally { if (current === generation) loading.value = false }
 }
+
 function navigate(id: string, space = spaceId.value) {
-  mode.value = 'files'; query.value = ''; page.value = 1
+  if (space) lastSpaceId.value = space
+  query.value = ''; category.value = ''; page.value = 1; crumbMenuOpen.value = false; cancelInlineEdit(); closeDrawers()
   const target = id === '0' ? `/app/spaces/${space}` : `/app/spaces/${space}/folders/${id}`
   if (route.path === target) void refresh(); else void router.push(target)
 }
-async function switchMode(value: typeof mode.value) { mode.value = value; page.value = 1; query.value = ''; await refresh() }
+function openFavorites() {
+  query.value = ''; category.value = ''; page.value = 1; crumbMenuOpen.value = false; cancelInlineEdit(); closeDrawers()
+  if (route.path === '/app/favorites') void refresh(); else void router.push('/app/favorites')
+}
+function openTrash() {
+  query.value = ''; category.value = ''; page.value = 1; crumbMenuOpen.value = false; cancelInlineEdit(); closeDrawers()
+  if (route.path === '/app/trash') void refresh(); else void router.push('/app/trash')
+}
+function openSettings(section: SettingsSection = 'profile') {
+  crumbMenuOpen.value = false; cancelInlineEdit(); closeDrawers()
+  void router.push(`/app/settings/${section}`)
+}
+function openTasks() {
+  crumbMenuOpen.value = false; cancelInlineEdit(); closeDrawers()
+  void router.push('/app/tasks')
+}
+function backToFiles() {
+  const targetSpace = spaceId.value || spaces.value[0]?.id
+  if (targetSpace) navigate('0', targetSpace)
+}
+
+function selectCategory(cat: string) {
+  category.value = category.value === cat ? '' : cat
+  page.value = 1
+  void refresh()
+}
+function cancelInlineEdit() {
+  inlineCreateActive.value = false
+  inlineRenameId.value = ''
+}
+async function newFolder() {
+  if (mode.value !== 'files' || !spaceId.value) return
+  inlineRenameId.value = ''
+  inlineCreateName.value = '新建文件夹'
+  inlineCreateActive.value = true
+  error.value = ''
+  await nextTick()
+  inlineCreateInput.value?.focus()
+  inlineCreateInput.value?.select()
+}
+async function commitInlineCreate() {
+  if (!inlineCreateActive.value || inlineCreateBusy.value) return
+  inlineCreateBusy.value = true; error.value = ''
+  try {
+    const created = await drive.folder(spaceId.value, parentId.value, inlineCreateName.value)
+    inlineCreateActive.value = false
+    await refresh()
+    selected.value = new Set([created.id])
+    treeRevision.value++
+  } catch (e) { fail(e) } finally { inlineCreateBusy.value = false }
+}
+async function rename(node: DriveNode) {
+  inlineCreateActive.value = false
+  inlineRenameId.value = node.id
+  inlineRenameName.value = node.name
+  error.value = ''
+  await nextTick()
+  const input = document.querySelector<HTMLInputElement>(`[data-inline-rename="${node.id}"]`)
+  if (input) {
+    input.focus()
+    const [start, end] = mainFilenameRange(node.name, node.nodeType === 'FOLDER')
+    input.setSelectionRange(start, end)
+  }
+}
+async function commitInlineRename(node: DriveNode) {
+  if (inlineRenameId.value !== node.id || inlineRenameBusy.value) return
+  if (inlineRenameName.value.trim() === node.name) { inlineRenameId.value = ''; return }
+  inlineRenameBusy.value = true; error.value = ''
+  try {
+    await drive.change(node, inlineRenameName.value)
+    inlineRenameId.value = ''
+    await refresh()
+    treeRevision.value++
+    try {
+      const receipt = await opsApi.issueUndo({
+        spaceId: node.spaceId,
+        actionType: 'RENAME',
+        summary: `已重命名为「${inlineRenameName.value.trim()}」`,
+        nodeId: node.id,
+        oldName: node.name,
+        oldParentId: node.parentId,
+      })
+      showUndo(receipt)
+    } catch { /* non-blocking */ }
+  } catch (e) { fail(e) } finally { inlineRenameBusy.value = false }
+}
+
 function choose(node: DriveNode, event: Pick<MouseEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>) {
   const next = new Set(event.ctrlKey || event.metaKey ? selected.value : [])
   if (event.shiftKey && selected.value.size) {
@@ -66,14 +552,35 @@ function choose(node: DriveNode, event: Pick<MouseEvent, 'ctrlKey' | 'metaKey' |
   } else { next.has(node.id) ? next.delete(node.id) : next.add(node.id) }
   selected.value = next
 }
-function open(node: DriveNode) { if (mode.value === 'trash') return; if (node.nodeType === 'FOLDER') navigate(node.id); else { previewVersion.value = undefined; preview.value = node } }
-function newFolder() { ask('新建文件夹', '文件夹名称', '新建文件夹', name => drive.folder(spaceId.value, parentId.value, name)) }
+function open(node: DriveNode) {
+  if (mode.value === 'trash') return
+  if (node.nodeType === 'FOLDER') navigate(node.id)
+  else {
+    previewVersion.value = undefined
+    preview.value = node
+    void opsApi.recordAccess(node.spaceId, node.id).catch(() => {})
+  }
+}
 function newSpace() { ask('新建空间', '空间名称', '', async name => { const id = await drive.createSpace(name); await loadSpaces(); navigate('0', id) }) }
-function rename(node: DriveNode) { ask('重命名', '名称', node.name, name => drive.change(node, name)) }
 async function move(source: string, target: string) {
   const node = nodes.value.find(n => n.id === source)
   if (!node) return
-  try { await drive.change(node, node.name, target); await refresh(); treeRevision.value++ } catch (e) { fail(e) }
+  try {
+    await drive.change(node, node.name, target)
+    await refresh()
+    treeRevision.value++
+    try {
+      const receipt = await opsApi.issueUndo({
+        spaceId: node.spaceId,
+        actionType: 'MOVE',
+        summary: `已移动「${node.name}」`,
+        nodeId: node.id,
+        oldName: node.name,
+        oldParentId: node.parentId,
+      })
+      showUndo(receipt)
+    } catch { /* non-blocking */ }
+  } catch (e) { fail(e) }
 }
 function moveSelection() { moving.value = currentSelection.value[0] }
 async function batch(action: (node: DriveNode) => Promise<unknown>) {
@@ -95,106 +602,823 @@ async function replace(event: Event) {
   ;(event.target as HTMLInputElement).value = ''
 }
 async function upload(files: File[]) {
-  if (uploading.value || !spaceId.value) return
-  const targetSpace = spaceId.value, targetParent = parentId.value
-  uploading.value = true; controller.value = new AbortController(); const signal = controller.value.signal
-  const folders = new Map<string, string>(); folders.set('', targetParent)
-  uploadTasks.value = files.map(file => ({ name: file.webkitRelativePath || file.name, percent: 0, status: '等待上传' }))
-  for (let index = 0; index < files.length; index++) {
-    const file = files[index]!, task = uploadTasks.value[index]!
-    if (signal.aborted) { task.status = '已暂停，重新选择文件可续传'; continue }
-    try {
-      let parent = targetParent, path = ''
-      for (const name of (file.webkitRelativePath || file.name).split('/').slice(0, -1)) {
-        const next = path ? `${path}/${name}` : name
-        if (!folders.has(next)) {
-          try { folders.set(next, (await drive.folder(targetSpace, parent, name)).id) }
-          catch (e) {
-            const existing = await drive.nodes(targetSpace, { parentId: parent, folders: true, pageSize: 200 })
-            const folder = existing.items.find(n => n.name === name)
-            if (!folder) throw e
-            folders.set(next, folder.id)
-          }
-        }
-        parent = folders.get(next)!; path = next
-      }
-      task.status = '上传中'
-      await uploadFile(targetSpace, parent, file, percent => { task.percent = percent }, signal)
-      task.status = '完成'
-    } catch (e) { task.status = signal.aborted ? '已暂停，重新选择文件可续传' : e instanceof Error ? e.message : '上传失败' }
-  }
-  uploading.value = false; treeRevision.value++; await refresh()
+  if (!spaceId.value || !files.length) return
+  folderCache.clear()
+  uploadPanelVisible.value = true
+  uploadQueue.enqueue(files.map(file => ({
+    file,
+    name: file.webkitRelativePath || file.name,
+    spaceId: spaceId.value,
+    parentId: parentId.value,
+  })))
 }
 function selectFiles(event: Event) { const target = event.target as HTMLInputElement; void upload(Array.from(target.files || [])); target.value = '' }
-function dropFiles(event: DragEvent) { if (event.dataTransfer?.files.length) void upload(Array.from(event.dataTransfer.files)) }
+function dropFiles(event: DragEvent) { if (mode.value === 'files' && event.dataTransfer?.files.length) void upload(Array.from(event.dataTransfer.files)) }
 function size(bytes: number) { if (!bytes) return '0 B'; const units = ['B', 'KB', 'MB', 'GB']; const index = Math.min(3, Math.floor(Math.log(bytes) / Math.log(1024))); return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}` }
 async function logout() { try { await endSession() } catch (e) { fail(e) } finally { void router.replace('/auth/login') } }
+
 function key(event: KeyboardEvent) {
-  if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || dialog.value || preview.value || versionNode.value) return
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    globalSearchOpen.value = true
+    return
+  }
+  if (event.key === 'Escape' && crumbMenuOpen.value) { crumbMenuOpen.value = false; return }
+  if (event.key === 'Escape' && hasDrawerOpen.value) { closeDrawers(); return }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f' && mode.value !== 'settings') {
+    if (!(event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]')) {
+      event.preventDefault()
+      searchInput.value?.focus()
+      return
+    }
+  }
+  if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || inlineCreateActive.value || inlineRenameId.value || dialog.value || preview.value || versionNode.value || spaceDialogOpen.value || mode.value === 'settings') return
   if ((event.ctrlKey || event.metaKey) && event.key === 'a') { event.preventDefault(); selected.value = new Set(nodes.value.map(n => n.id)) }
   if (event.key === 'Escape') selected.value = new Set()
   if (event.key === 'F2' && currentSelection.value[0]) { event.preventDefault(); rename(currentSelection.value[0]) }
   if (event.key === 'Delete' && selected.value.size && mode.value !== 'trash') deleteSelection()
   if (event.key === 'Enter' && currentSelection.value[0]) open(currentSelection.value[0])
 }
-watch(() => route.fullPath, () => { page.value = 1; void refresh() })
-watch([sort, hidden, page], () => void refresh())
-watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page.value = 1; void refresh() }, 300) })
+
+const topbarTitle = computed(() => {
+  if (mode.value === 'settings') {
+    const found = SETTINGS_NAV.find(i => i.key === settingsSection.value)
+    return `个人中心 / ${found?.label || '个人资料'}`
+  }
+  if (mode.value === 'tasks') return '传输与任务中心'
+  if (mode.value === 'shared') return '共享中心'
+  if (mode.value === 'trash') return '回收站'
+  if (mode.value === 'favorites') return '我的收藏'
+  return ''
+})
+
+watch(() => route.fullPath, () => {
+  if (route.params.spaceId) lastSpaceId.value = String(route.params.spaceId)
+  page.value = 1
+  if (mode.value !== 'settings') void refresh()
+})
+watch([sort, hidden, page], () => { if (mode.value !== 'settings') void refresh() })
+watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page.value = 1; if (mode.value !== 'settings') void refresh() }, 300) })
 watch(view, value => localStorage.setItem('cloudlane.view', value))
+watch(sort, value => localStorage.setItem('cloudlane.sort', value))
+watch(hidden, value => localStorage.setItem('cloudlane.hidden', String(value)))
+watch(layout, value => { saveLayoutPreferences(value) }, { deep: true })
+
 onMounted(async () => {
   document.addEventListener('keydown', key)
+  window.addEventListener('resize', handleResize)
   try {
     await loadSpaces()
-    admin.value = (await request.get<{ admin: boolean }>('/v1/me')).admin
-    if (!route.params.spaceId && spaces.value[0]) navigate('0', spaces.value[0].id); else await refresh()
+    void loadQuickAccess()
+    const me = await request.get<UserProfile>('/v1/me')
+    profile.value = me
+    if (route.params.spaceId) lastSpaceId.value = String(route.params.spaceId)
+    else if (spaces.value[0]) lastSpaceId.value = spaces.value[0].id
+    if (route.name === 'app' && spaces.value[0]) navigate('0', spaces.value[0].id)
+    else if (mode.value !== 'settings') await refresh()
   } catch (e) { fail(e) }
 })
-onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); controller.value?.abort(); document.removeEventListener('keydown', key) })
+onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abortAll(); stopResize?.(); document.removeEventListener('keydown', key); window.removeEventListener('resize', handleResize) })
 </script>
 
 <template>
-  <div class="drive-app">
-    <aside class="drive-sidebar">
-      <a class="drive-brand" href="/app"><span><Cloud :size="25" /></span>Cloudlane<small>你的云端文件工作台</small></a>
-      <Button variant="default" class="primary upload-main" :disabled="!spaceId || uploading" @click="fileInput?.click()"><Upload :size="17" /> 上传文件</Button>
-      <div class="sidebar-caption">我的空间<Button variant="outline" aria-label="新建空间" @click="newSpace"><Plus :size="17" /></Button></div>
-      <div v-for="space in spaces" :key="space.id" class="space-section">
-        <Button variant="outline" class="space-button" :class="{ active: spaceId === space.id && mode === 'files' }" @click="navigate('0', space.id)"><Folder :size="17" :style="{ color: space.color }" /><span>{{ space.name }}</span></Button>
-        <FolderTree v-if="spaceId === space.id && mode === 'files'" :space="space.id" parent="0" :active="parentId" :revision="treeRevision" @navigate="navigate" @move="move" />
+  <div
+    class="drive-app"
+    :class="{
+      'is-sidebar-collapsed': viewportTier !== 'mobile' && layout.sidebarCollapsed,
+      'is-tree-collapsed': viewportTier === 'desktop' && layout.treeCollapsed,
+      'is-resizing': resizingTree,
+    }"
+    :style="{ '--drive-tree-width': `${layout.treeWidth}px` }"
+  >
+    <div v-if="hasDrawerOpen" class="drive-drawer-backdrop" aria-hidden="true" @click="closeDrawers" />
+
+    <!-- 第一栏：左侧全局导航（不含内容写操作按钮，底部收敛为紧凑账户菜单） -->
+    <aside class="drive-sidebar" :class="{ 'is-open': mobileNavOpen }" aria-label="全局导航">
+      <div class="drive-brand-row">
+        <a class="drive-brand" href="/app"><span><Cloud :size="24" /></span>Cloudlane<small>个人云端工作台</small></a>
+        <Button variant="ghost" size="icon-xs" class="pane-close-btn" :aria-label="viewportTier === 'mobile' ? '关闭导航栏' : '折叠导航栏'" @click="toggleSidebar">
+          <X v-if="viewportTier === 'mobile'" :size="16" />
+          <PanelLeft v-else :size="16" />
+        </Button>
       </div>
-      <div class="sidebar-caption">文件管理</div>
-      <Button variant="outline" class="nav-button" :class="{ active: mode === 'favorites' }" @click="switchMode('favorites')"><Star :size="17" /> 我的收藏</Button>
-      <Button variant="outline" class="nav-button" :class="{ active: mode === 'trash' }" @click="switchMode('trash')"><Trash2 :size="17" /> 回收站</Button>
-      <div class="sidebar-bottom"><ThemeSettings /><Button v-if="admin" as-child variant="outline"><a href="/admin/">管理后台</a></Button><Button variant="outline" @click="ask('个人资料', '显示昵称', '', value => request.put('/v1/me', { displayName: value }))">个人资料</Button><span>文件属于你，灵感随时可达</span><Button variant="outline" @click="logout"><LogOut :size="16" /> 退出登录</Button></div>
-    </aside>
-    <main class="drive-main" @dragover.prevent @drop.prevent="dropFiles">
-      <header class="drive-topbar"><span>个人网盘 <ChevronRight :size="14" /> {{ mode === 'trash' ? '回收站' : mode === 'favorites' ? '我的收藏' : currentSpace?.name || '欢迎使用' }}</span><label class="drive-search"><Search :size="17" /><input v-model="query" aria-label="搜索当前空间" placeholder="搜索当前空间的文件…" /></label></header>
-      <section class="drive-content">
-        <div class="drive-heading"><div><p>所有内容，井然有序</p><h1>{{ mode === 'trash' ? '回收站' : mode === 'favorites' ? '我的收藏' : currentSpace?.name || '我的文件' }}</h1></div><div class="heading-actions"><Button variant="outline" v-if="currentSpace && mode === 'files'" @click="ask('重命名空间', '空间名称', currentSpace.name, async name => { await drive.updateSpace(spaceId, name); await loadSpaces() })">空间设置</Button><Button variant="outline" v-if="mode === 'files'" @click="newFolder"><FolderPlus :size="16" /> 新建文件夹</Button><Button variant="default" class="primary" :disabled="uploading || !spaceId" @click="fileInput?.click()"><Upload :size="16" /> 上传文件</Button></div></div>
-        <nav class="breadcrumbs" aria-label="目录路径"><Button variant="outline" @click="navigate('0')">{{ currentSpace?.name || '根目录' }}</Button><template v-for="node in ancestors" :key="node.id"><ChevronRight :size="13" /><Button variant="outline" @click="navigate(node.id)">{{ node.name }}</Button></template></nav>
-        <div class="drive-toolbar"><span>{{ total }} 项<small v-if="selected.size"> · 已选 {{ selected.size }} 项</small></span><div><Button variant="outline" v-if="mode === 'files'" :disabled="uploading" @click="folderInput?.click()">上传文件夹</Button><label><input v-model="hidden" type="checkbox" /> 显示隐藏项</label><select v-model="sort" aria-label="文件排序"><option value="name">名称排序</option><option value="updated">最近修改</option><option value="size">文件大小</option></select><Button variant="outline" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="17" /></Button><Button variant="outline" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="17" /></Button><Button variant="outline" aria-label="刷新文件" @click="refresh"><RefreshCw :size="16" /></Button></div></div>
-        <p v-if="error" class="drive-error" role="alert">{{ error }}<Button variant="outline" @click="error = ''" aria-label="关闭错误"><X :size="15" /></Button></p>
-        <p v-if="notice" class="drive-notice" role="status">{{ notice }}<Button variant="outline" @click="notice = ''" aria-label="关闭提示"><X :size="15" /></Button></p>
-        <div v-if="selected.size" class="selection-toolbar"><template v-if="mode === 'trash'"><Button variant="outline" @click="batch(drive.restore)">恢复选中项</Button></template><template v-else><Button variant="outline" v-if="selected.size === 1" @click="rename(currentSelection[0]!)">重命名</Button><Button variant="outline" v-if="selected.size === 1" @click="moveSelection">移动</Button><Button variant="outline" @click="batch(node => drive.favorite(node, mode !== 'favorites'))">{{ mode === 'favorites' ? '取消收藏' : '收藏' }}</Button><Button variant="outline" class="danger" @click="deleteSelection">移到回收站</Button><template v-if="selected.size === 1 && currentSelection[0]?.nodeType === 'FILE'"><Button variant="outline" @click="download(currentSelection[0]!)">下载</Button><Button variant="outline" @click="showVersions(currentSelection[0]!)">历史版本</Button><Button variant="outline" @click="replacing = currentSelection[0]; replacement?.click()">替换文件</Button></template></template></div>
-        <div v-if="loading" class="drive-empty" role="status">正在加载文件…</div>
-        <div v-else-if="!nodes.length" class="drive-empty"><Folder :size="48" /><h2>{{ query ? '没有找到相关文件' : mode === 'trash' ? '回收站是空的' : mode === 'favorites' ? '还没有收藏' : '为想法留一个位置' }}</h2><p>{{ mode === 'files' ? '上传文件或新建文件夹，开始整理你的空间' : '文件会在这里集中显示' }}</p><Button variant="outline" v-if="mode === 'files'" @click="fileInput?.click()">选择文件上传</Button></div>
-        <div v-else class="file-collection" :class="view" role="list" aria-label="文件列表">
-          <div v-if="view === 'list'" class="file-columns"><span>名称</span><span>大小</span><span>修改时间</span><span>类型</span></div>
-          <ContextMenu v-for="node in nodes" :key="node.id"><ContextMenuTrigger as-child><div class="file-item" :class="{ selected: selected.has(node.id) }" role="listitem" tabindex="0" draggable="true" @dragstart="$event.dataTransfer?.setData('application/cloudlane-node', node.id)" @dragover.prevent @drop.prevent.stop="node.nodeType === 'FOLDER' && move($event.dataTransfer?.getData('application/cloudlane-node') || '', node.id)" @click="choose(node, $event)" @dblclick="open(node)" @contextmenu.prevent="selected = new Set([node.id])" @keydown.enter.stop="open(node)">
-            <span class="file-name"><input type="checkbox" :checked="selected.has(node.id)" :aria-label="`选择 ${node.name}`" @click.stop @change="choose(node, { ctrlKey: true, metaKey: false, shiftKey: false })" /><span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }"><Folder v-if="node.nodeType === 'FOLDER'" :size="view === 'grid' ? 42 : 24" /><File v-else :size="view === 'grid' ? 38 : 22" /></span><span class="filename">{{ node.name }}</span></span><span>{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span><time :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time><small>{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
-          </div></ContextMenuTrigger><ContextMenuContent><template v-if="mode === 'trash'"><ContextMenuItem @select="selected = new Set([node.id]); batch(drive.restore)">恢复</ContextMenuItem></template><template v-else><ContextMenuItem @select="open(node)">{{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}</ContextMenuItem><ContextMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)">下载</ContextMenuItem><ContextMenuItem @select="rename(node)">重命名</ContextMenuItem><ContextMenuItem @select="moving = node">移动到…</ContextMenuItem><ContextMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, true))">收藏</ContextMenuItem><ContextMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</ContextMenuItem></template></ContextMenuContent></ContextMenu>
+
+      <div class="sidebar-caption">
+        <span>空间</span>
+        <Button variant="ghost" size="icon-xs" aria-label="新建空间" title="新建空间" @click="newSpace"><Plus :size="16" /></Button>
+      </div>
+      <div class="space-list">
+        <Button
+          v-for="space in spaces"
+          :key="space.id"
+          variant="ghost"
+          class="space-button"
+          :class="{ active: spaceId === space.id && mode === 'files' }"
+          @click="navigate('0', space.id)"
+        >
+          <Folder :size="17" :style="{ color: space.color }" />
+          <span class="flex-1 text-left">{{ space.name }}</span>
+          <small class="space-kind-badge">{{ space.kind === 'SHARED' ? `共享 · ${roleLabel(space.role || 'OWNER')}` : space.kind === 'PRIVATE' ? '私密' : '个人' }}</small>
+        </Button>
+      </div>
+
+      <div v-if="quickAccess.length" class="sidebar-caption">快捷访问</div>
+      <div v-if="quickAccess.length" class="space-list">
+        <div v-for="qa in quickAccess" :key="qa.id" class="flex items-center gap-1">
+          <Button variant="ghost" class="nav-button flex-1 min-w-0" @click="openQuickAccessItem(qa)">
+            <Pin :size="15" />
+            <span class="truncate text-left">{{ qa.name }}</span>
+          </Button>
+          <Button variant="ghost" size="icon-xs" title="取消固定" aria-label="取消固定" @click="opsApi.setPin(qa.spaceId, qa.nodeId, false).then(loadQuickAccess)">
+            <X :size="13" />
+          </Button>
         </div>
-        <footer class="drive-pagination"><Button variant="outline" :disabled="page <= 1" @click="page--">上一页</Button><span>第 {{ page }} 页 · 共 {{ Math.max(1, Math.ceil(total / 100)) }} 页</span><Button variant="outline" :disabled="page * 100 >= total" @click="page++">下一页</Button></footer>
+      </div>
+
+      <div class="sidebar-caption">常用与安全</div>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'recent' }" @click="openRecent">
+        <Clock :size="17" /> 最近使用
+      </Button>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'shared' }" @click="openShared">
+        <Share2 :size="17" /> 共享中心
+      </Button>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'favorites' }" @click="openFavorites">
+        <Star :size="17" /> 我的收藏
+      </Button>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'tasks' }" @click="openTasks">
+        <Upload :size="17" />
+        <span class="flex-1 text-left">传输任务</span>
+        <small v-if="activeUploadCount" class="topbar-badge">{{ activeUploadCount }}</small>
+      </Button>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'trash' }" @click="openTrash">
+        <Trash2 :size="17" /> 回收站
+      </Button>
+
+      <div class="sidebar-caption">其他</div>
+      <Button variant="ghost" class="nav-button" :class="{ active: mode === 'settings' }" @click="openSettings('profile')">
+        <Settings :size="17" /> 个人中心
+      </Button>
+
+      <div class="sidebar-bottom">
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button type="button" class="sidebar-user-card" aria-label="打开账户菜单">
+              <img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="" class="user-avatar-sm" />
+              <span v-else class="user-avatar-fallback-sm">{{ (profile.displayName || 'U').slice(0, 1).toUpperCase() }}</span>
+              <span class="sidebar-user-meta">
+                <strong>{{ profile.displayName || '我的账号' }}</strong>
+                <small>{{ admin ? '超级管理员' : '普通成员' }}</small>
+              </span>
+              <ChevronsUpDown :size="15" class="text-muted-foreground shrink-0" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" class="w-56">
+            <DropdownMenuLabel>{{ profile.displayName || '账户管理' }}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem @select="openSettings('profile')"><User :size="15" /> 个人资料</DropdownMenuItem>
+            <DropdownMenuItem @select="openSettings('security')"><Shield :size="15" /> 账户与登录设备</DropdownMenuItem>
+            <DropdownMenuItem @select="openSettings('appearance')"><Palette :size="15" /> 显示与外观</DropdownMenuItem>
+            <DropdownMenuItem @select="openSettings('files')"><SlidersHorizontal :size="15" /> 文件偏好</DropdownMenuItem>
+            <template v-if="admin">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem as-child>
+                <a href="/admin/"><ShieldCheck :size="15" /> 进入管理后台</a>
+              </DropdownMenuItem>
+            </template>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem class="text-destructive" @select="logout"><LogOut :size="15" /> 退出登录</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </aside>
+
+    <!-- 第二栏：中间上下文侧栏（空间目录树 / 个人中心分组导航 / 视图说明） -->
+    <aside class="drive-tree-pane" :class="{ 'is-open': drawerTreeOpen }" :aria-label="mode === 'settings' ? '个人中心导航' : '目录树'">
+      <header class="tree-pane-header">
+        <div class="tree-pane-title">
+          <Settings v-if="mode === 'settings'" :size="16" />
+          <Folder v-else :size="16" :style="mode === 'files' && currentSpace?.color ? { color: currentSpace.color } : undefined" />
+          <span>{{ mode === 'settings' ? '个人中心' : mode === 'trash' ? '回收站范围' : mode === 'favorites' ? '收藏视图' : currentSpace?.name || '目录树' }}</span>
+        </div>
+        <Button variant="ghost" size="icon-xs" :aria-label="viewportTier === 'desktop' ? '折叠目录树' : '关闭目录树'" @click="toggleTree"><X :size="15" /></Button>
+      </header>
+      <div class="tree-pane-body">
+        <template v-if="mode === 'settings'">
+          <nav class="settings-nav-list" aria-label="个人设置分组">
+            <Button
+              v-for="item in SETTINGS_NAV"
+              :key="item.key"
+              variant="ghost"
+              class="settings-nav-item"
+              :class="{ active: settingsSection === item.key }"
+              @click="openSettings(item.key)"
+            >
+              <User v-if="item.key === 'profile'" :size="16" />
+              <Shield v-else-if="item.key === 'security'" :size="16" />
+              <Palette v-else-if="item.key === 'appearance'" :size="16" />
+              <SlidersHorizontal v-else :size="16" />
+              <span class="settings-nav-text">
+                <strong>{{ item.label }}</strong>
+                <small>{{ item.description }}</small>
+              </span>
+            </Button>
+          </nav>
+          <div class="mt-auto pt-4">
+            <Button variant="outline" size="sm" class="w-full" @click="backToFiles">
+              <ArrowLeft :size="14" /> 返回文件工作台
+            </Button>
+          </div>
+        </template>
+        <template v-else-if="mode === 'files' && spaceId">
+          <Button variant="ghost" size="sm" class="tree-root-button" :class="{ active: parentId === '0' }" @click="navigate('0')">
+            <Folder :size="15" /><span>全部文件</span>
+          </Button>
+          <FolderTree :space="spaceId" parent="0" :active="parentId" :revision="treeRevision" @navigate="navigate" @move="move" />
+        </template>
+        <div v-else-if="mode === 'tasks'" class="tree-pane-note">
+          <p>集中管理当前浏览器的上传队列与服务端持久化分片会话。</p>
+          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
+        </div>
+        <div v-else-if="mode === 'shared'" class="tree-pane-note">
+          <p>查看他人共享给你的目录、管理我发起的共享及处理空间邀请。</p>
+          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
+        </div>
+        <div v-else-if="mode === 'favorites'" class="tree-pane-note">
+          <p>展示当前空间内已收藏的文件与文件夹。</p>
+          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
+        </div>
+        <div v-else-if="mode === 'trash'" class="tree-pane-note">
+          <p>展示当前空间内已移入回收站的资源，可在此恢复。</p>
+          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
+        </div>
+        <div v-else class="tree-pane-note">
+          <p>选择左侧空间以浏览目录结构。</p>
+        </div>
+      </div>
+      <div
+        v-if="viewportTier === 'desktop' && !layout.treeCollapsed"
+        class="drive-tree-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整目录树宽度"
+        :aria-valuemin="MIN_TREE_WIDTH"
+        :aria-valuemax="MAX_TREE_WIDTH"
+        :aria-valuenow="layout.treeWidth"
+        tabindex="0"
+        @pointerdown="startTreeResize"
+        @dblclick="layout.treeWidth = DEFAULT_TREE_WIDTH"
+        @keydown.left.prevent="nudgeTreeWidth(-16)"
+        @keydown.right.prevent="nudgeTreeWidth(16)"
+      />
+    </aside>
+
+    <!-- 第三栏：主内容区 -->
+    <main class="drive-main" @dragover.prevent @drop.prevent="dropFiles">
+      <header class="drive-topbar">
+        <div class="topbar-leading">
+          <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="sidebarVisible ? '收起导航栏' : '展开导航栏'" :aria-pressed="sidebarVisible" @click="toggleSidebar"><PanelLeft :size="17" /></Button>
+          <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="treeVisible ? '收起目录树' : '展开目录树'" :aria-pressed="treeVisible" @click="toggleTree"><ListTree :size="17" /></Button>
+          <span class="topbar-crumb">{{ topbarTitle }}</span>
+        </div>
+
+        <div class="topbar-trailing">
+          <label v-if="mode !== 'settings'" class="drive-search">
+            <Search :size="16" />
+            <input ref="searchInput" v-model="query" aria-label="搜索当前空间" placeholder="搜索当前空间… (Ctrl+F)" />
+          </label>
+          <Button variant="outline" size="sm" title="全局跨空间检索 (Ctrl+K)" @click="globalSearchOpen = true">
+            <Search :size="14" /> 全局检索
+          </Button>
+
+          <MessagePopover />
+
+          <Button
+            variant="ghost"
+            size="sm"
+            class="topbar-upload-btn"
+            aria-label="传输任务中心"
+            title="传输任务中心"
+            @click="openTasks"
+          >
+            <Upload :size="16" />
+            <span v-if="activeUploadCount || uploadTasks.length" class="topbar-badge">{{ activeUploadCount || uploadTasks.length }}</span>
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <Button variant="ghost" size="icon-sm" class="rounded-full p-0" aria-label="用户快捷菜单">
+                <img v-if="profile.avatarUrl" :src="profile.avatarUrl" alt="" class="user-avatar-sm" />
+                <span v-else class="user-avatar-fallback-sm">{{ (profile.displayName || 'U').slice(0, 1).toUpperCase() }}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-52">
+              <DropdownMenuLabel>
+                <div class="truncate">{{ profile.displayName || '我的账号' }}</div>
+                <div class="text-xs font-normal text-muted-foreground">{{ admin ? '超级管理员' : '普通成员' }}</div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem @select="openSettings('profile')"><User :size="15" /> 个人中心</DropdownMenuItem>
+              <DropdownMenuItem @select="openSettings('appearance')"><Palette :size="15" /> 显示与外观</DropdownMenuItem>
+              <DropdownMenuItem @select="openSettings('security')"><Shield :size="15" /> 登录设备</DropdownMenuItem>
+              <template v-if="admin">
+                <DropdownMenuSeparator />
+                <DropdownMenuItem as-child>
+                  <a href="/admin/"><ShieldCheck :size="15" /> 管理后台</a>
+                </DropdownMenuItem>
+              </template>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem class="text-destructive" @select="logout"><LogOut :size="15" /> 退出登录</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      <!-- 个人中心内容区 -->
+      <section v-if="mode === 'settings'" class="drive-content">
+        <UserCenterPanel
+          :section="settingsSection"
+          :profile="profile"
+          :view="view"
+          :sort="sort"
+          :show-hidden="hidden"
+          @profile-updated="next => { profile = next }"
+          @update:view="v => { view = v }"
+          @update:sort="v => { sort = v }"
+          @update:show-hidden="v => { hidden = v }"
+          @logout="logout"
+        />
+      </section>
+
+      <!-- 传输与任务中心 -->
+      <section v-else-if="mode === 'tasks'" class="drive-content">
+        <TaskCenterPanel
+          :tasks="uploadTasks"
+          :uploading="uploading"
+          @pause="id => uploadQueue.pause(id)"
+          @resume="id => uploadQueue.resume(id)"
+          @cancel="id => uploadQueue.cancel(id)"
+          @pause-all="uploadQueue.abortAll()"
+          @clear-finished="uploadQueue.clearFinished()"
+        />
+      </section>
+
+      <!-- 共享中心 -->
+      <section v-else-if="mode === 'shared'" class="drive-content">
+        <SharedCenterPanel
+          @open-shared-folder="openSharedFolder"
+          @spaces-changed="reloadSpaces"
+        />
+      </section>
+
+      <!-- 最近使用 -->
+      <section v-else-if="mode === 'recent'" class="drive-content">
+        <RecentPanel
+          @locate="item => openRecentItem(item, 'locate')"
+          @preview="item => openRecentItem(item, 'preview')"
+        />
+      </section>
+
+      <!-- 文件工作台内容区 -->
+      <section v-else class="drive-content">
+        <div class="drive-heading">
+          <nav v-if="mode === 'files'" class="breadcrumbs" aria-label="目录路径">
+            <Button variant="ghost" size="sm" class="crumb-root px-2" @click="navigate('0')">{{ currentSpace?.name || '我的文件' }}</Button>
+            <template v-if="breadcrumbParts.collapsed.length">
+              <ChevronRight :size="13" class="text-muted-foreground" />
+              <div class="crumb-collapse-wrap">
+                <Button variant="ghost" size="icon-xs" aria-label="展开折叠路径" :aria-expanded="crumbMenuOpen" @click="crumbMenuOpen = !crumbMenuOpen"><MoreHorizontal :size="15" /></Button>
+                <div v-if="crumbMenuOpen" class="crumb-collapse-menu" role="menu">
+                  <Button v-for="c in breadcrumbParts.collapsed" :key="c.id" variant="ghost" size="sm" class="w-full justify-start" role="menuitem" @click="navigate(c.id)">{{ c.name }}</Button>
+                </div>
+              </div>
+            </template>
+            <template v-for="node in breadcrumbParts.tail" :key="node.id">
+              <ChevronRight :size="13" class="text-muted-foreground" />
+              <Button variant="ghost" size="sm" class="px-2" @click="navigate(node.id)">{{ node.name }}</Button>
+            </template>
+          </nav>
+          <h1 v-else>{{ mode === 'trash' ? '回收站' : '我的收藏' }}</h1>
+
+          <div v-if="mode === 'files'" class="heading-actions">
+            <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="共享与成员" title="共享与成员" @click="membersDialogOpen = true">
+              <Users :size="16" />
+            </Button>
+            <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="空间设置" title="空间设置" @click="openSpaceSettings">
+              <Settings :size="16" />
+            </Button>
+            <Button variant="outline" size="sm" @click="newFolder"><FolderPlus :size="15" /> 新建文件夹</Button>
+            <Button variant="outline" size="sm" :disabled="uploading || !spaceId" @click="folderInput?.click()">
+              <FolderUp :size="15" /> 上传文件夹
+            </Button>
+            <Button variant="default" size="sm" :disabled="uploading || !spaceId" @click="fileInput?.click()">
+              <Upload :size="15" /> 上传文件
+            </Button>
+          </div>
+        </div>
+
+        <div v-if="mode === 'files' && (dirStats.files > 0 || dirStats.folders > 0)" class="category-bar" role="tablist" aria-label="文件类型筛选">
+          <Button variant="ghost" size="sm" role="tab" :aria-selected="!category" :class="{ 'is-active-tab': !category }" @click="selectCategory('')">全部 ({{ dirStats.files }})</Button>
+          <Button v-for="[cat, count] in activeCategories" :key="cat" variant="ghost" size="sm" role="tab" :aria-selected="category === cat" :class="{ 'is-active-tab': category === cat }" @click="selectCategory(cat)">{{ CATEGORY_LABELS[cat] || cat }} ({{ count }})</Button>
+          <span v-if="dirStats.folders > 0" class="category-folder-meta">{{ dirStats.folders }} 个文件夹</span>
+        </div>
+
+        <div class="drive-toolbar">
+          <div class="toolbar-leading">
+            <template v-if="selected.size">
+              <span>已选 {{ selected.size }} 项</span>
+              <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="selected = new Set()">取消选择</Button>
+            </template>
+          </div>
+
+          <div v-if="selected.size" class="toolbar-actions" role="toolbar" aria-label="已选文件操作">
+            <template v-if="mode === 'trash'">
+              <Button variant="outline" size="sm" @click="batch(drive.restore)">恢复选中项</Button>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="detailNode = currentSelection[0]"><Info :size="14" /> 详情</Button>
+            </template>
+            <template v-else>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="open(currentSelection[0]!)">
+                <Eye v-if="currentSelection[0]?.nodeType === 'FILE'" :size="14" />
+                <Folder v-else :size="14" />
+                {{ currentSelection[0]?.nodeType === 'FILE' ? '预览' : '打开' }}
+              </Button>
+              <Button v-if="selected.size === 1 && currentSelection[0]?.nodeType === 'FILE'" variant="outline" size="sm" @click="download(currentSelection[0]!)">
+                <Download :size="14" /> 下载
+              </Button>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="detailNode = currentSelection[0]">
+                <Info :size="14" /> 详情
+              </Button>
+              <Button v-if="selected.size === 1 && currentSelection[0]?.nodeType === 'FILE'" variant="outline" size="sm" @click="showVersions(currentSelection[0]!)">
+                <History :size="14" /> 历史版本
+              </Button>
+              <Button v-if="selected.size === 1 && currentSelection[0]?.nodeType === 'FILE'" variant="outline" size="sm" @click="replacing = currentSelection[0]; replacement?.click()">
+                替换文件
+              </Button>
+              <Button v-if="selected.size === 1 && currentSelection[0]?.nodeType === 'FOLDER'" variant="outline" size="sm" @click="sharingNode = currentSelection[0]">
+                <Share2 :size="14" /> 共享
+              </Button>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="shareLinkNode = currentSelection[0]">
+                <Link2 :size="14" /> 链接
+              </Button>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="rename(currentSelection[0]!)">重命名</Button>
+              <Button v-if="selected.size > 1 && mode === 'files'" variant="outline" size="sm" @click="batchRenameOpen = true">
+                <Wand2 :size="14" /> 批量重命名
+              </Button>
+              <Button v-if="selected.size > 1 && mode === 'files'" variant="outline" size="sm" @click="downloadZipSelection">
+                <FileArchive :size="14" /> 打包下载
+              </Button>
+              <Button v-if="selected.size === 1" variant="outline" size="sm" @click="moveSelection">移动</Button>
+              <Button variant="outline" size="sm" @click="batch(node => drive.favorite(node, mode !== 'favorites'))">
+                {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
+              </Button>
+              <Button variant="outline" size="sm" class="danger" @click="deleteSelection">移到回收站</Button>
+            </template>
+          </div>
+
+          <div v-else class="toolbar-actions">
+            <Button
+              variant="outline"
+              size="icon"
+              :aria-label="hidden ? '隐藏已显示的隐藏项' : '显示隐藏项（需验证密码）'"
+              :title="hidden ? '隐藏项已显示（点击关闭）' : '显示隐藏项（需验证密码）'"
+              :aria-pressed="hidden"
+              @click="toggleHiddenItems"
+            >
+              <Eye v-if="hidden" :size="17" />
+              <EyeOff v-else :size="17" />
+            </Button>
+            <select class="drive-sort" v-model="sort" aria-label="文件排序">
+              <option value="name">名称排序</option>
+              <option value="updated">最近修改</option>
+              <option value="size">文件大小</option>
+            </select>
+            <Button variant="outline" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="17" /></Button>
+            <Button variant="outline" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="17" /></Button>
+            <Button variant="outline" aria-label="刷新文件" @click="refresh"><RefreshCw :size="16" /></Button>
+          </div>
+        </div>
+
+        <p v-if="error" class="drive-error" role="alert">{{ error }}<Button variant="ghost" size="icon-xs" @click="error = ''" aria-label="关闭错误"><X :size="15" /></Button></p>
+        <p v-if="notice" class="drive-notice" role="status">{{ notice }}<Button variant="ghost" size="icon-xs" @click="notice = ''" aria-label="关闭提示"><X :size="15" /></Button></p>
+
+        <div v-if="loading" class="drive-empty" role="status">正在加载文件…</div>
+        <div v-else-if="!nodes.length && !inlineCreateActive" class="drive-empty">
+          <Folder :size="48" />
+          <h2>{{ query || category ? '没有找到相关文件' : mode === 'trash' ? '回收站是空的' : mode === 'favorites' ? '还没有收藏' : '为想法留一个位置' }}</h2>
+          <p>{{ mode === 'files' ? '拖拽文件到此处，或点击右上角「上传」开始整理你的空间' : '文件会在这里集中显示' }}</p>
+          <Button variant="outline" v-if="mode === 'files' && category" @click="selectCategory('')">清除类型筛选</Button>
+          <Button variant="outline" v-else-if="mode === 'files'" @click="fileInput?.click()">选择文件上传</Button>
+        </div>
+        <div v-else class="file-collection" :class="view" role="list" aria-label="文件列表">
+          <div v-if="view === 'list'" class="file-columns">
+            <span class="flex items-center gap-3">
+              <input
+                type="checkbox"
+                :checked="allSelected"
+                :indeterminate="someSelected"
+                aria-label="表头全选"
+                @change="toggleSelectAll"
+              />
+              <span>名称</span>
+            </span>
+            <span>大小</span><span>修改时间</span><span>类型</span><span class="text-right">操作</span>
+          </div>
+          <div v-if="inlineCreateActive" class="file-item selected" role="listitem">
+            <span class="file-name">
+              <span class="file-icon folder"><Folder :size="view === 'grid' ? 42 : 24" /></span>
+              <input ref="inlineCreateInput" v-model="inlineCreateName" class="inline-edit-input" aria-label="新建文件夹名称" :disabled="inlineCreateBusy" @keydown.enter.prevent="commitInlineCreate" @keydown.esc.prevent="cancelInlineEdit" @blur="commitInlineCreate" />
+            </span>
+            <span>—</span><span>新建中…</span><small>文件夹</small><span />
+          </div>
+          <ContextMenu v-for="node in nodes" :key="node.id">
+            <ContextMenuTrigger as-child>
+              <div
+                class="file-item"
+                :class="{ selected: selected.has(node.id), 'is-dragging': draggingId === node.id, 'is-drop-target': dropTargetId === node.id && node.nodeType === 'FOLDER' }"
+                role="listitem"
+                tabindex="0"
+                draggable="true"
+                @dragstart="draggingId = node.id; $event.dataTransfer?.setData('application/cloudlane-node', node.id)"
+                @dragend="draggingId = ''; dropTargetId = ''"
+                @dragover.prevent="node.nodeType === 'FOLDER' && draggingId !== node.id && (dropTargetId = node.id)"
+                @dragleave="dropTargetId === node.id && (dropTargetId = '')"
+                @drop.prevent.stop="dropTargetId = ''; draggingId = ''; node.nodeType === 'FOLDER' && move($event.dataTransfer?.getData('application/cloudlane-node') || '', node.id)"
+                @click="inlineRenameId !== node.id && choose(node, $event)"
+                @dblclick="inlineRenameId !== node.id && open(node)"
+                @contextmenu.prevent="ensureNodeSelected(node)"
+                @keydown.enter.stop="inlineRenameId !== node.id && open(node)"
+              >
+                <span class="file-name">
+                  <input type="checkbox" :checked="selected.has(node.id)" :aria-label="`选择 ${node.name}`" @click.stop @change="choose(node, { ctrlKey: true, metaKey: false, shiftKey: false })" />
+                  <span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }">
+                    <Folder v-if="node.nodeType === 'FOLDER'" :size="view === 'grid' ? 42 : 24" />
+                    <File v-else :size="view === 'grid' ? 38 : 22" />
+                  </span>
+                  <input
+                    v-if="inlineRenameId === node.id"
+                    :data-inline-rename="node.id"
+                    v-model="inlineRenameName"
+                    class="inline-edit-input"
+                    :aria-label="`重命名 ${node.name}`"
+                    :disabled="inlineRenameBusy"
+                    @click.stop
+                    @dblclick.stop
+                    @keydown.enter.prevent.stop="commitInlineRename(node)"
+                    @keydown.esc.prevent.stop="cancelInlineEdit"
+                    @blur="commitInlineRename(node)"
+                  />
+                  <span v-else class="filename">{{ node.name }}</span>
+                </span>
+                <span>{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span>
+                <time :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time>
+                <small>{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
+                <span class="item-more-wrap flex justify-end" @click.stop @dblclick.stop>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button variant="ghost" size="icon-xs" :aria-label="`更多操作：${node.name}`" @click.stop="ensureNodeSelected(node)">
+                        <MoreHorizontal :size="16" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" class="w-48">
+                      <template v-if="mode === 'trash'">
+                        <DropdownMenuItem @select="selected = new Set([node.id]); batch(drive.restore)">恢复</DropdownMenuItem>
+                        <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
+                      </template>
+                      <template v-else>
+                        <DropdownMenuItem @select="open(node)">
+                          <Eye v-if="node.nodeType === 'FILE'" :size="14" />
+                          <Folder v-else :size="14" />
+                          {{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)"><Download :size="14" /> 下载</DropdownMenuItem>
+                        <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)"><History :size="14" /> 历史版本</DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem v-if="!node.hidden && node.nodeType === 'FOLDER'" @select="sharingNode = node"><Share2 :size="14" /> 共享给他人…</DropdownMenuItem>
+                        <DropdownMenuItem v-if="!node.hidden" @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
+                        <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
+                        <DropdownMenuItem @select="toggleNodeHidden(node)"><EyeOff :size="14" /> {{ node.hidden ? '取消隐藏' : '隐藏' }}</DropdownMenuItem>
+                        <DropdownMenuItem v-if="!node.hidden" @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
+                          {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem v-if="!node.hidden" @select="pinNode(node, true)"><Pin :size="14" /> 固定到快捷访问</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</DropdownMenuItem>
+                      </template>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent class="w-48">
+              <template v-if="mode === 'trash'">
+                <ContextMenuItem @select="selected = new Set([node.id]); batch(drive.restore)">恢复</ContextMenuItem>
+                <ContextMenuItem @select="detailNode = node">查看详情</ContextMenuItem>
+              </template>
+              <template v-else>
+                <ContextMenuItem @select="open(node)">{{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}</ContextMenuItem>
+                <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)">下载</ContextMenuItem>
+                <ContextMenuItem @select="detailNode = node">查看详情</ContextMenuItem>
+                <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)">历史版本</ContextMenuItem>
+                <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</ContextMenuItem>
+                <ContextMenuItem v-if="!node.hidden && node.nodeType === 'FOLDER'" @select="sharingNode = node">共享给他人…</ContextMenuItem>
+                <ContextMenuItem v-if="!node.hidden" @select="shareLinkNode = node">创建公开分享链接…</ContextMenuItem>
+                <ContextMenuItem @select="rename(node)">重命名</ContextMenuItem>
+                <ContextMenuItem @select="moving = node">移动到…</ContextMenuItem>
+                <ContextMenuItem @select="toggleNodeHidden(node)">{{ node.hidden ? '取消隐藏' : '隐藏' }}</ContextMenuItem>
+                <ContextMenuItem v-if="!node.hidden" @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
+                  {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
+                </ContextMenuItem>
+                <ContextMenuItem v-if="!node.hidden" @select="pinNode(node, true)">固定到快捷访问</ContextMenuItem>
+                <ContextMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</ContextMenuItem>
+              </template>
+            </ContextMenuContent>
+          </ContextMenu>
+        </div>
+        <footer class="drive-pagination">
+          <Button variant="outline" :disabled="page <= 1" @click="page--">上一页</Button>
+          <span>第 {{ page }} 页 · 共 {{ Math.max(1, Math.ceil(total / 100)) }} 页</span>
+          <Button variant="outline" :disabled="page * 100 >= total" @click="page++">下一页</Button>
+        </footer>
       </section>
     </main>
-    <input ref="fileInput" type="file" multiple hidden @change="selectFiles" /><input ref="folderInput" type="file" multiple webkitdirectory hidden @change="selectFiles" /><input ref="replacement" type="file" hidden @change="replace" />
-    <aside v-if="currentSelection.length === 1" class="drive-details"><header><h2>文件详情</h2><Button variant="ghost" size="icon" aria-label="关闭文件详情" @click="selected = new Set()"><X :size="16" /></Button></header><Folder v-if="currentSelection[0]!.nodeType === 'FOLDER'" :size="48" class="text-yellow-600 my-6" /><File v-else :size="48" class="text-primary my-6" /><h3>{{ currentSelection[0]!.name }}</h3><dl><dt>大小</dt><dd>{{ size(currentSelection[0]!.size) }}</dd><dt>修改时间</dt><dd>{{ new Date(currentSelection[0]!.updatedAt).toLocaleString() }}</dd><dt>类型</dt><dd>{{ currentSelection[0]!.nodeType === 'FOLDER' ? '文件夹' : currentSelection[0]!.mimeType }}</dd></dl></aside>
-    <MoveDialog v-if="moving" :node="moving" @close="moving = undefined" @moved="refresh(); treeRevision++" />
-    <aside v-if="uploadTasks.length" class="upload-panel" aria-label="上传任务"><header><strong>上传任务</strong><Button variant="outline" v-if="uploading" @click="controller?.abort()">暂停</Button><Button variant="outline" v-else @click="uploadTasks = []" aria-label="关闭上传面板"><X :size="17" /></Button></header><div v-for="(task, i) in uploadTasks" :key="i"><span>{{ task.name }}</span><small>{{ task.status }} · {{ task.percent }}%</small><progress :value="task.percent" max="100" /></div></aside>
-    <PreviewDialog v-if="preview" :node="preview" :version="previewVersion" @close="preview = undefined" />
-    <Dialog :open="!!dialog" @update:open="value => { if (!value && !dialogBusy) dialog = undefined }">
-      <DialogContent><template v-if="dialog"><DialogHeader><DialogTitle>{{ dialog.title }}</DialogTitle><DialogDescription>{{ dialog.label }}</DialogDescription></DialogHeader><form @submit.prevent="submitDialog"><Input v-model="dialog.value" :aria-label="dialog.label" :disabled="dialogBusy" /><p v-if="error" role="alert" class="text-destructive text-sm mt-3">{{ error }}</p><DialogFooter class="mt-5"><Button variant="outline" type="button" :disabled="dialogBusy" @click="dialog = undefined">取消</Button><Button type="submit" :disabled="dialogBusy">{{ dialogBusy ? '正在保存…' : '确认' }}</Button></DialogFooter></form></template></DialogContent>
+
+    <input ref="fileInput" type="file" multiple hidden @change="selectFiles" />
+    <input ref="folderInput" type="file" multiple webkitdirectory hidden @change="selectFiles" />
+    <input ref="replacement" type="file" hidden @change="replace" />
+
+    <Dialog :open="hiddenVerifyOpen" @update:open="v => { if (!v && !hiddenVerifyBusy) hiddenVerifyOpen = false }">
+      <DialogContent class="!max-w-sm">
+        <DialogHeader>
+          <DialogTitle>验证账号密码</DialogTitle>
+          <DialogDescription>显示隐藏文件与文件夹需要验证当前账号的登录密码。</DialogDescription>
+        </DialogHeader>
+        <form class="space-y-3" @submit.prevent="submitHiddenVerify">
+          <Input
+            v-model="hiddenPassword"
+            type="password"
+            autocomplete="current-password"
+            placeholder="请输入当前账号密码"
+            aria-label="当前账号密码"
+            :disabled="hiddenVerifyBusy"
+            autofocus
+          />
+          <p v-if="hiddenVerifyError" role="alert" class="text-xs text-destructive">{{ hiddenVerifyError }}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" :disabled="hiddenVerifyBusy" @click="hiddenVerifyOpen = false">取消</Button>
+            <Button type="submit" :disabled="hiddenVerifyBusy || !hiddenPassword">{{ hiddenVerifyBusy ? '验证中…' : '确认显示' }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
-    <Dialog :open="!!versionNode" @update:open="value => { if (!value) versionNode = undefined }"><DialogContent><template v-if="versionNode"><DialogHeader><DialogTitle>{{ versionNode.name }} · 历史版本</DialogTitle><DialogDescription>恢复历史内容会创建新版本，原有记录保留。</DialogDescription></DialogHeader><div v-for="version in versions" :key="version.id" class="flex items-center gap-3 py-2"><span class="flex-1 text-sm">版本 {{ version.number }} · {{ size(version.size) }}<small class="block text-muted-foreground">{{ new Date(version.createdAt).toLocaleString() }}</small></span><Button variant="outline" @click="previewVersion = version; preview = versionNode">预览</Button><Button variant="outline" :disabled="version.id === versionNode.currentVersionId" @click="restoreVersion(version)">恢复</Button></div></template></DialogContent></Dialog>
+
+    <Dialog :open="!!detailNode" @update:open="v => { if (!v) detailNode = undefined }">
+      <DialogContent>
+        <template v-if="detailNode">
+          <DialogHeader>
+            <DialogTitle class="flex items-center gap-2 break-all">
+              <Folder v-if="detailNode.nodeType === 'FOLDER'" :size="20" class="shrink-0 text-file-folder" />
+              <File v-else :size="20" class="shrink-0 text-primary" />
+              <span>{{ detailNode.name }}</span>
+            </DialogTitle>
+            <DialogDescription>文件与文件夹元信息详情</DialogDescription>
+          </DialogHeader>
+          <dl class="grid grid-cols-[88px_1fr] gap-y-2.5 rounded-lg bg-muted/40 p-4 text-sm">
+            <dt class="text-muted-foreground">类型</dt>
+            <dd>{{ detailNode.nodeType === 'FOLDER' ? '文件夹' : detailNode.mimeType || '文件' }}</dd>
+            <dt class="text-muted-foreground">大小</dt>
+            <dd>{{ detailNode.nodeType === 'FOLDER' ? '—' : size(detailNode.size) }}</dd>
+            <dt class="text-muted-foreground">修订版本</dt>
+            <dd>r{{ detailNode.revision }}</dd>
+            <dt class="text-muted-foreground">更新时间</dt>
+            <dd>{{ new Date(detailNode.updatedAt).toLocaleString('zh-CN') }}</dd>
+            <dt class="text-muted-foreground">节点 ID</dt>
+            <dd class="font-mono text-xs text-muted-foreground">{{ detailNode.id }}</dd>
+          </dl>
+          <DialogFooter>
+            <Button v-if="detailNode.nodeType === 'FILE' && mode !== 'trash'" variant="outline" @click="previewDetailNode">
+              <Eye :size="15" /> 预览
+            </Button>
+            <Button v-if="detailNode.nodeType === 'FILE' && mode !== 'trash'" variant="outline" @click="download(detailNode)">
+              <Download :size="15" /> 下载
+            </Button>
+            <Button @click="detailNode = undefined">关闭</Button>
+          </DialogFooter>
+        </template>
+      </DialogContent>
+    </Dialog>
+
+    <MoveDialog v-if="moving" :node="moving" @close="moving = undefined" @moved="refresh(); treeRevision++" />
+    <SpaceMembersDialog v-if="membersDialogOpen && currentSpace" :space="currentSpace" @close="membersDialogOpen = false" @updated="reloadSpaces" />
+    <FolderShareDialog v-if="sharingNode" :node="sharingNode" @close="sharingNode = undefined" @shared="notice = '文件夹共享授权已生效'" />
+    <ShareLinkDialog v-if="shareLinkNode" :node="shareLinkNode" @close="shareLinkNode = undefined" />
+    <BatchRenameDialog
+      v-if="batchRenameOpen && spaceId"
+      :space-id="spaceId"
+      :nodes="currentSelection"
+      @close="batchRenameOpen = false"
+      @applied="undo => { selected = new Set(); refresh(); treeRevision++; showUndo(undo) }"
+    />
+    <GlobalSearchDialog
+      v-if="globalSearchOpen"
+      :spaces="spaces"
+      @close="globalSearchOpen = false"
+      @locate="locateSearchHit"
+      @preview="previewSearchHit"
+    />
+
+    <div v-if="undoReceipt" class="undo-toast" role="status">
+      <span>{{ undoReceipt.summary }}</span>
+      <Button size="sm" variant="outline" :disabled="undoing" @click="performUndo">
+        <Undo2 :size="14" /> {{ undoing ? '撤销中…' : '撤销 (10s)' }}
+      </Button>
+      <Button size="icon-xs" variant="ghost" aria-label="关闭撤销提示" @click="showUndo(null)"><X :size="14" /></Button>
+    </div>
+
+    <aside v-if="mode !== 'tasks' && uploadTasks.length && uploadPanelVisible" class="upload-panel" aria-label="上传任务">
+      <header>
+        <strong>上传任务 ({{ uploadTasks.length }})</strong>
+        <Button variant="ghost" size="sm" @click="openTasks">全部任务</Button>
+        <Button v-if="uploading" variant="outline" size="sm" @click="uploadQueue.abortAll()">全部暂停</Button>
+        <Button v-else variant="outline" size="sm" @click="uploadQueue.clearFinished(); if (!uploadTasks.length) uploadPanelVisible = false">清理已完成</Button>
+        <Button variant="ghost" size="icon-xs" aria-label="收起上传面板" @click="uploadPanelVisible = false"><X :size="16" /></Button>
+      </header>
+      <div v-for="task in uploadTasks" :key="task.id">
+        <div class="flex items-center justify-between gap-2">
+          <span class="truncate text-sm">{{ task.name }}</span>
+          <div class="flex items-center gap-1 shrink-0">
+            <Button v-if="task.status === 'uploading' || task.status === 'queued'" variant="ghost" size="sm" @click="uploadQueue.pause(task.id)">暂停</Button>
+            <Button v-if="task.status === 'paused' || task.status === 'error'" variant="ghost" size="sm" @click="uploadQueue.resume(task.id)">{{ task.status === 'error' ? '重试' : '继续' }}</Button>
+            <Button v-if="task.status !== 'completed' && task.status !== 'cancelled'" variant="ghost" size="sm" class="text-destructive" @click="uploadQueue.cancel(task.id)">取消</Button>
+          </div>
+        </div>
+        <small>{{ statusLabel(task.status, task.message) }} · {{ task.percent }}%</small>
+        <progress :value="task.percent" max="100" />
+      </div>
+    </aside>
+
+    <PreviewDialog v-if="preview" :node="preview" :version="previewVersion" :siblings="nodes" @select="next => { preview = next; previewVersion = undefined }" @close="preview = undefined" />
+
+    <Dialog :open="!!dialog" @update:open="value => { if (!value && !dialogBusy) dialog = undefined }">
+      <DialogContent>
+        <template v-if="dialog">
+          <DialogHeader><DialogTitle>{{ dialog.title }}</DialogTitle><DialogDescription>{{ dialog.label }}</DialogDescription></DialogHeader>
+          <form @submit.prevent="submitDialog">
+            <Input v-model="dialog.value" :aria-label="dialog.label" :disabled="dialogBusy" />
+            <p v-if="error" role="alert" class="text-destructive text-sm mt-3">{{ error }}</p>
+            <DialogFooter class="mt-5">
+              <Button variant="outline" type="button" :disabled="dialogBusy" @click="dialog = undefined">取消</Button>
+              <Button type="submit" :disabled="dialogBusy">{{ dialogBusy ? '正在保存…' : '确认' }}</Button>
+            </DialogFooter>
+          </form>
+        </template>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="!!versionNode" @update:open="value => { if (!value) versionNode = undefined }">
+      <DialogContent>
+        <template v-if="versionNode">
+          <DialogHeader>
+            <DialogTitle>{{ versionNode.name }} · 历史版本</DialogTitle>
+            <DialogDescription>恢复历史内容会创建新版本，原有记录保留。</DialogDescription>
+          </DialogHeader>
+          <div v-for="version in versions" :key="version.id" class="flex items-center gap-3 py-2">
+            <span class="flex-1 text-sm">
+              版本 {{ version.number }} · {{ size(version.size) }}
+              <small class="block text-muted-foreground">
+                {{ new Date(version.createdAt).toLocaleString('zh-CN') }}<template v-if="version.createdByName"> · 修改人：{{ version.createdByName }}</template>
+              </small>
+            </span>
+            <Button variant="outline" @click="previewVersion = version; preview = versionNode">预览</Button>
+            <Button variant="outline" :disabled="version.id === versionNode.currentVersionId" @click="restoreVersion(version)">恢复</Button>
+          </div>
+        </template>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="spaceDialogOpen" @update:open="value => { if (!value && !spaceSaving) spaceDialogOpen = false }">
+      <DialogContent>
+        <DialogHeader><DialogTitle>空间设置</DialogTitle><DialogDescription>配置当前空间的名称、描述、颜色与排序，或安全删除空间。</DialogDescription></DialogHeader>
+        <form class="space-y-3 mt-2" @submit.prevent="saveSpaceSettings">
+          <label class="block space-y-1 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
+          <label class="block space-y-1 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block space-y-1 text-sm"><span>标记颜色</span><Input v-model="spaceColor" aria-label="标记颜色" placeholder="#6366f1" :disabled="spaceSaving" /></label>
+            <label class="block space-y-1 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
+          </div>
+          <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>
+          <DialogFooter><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
+        </form>
+        <div v-if="spaces.length > 1" class="mt-4 pt-4 border-t border-border space-y-2">
+          <p class="text-xs text-destructive">危险操作：输入空间名称「{{ currentSpace?.name }}」以确认删除该空间。</p>
+          <div class="flex items-center gap-2">
+            <Input v-model="spaceDeleteConfirm" aria-label="确认删除空间名称" :placeholder="currentSpace?.name" :disabled="spaceSaving" />
+            <Button variant="outline" class="text-destructive shrink-0" :disabled="spaceSaving || spaceDeleteConfirm !== currentSpace?.name" @click="confirmDeleteSpace">删除空间</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

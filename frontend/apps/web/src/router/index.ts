@@ -29,8 +29,43 @@ const routes: RouteRecordRaw[] = [
         name: 'folders',
         component: () => import('@/views/drive/index.vue'),
       },
+      {
+        path: 'favorites',
+        name: 'favorites',
+        component: () => import('@/views/drive/index.vue'),
+      },
+      {
+        path: 'trash',
+        name: 'trash',
+        component: () => import('@/views/drive/index.vue'),
+      },
+      {
+        path: 'tasks',
+        name: 'tasks',
+        component: () => import('@/views/drive/index.vue'),
+      },
+      {
+        path: 'shared',
+        name: 'shared',
+        component: () => import('@/views/drive/index.vue'),
+      },
+      {
+        path: 'recent',
+        name: 'recent',
+        component: () => import('@/views/drive/index.vue'),
+      },
+      {
+        path: 'settings',
+        redirect: '/app/settings/profile',
+      },
+      {
+        path: 'settings/:section(profile|security|appearance|files)',
+        name: 'settings',
+        component: () => import('@/views/drive/index.vue'),
+      },
     ],
   },
+  { path: '/s/:token', name: 'public-share', component: () => import('@/views/share/public.vue') },
   { path: '/404', name: 'not-found', component: () => import('@/views/not-found.vue') },
   { path: '/:pathMatch(.*)*', component: () => import('@/views/not-found.vue') },
 ]

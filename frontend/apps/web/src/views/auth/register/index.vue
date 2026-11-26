@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { Eye, EyeOff } from '@lucide/vue'
 import { toTypedSchema } from '@vee-validate/zod'
@@ -16,6 +16,10 @@ import {
 } from '@repo/ui/form'
 import { useRegistration } from './useRegistration'
 import { registrationSchema } from './schema'
+import { useSiteConfig } from '@/composables/useSiteConfig'
+
+const { siteConfig, loadSiteConfig } = useSiteConfig()
+onMounted(() => { void loadSiteConfig() })
 
 const formSchema = toTypedSchema(registrationSchema)
 
@@ -69,9 +73,11 @@ watch(() => form.values.email?.trim().toLowerCase(), (email, previous) => {
         >
           <span
               class="flex size-8 items-center justify-center
-                   rounded-lg bg-primary text-primary-foreground"
+                   rounded-lg bg-primary text-primary-foreground overflow-hidden"
           >
+            <img v-if="siteConfig.siteLogoUrl" :src="siteConfig.siteLogoUrl" :alt="siteConfig.siteName" class="size-full object-contain" />
             <svg
+                v-else
                 xmlns="http://www.w3.org/2000/svg"
                 width="19"
                 height="19"
@@ -88,7 +94,7 @@ watch(() => form.values.email?.trim().toLowerCase(), (email, previous) => {
               />
             </svg>
           </span>
-          Cloudlane
+          {{ siteConfig.siteName }}
         </RouterLink>
 
         <h1 class="text-2xl font-semibold tracking-tight">
@@ -96,12 +102,23 @@ watch(() => form.values.email?.trim().toLowerCase(), (email, previous) => {
         </h1>
 
         <p class="mt-2 text-sm text-muted-foreground">
-          使用邮箱注册，开始使用 Cloudlane
+          使用邮箱注册，开始使用 {{ siteConfig.siteName }}
         </p>
         <p class="mt-2 text-xs text-muted-foreground">用户名将使用邮箱中 @ 前的内容。</p>
+        <p v-if="siteConfig.siteAnnouncement" class="mt-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-foreground">
+          {{ siteConfig.siteAnnouncement }}
+        </p>
       </header>
 
-      <section v-if="registered" role="status" aria-live="polite" class="space-y-4">
+      <section v-if="siteConfig.loaded && !siteConfig.allowRegister" role="alert" class="space-y-4 rounded-xl border border-border bg-card p-5">
+        <p class="text-sm font-medium">系统暂未开放公开注册</p>
+        <p class="text-xs text-muted-foreground">管理员已关闭新用户自助注册，请联系管理员开通账号或使用已有账号登录。</p>
+        <RouterLink to="/auth/login" class="inline-block text-sm font-medium text-primary hover:underline">
+          前往登录
+        </RouterLink>
+      </section>
+
+      <section v-else-if="registered" role="status" aria-live="polite" class="space-y-4">
         <p class="text-sm">注册成功，请使用邮箱和密码登录。</p>
         <RouterLink to="/auth/login" class="font-medium text-primary hover:underline">
           前往登录

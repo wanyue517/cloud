@@ -1,19 +1,45 @@
 import { request } from '@/utils/request'
+import type { ApiSchemas, ResourceId } from '@repo/api-client'
 
-export interface Space { id: string; name: string; kind: string; color: string; sortOrder: number }
-export interface DriveNode {
-  id: string; spaceId: string; parentId: string; name: string; nodeType: 'FILE' | 'FOLDER'
-  currentVersionId: string | null; revision: number; size: number; mimeType: string
-  hidden: boolean; updatedAt: string; hasChildren: boolean
+export type Space = Required<ApiSchemas['DriveModels_Space']>
+export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
+  nodeType: 'FILE' | 'FOLDER'
+  currentVersionId: ResourceId | null
 }
-export interface NodePage { items: DriveNode[]; total: number; page: number; pageSize: number }
-export interface Version { id: string; number: number; size: number; mimeType: string; createdAt: string }
-export interface Upload { id: string; chunkSize: number; chunkCount: number; received: number[]; status: string; fileId: string | null }
+export type DirectoryStats = { folders: number; files: number; categories: Record<string, number> }
+export type TextChunk = { content: string; offset: number; bytesRead: number; totalBytes: number; hasMore: boolean; binaryDetected: boolean }
+export type PreviewAsset = {
+  id: string; fileId: string; versionId: string; assetType: string
+  status: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED'
+  mimeType: string | null; sizeBytes: number; errorMessage: string | null; attemptCount: number; updatedAt: string
+}
+export type ExcelSheetInfo = { index: number; name: string; rowCount: number; colCount: number }
+export type ExcelMetadata = { sheets: ExcelSheetInfo[] }
+export type ExcelRowsPage = {
+  sheetIndex: number; sheetName: string; rowOffset: number; rowLimit: number
+  totalRows: number; colCount: number; hasMore: boolean; rows: string[][]
+}
+export type VideoProbe = {
+  container: string; videoCodec: string; audioCodec: string; durationSeconds: number
+  width: number; height: number; bitrate: number
+  strategy: 'DIRECT_PLAY' | 'REMUX' | 'TRANSCODE'; reason: string
+}
+export type ArchiveEntry = { path: string; name: string; directory: boolean; size: number; compressedSize: number; modifiedAt: string }
+export type ArchiveListing = { format: string; totalEntries: number; truncated: boolean; entries: ArchiveEntry[] }
+export type NodePage = Omit<Required<ApiSchemas['DriveModels_Page']>, 'items'> & { items: DriveNode[] }
+export type Version = Required<ApiSchemas['DriveModels_Version']>
+export type Upload = Omit<Required<ApiSchemas['DriveModels_Upload']>, 'fileId'> & { fileId: ResourceId | null }
 export const drive = {
   spaces: () => request.get<Space[]>('/v1/spaces'),
-  createSpace: (name: string) => request.post<string>('/v1/spaces', { name }),
-  updateSpace: (id: string, name: string, sortOrder = 0) => request.put(`/v1/spaces/${id}`, { name, sortOrder }),
+  createSpace: (name: string, extra: { description?: string; color?: string; icon?: string; sortOrder?: number } = {}) =>
+    request.post<string>('/v1/spaces', { name, ...extra }),
+  updateSpace: (id: string, name: string, sortOrder = 0, extra: { description?: string; color?: string; icon?: string } = {}) =>
+    request.put(`/v1/spaces/${id}`, { name, sortOrder, ...extra }),
   deleteSpace: (id: string, confirmation: string) => request.delete(`/v1/spaces/${id}`, { confirmation }),
+  stats: (space: string, parentId = '0', hidden = false) =>
+    request.get<DirectoryStats>(`/v1/spaces/${space}/stats`, { parentId, hidden }),
+  transfer: (node: DriveNode, targetSpaceId: string, targetParentId: string, mode: 'MOVE' | 'COPY') =>
+    request.post<DriveNode>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/transfer`, { targetSpaceId, targetParentId, mode, revision: node.revision }),
   nodes: (space: string, params: Record<string, unknown> = {}) => request.get<NodePage>(`/v1/spaces/${space}/nodes`, params),
   ancestors: (space: string, id: string) => request.get<DriveNode[]>(`/v1/spaces/${space}/nodes/${id}/ancestors`),
   folder: (space: string, parentId: string, name: string) => request.post<DriveNode>(`/v1/spaces/${space}/folders`, { parentId, name }),
@@ -21,6 +47,24 @@ export const drive = {
   trash: (node: DriveNode) => request.delete(`/v1/spaces/${node.spaceId}/nodes/${node.id}`, { revision: node.revision }),
   restore: (node: DriveNode) => request.post(`/v1/spaces/${node.spaceId}/nodes/${node.id}/restore`),
   content: (node: DriveNode, versionId?: string) => request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/content`, { versionId }),
+  textChunk: (node: DriveNode, params: { versionId?: string; offset?: number; limit?: number } = {}) =>
+    request.get<TextChunk>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/text`, params),
+  previewAsset: (node: DriveNode, assetType: 'OFFICE_PDF' | 'VIDEO_MP4', versionId?: string) =>
+    request.get<PreviewAsset>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/assets/${assetType}`, { versionId }),
+  retryPreviewAsset: (node: DriveNode, assetType: 'OFFICE_PDF' | 'VIDEO_MP4', versionId?: string) =>
+    request.post<PreviewAsset>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/assets/${assetType}/retry`, undefined, { params: { versionId } }),
+  previewAssetContent: (node: DriveNode, assetType: 'OFFICE_PDF' | 'VIDEO_MP4', versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/assets/${assetType}/content`, { versionId }),
+  excelSheets: (node: DriveNode, versionId?: string) =>
+    request.get<ExcelMetadata>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/excel/sheets`, { versionId }),
+  excelRows: (node: DriveNode, params: { versionId?: string; sheetIndex?: number; rowOffset?: number; rowLimit?: number } = {}) =>
+    request.get<ExcelRowsPage>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/excel/rows`, params),
+  videoProbe: (node: DriveNode, versionId?: string) =>
+    request.get<VideoProbe>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/video/probe`, { versionId }),
+  archiveEntries: (node: DriveNode, versionId?: string) =>
+    request.get<ArchiveListing>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/archive/entries`, { versionId }),
+  archiveExtract: (node: DriveNode, entryPath: string, versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/archive/extract`, { entryPath, versionId }),
   versions: (node: DriveNode) => request.get<Version[]>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/versions`),
   restoreVersion: (node: DriveNode, version: string) => request.post(`/v1/spaces/${node.spaceId}/nodes/${node.id}/versions/${version}/restore`, undefined, { params: { revision: node.revision } }),
   favorite: (node: DriveNode, enabled: boolean) => request.put(`/v1/spaces/${node.spaceId}/nodes/${node.id}/favorite`, undefined, { params: { enabled } }),
@@ -40,11 +84,28 @@ export async function uploadFile(spaceId: string, parentId: string, file: File, 
     localStorage.setItem(key, upload.id)
   }
   if (upload.status !== 'COMPLETED') {
+    const received = new Set(upload.received ?? [])
     for (let index = 0; index < upload.chunkCount; index++) {
-      if (!upload.received.includes(index)) {
-        const form = new FormData()
-        form.append('file', file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize)), file.name)
-        await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, { signal, timeout: 120_000 })
+      if (!received.has(index)) {
+        const chunkBlob = file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize))
+        let lastErr: unknown
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (signal?.aborted) throw new Error('上传已暂停')
+          try {
+            const form = new FormData()
+            form.append('file', chunkBlob, file.name)
+            await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, { signal, timeout: 120_000 })
+            lastErr = undefined
+            break
+          } catch (err) {
+            lastErr = err
+            if (signal?.aborted || attempt === 2) break
+            if (typeof setTimeout === 'function') {
+              await new Promise(resolve => setTimeout(resolve, 300 * 2 ** attempt))
+            }
+          }
+        }
+        if (lastErr) throw lastErr
       }
       progress(Math.round((index + 1) / upload.chunkCount * 100))
     }

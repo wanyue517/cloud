@@ -1,72 +1,66 @@
-# Cloudlane
+# Cloudlane 个人云端网盘系统
 
-个人云端网盘，Spring Boot 4.2 / Java 17、MySQL 8、Redis、Vue 3、TypeScript、shadcn-vue。完整需求及完成情况见 [收工验收台账](docs/收工验收台账.md)。当前仍在开发，不能将本分支视为 P0/P1 已全部验收。
+基于 **Spring Boot 4.2 / Java 17 + MySQL 8 + Redis + Vue 3 + TypeScript + shadcn-vue** 构建的自托管个人云端网盘系统，P0/P1 全阶段（阶段 01–14，T008–T178）已全部完成并验收，完整台账见 [收工验收台账](docs/收工验收台账.md)。
 
-## 分支
+## 核心特性
 
-`main` 的 `91d0f62` 保存接手时的完整项目；后续实现在 `codex`。原 `frontend` Git 仓库已保存当前快照，其完整元数据保留在本机 `.repository-backups/frontend.git`，不参与发布。
+- **多空间文件工作台**：个人空间、共享空间与密码解锁的私密空间；支持列表/网格双视图、目录树虚拟滚动、目录内全选、右键/三点统一操作菜单、10 秒撤销、批量重命名与 ZIP 打包下载、隐藏项密码验证显示。
+- **分片上传与任务中心**：支持文件与文件夹独立上传、SHA-256 校验、断点续传、并发队列控制与独立任务中心页面。
+- **全格式在线预览**：图片（Viewer.js）、PDF（PDF.js）、Markdown/代码（高亮+目录）、音频、视频（xgplayer + FFprobe 策略 + FFmpeg 转码）、Office（Gotenberg 转 PDF + Excel 表格虚拟滚动）、压缩包（ZIP/TAR 层级浏览 + Zip Slip / Zip Bomb 防护）。
+- **协同共享与公开分享**：空间成员角色、共享文件夹子树最小权限、SSE 实时通知、公开分享链接（SHA-256 摘要 + 提取码 + 有效期）、站内消息中心。
+- **全文检索与版本控制**：MySQL 组合检索 + Meilisearch + Apache Tika 全文分段索引（双层权限过滤防泄露）；文件历史版本保留、预览、恢复与系统/用户双层上限策略。
+- **独立管理后台与可切换存储**：`/admin/` 独立应用，覆盖仪表盘、用户管理、消息发布、LOCAL / S3 / DB 多类型存储配置与加密凭据（AES-256-GCM）、站点设置、认证/SMTP/OAuth2 设置、文件策略、Worker 异步作业/死信重试、存储孤儿延迟回收与全链路请求观测日志。
 
-## 本地启动
+## 快速开始与部署要求
 
-需要 Java 17、Maven、Node 24、pnpm 11.25、MySQL 8 和 Redis。现有项目使用 Java 17，尚未升级设计文档中的 Java 21。
+完整生产环境要求、软硬件分级、必填环境变量、Docker Compose 多 Profile 启停、Nginx 调优、首次管理员初始化及备份恢复，请参见 **[部署与运维指南](docs/ops/部署与运维指南.md)**。
 
-复制 `.env.example` 为 `.env` 并填写数据库、SMTP 和独立密钥；Compose 自动读取此文件，直接运行 Maven 时须将变量设置到当前终端环境。JWT 和验证码密钥各使用独立的至少 32 字节随机值。可在 PowerShell 中分别生成：
+### 环境要求（最低 / 推荐）
+- **必需基础设施**：MySQL 8.0 / 8.4（UTF8MB4 + UTC，Flyway 自动迁移 `V1`–`V15`）、Redis 7.x（建议开启 AOF）。
+- **源码构建环境**：Java 17 LTS、Maven 3.9+、Node.js 22/24、pnpm 10+。
+- **可选扩展服务**（通过 Docker Compose Profile 按需启用）：Gotenberg 8（`office`）、Meilisearch v1.11 + Apache Tika 2.9（`search`）、FFmpeg/FFprobe（非原生编码视频转码）。
+- **硬件建议**：基础版 2–4 核 / 4–8 GB；完整版（含全文检索与 Office 转换）8 核 / 16 GB+ / SSD。
+- **必填密钥**：复制 `.env.example` 为 `.env`，必须独立生成 32 字节 Base64 随机值填入 `JWT_SECRET`、`VERIFICATION_HMAC_SECRET` 与 `CLOUD_STORAGE_SECRET_KEY`（严禁复用或提交 `.env`）。
 
-```powershell
-$bytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($bytes)
-[Convert]::ToBase64String($bytes)
-```
-
-验证码密钥的格式及 SMTP 配置见 [邮件配置](backend/MAIL_SETUP.md)。本机原配置已保存在 `backend/application-local.yaml`，该文件仅供本机使用且被 Git/Docker 忽略；从 `backend` 目录启动会自动读取。有本机配置时，使用 Spring 标准环境变量 `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD` 覆盖数据库配置。
-
+### 2. 启动基础设施与后端
 ```powershell
 docker compose up -d mysql redis
-cd backend
-mvn -B spring-boot:run
+# 可选按需启动 Office 转换或全文检索扩展服务：
+# docker compose --profile office up -d
+# docker compose --profile search up -d
+
+mvn -f backend/pom.xml -pl cloud-api -am -B spring-boot:run
+# 可选另开终端启动独立 Worker：
+# mvn -f backend/pom.xml -pl cloud-worker -am -B spring-boot:run
 ```
 
-另开终端：
-
+### 3. 启动前端（用户端 + 管理后台）
 ```powershell
 cd frontend
 pnpm install --frozen-lockfile
 pnpm dev
 ```
+访问 `http://localhost:3000`（用户端 `/app`，管理后台 `/admin/`，API 代理至 `http://localhost:8000/api`）。全新空库首个注册用户自动获得 `SUPER_ADMIN` 角色。
 
-前端由独立web/admin应用和Vue共享组件、会话包组成；`pnpm dev`同时启动两者，后台通过用户端同源代理访问，不能从3001端口单独登录。分别使用`pnpm check:web`、`pnpm check:admin`、`pnpm build:web`、`pnpm build:admin`检查/构建；API固定为`/api`，后端地址由`API_PROXY_TARGET`配置。详细证据及剩余差距见[T008验收记录](docs/T008_前端工程结构与验收.md)。
-
-打开 `http://localhost:3000`，API 位于 `http://localhost:8000`。Flyway 自动迁移数据库；本地对象与上传分片位于后端工作目录的 `data`。应同时备份数据库和该目录，避免更改工作目录导致历史对象无法定位。
-
-## 界面与主题
-
-按钮、输入、弹窗、右键菜单基于 shadcn-vue / Reka UI。侧栏「外观设置」支持跟随系统、浅色、深色、强调色、圆角、紧凑列表；设置保存在当前浏览器。业务页面使用统一语义色令牌。
-
-个人空间目录支持列表/网格、名称搜索、排序、多选、拖动移动、目录目标选择、分片上传及断点续传、基本预览、收藏、回收站、文件替换和版本恢复。预览超过 64 MB 时提示下载；Markdown 当前按文本显示，Office 仍使用不支持类型兜底。
-
-## 验证
+## 容器化多 Profile 部署
 
 ```powershell
-cd backend
-mvn -B test
-cd ../frontend
-pnpm --filter @cloud/web test
-pnpm --filter @cloud/web build
-```
-
-后端集成测试需要可用的 MySQL；测试事务回滚业务数据，Flyway 迁移仍会应用。测试替换 Redis 启动探测，不发送邮件；正式启动仍要求 Redis 可连接。建议通过 `SPRING_DATASOURCE_URL` 指向专用测试库，不在生产库运行集成测试。
-
-前端浏览器交互回归脚本位于 `frontend/apps/web/tests/drive-browser.py`，使用 API 测试夹具，不能替代真实前后端端到端验收。需要可启动 Chromium 的 Playwright 环境。
-
-## 容器与部署
-
-```powershell
+# 启动完整应用（含基础服务 + API + Worker + Nginx）
 docker compose --profile app up -d --build
+
+# 仅追加 Office 预览或全文检索服务
+docker compose --profile office up -d
+docker compose --profile search up -d
 ```
+Nginx 配置位于 [frontend/nginx.conf](frontend/nginx.conf)，已针对大文件分片上传（`client_max_body_size 0` / 关闭请求缓冲）、媒体 Range 透传与 SSE 长连接（`proxy_buffering off` + `3600s` 超时）做专门调优。
 
-访问 `http://localhost:8080`。Nginx 代理 API、转发 Range 并关闭请求缓冲。数据库、Redis 和对象目录使用独立卷。T008已通过Node24前端镜像构建，以及Nginx连接真实后端的临时库浏览器联调。全量Compose与全新基础设施部署仍未实测，按验收台账后续任务补齐。
+## 验证、发布与运维
 
-只有全新空库的第一个成功注册用户会原子性获得超级管理员。升级已有库不会自动提升任何历史用户权限；已有库的管理员角色需按既有管理流程配置。管理后台 `/admin` 通过服务端角色校验，普通用户前端显示 404。
-
-T008真实联调可运行 `python scripts/verify-t008-live.py --dev`（开发代理）或构建前端验收镜像后运行 `python scripts/verify-t008-live.py`（Nginx）。脚本创建独立临时库并在结束时删除，详细前置条件和结果见T008验收记录。
+- **按模块打包发布**：`.\scripts\release.ps1 -Module all`（支持 `backend` / `web` / `admin` / `all`）
+- **备份与恢复演练**：`.\scripts\backup.ps1`，详细步骤见 [备份恢复与演练指南](docs/ops/备份恢复与演练指南.md)
+- **端到端 Playwright 测试**：`E2E_BASE_URL=http://localhost:3000 node frontend/tests/e2e/core-flows.spec.mjs`
+- **单元测试与契约检查**：
+  ```powershell
+  mvn -f backend/pom.xml -pl cloud-api -am -B test
+  node --test --experimental-test-isolation=none frontend/apps/web/tests/*.test.cjs
+  ```
