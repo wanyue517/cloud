@@ -95,8 +95,8 @@ const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 14
 const viewportTier = computed(() => resolveViewportTier(viewportWidth.value))
 const mobileNavOpen = ref(false), drawerTreeOpen = ref(false), resizingTree = ref(false)
 const sidebarVisible = computed(() => viewportTier.value === 'mobile' ? mobileNavOpen.value : !layout.sidebarCollapsed)
-const treeVisible = computed(() => viewportTier.value === 'desktop' ? !layout.treeCollapsed : drawerTreeOpen.value)
-const hasDrawerOpen = computed(() => (viewportTier.value === 'mobile' && mobileNavOpen.value) || (viewportTier.value !== 'desktop' && drawerTreeOpen.value))
+const treeVisible = computed(() => hasSecondaryPane.value && (viewportTier.value === 'desktop' ? !layout.treeCollapsed : drawerTreeOpen.value))
+const hasDrawerOpen = computed(() => (viewportTier.value === 'mobile' && mobileNavOpen.value) || (viewportTier.value !== 'desktop' && hasSecondaryPane.value && drawerTreeOpen.value))
 let stopResize: (() => void) | undefined
 
 function closeDrawers() { mobileNavOpen.value = false; drawerTreeOpen.value = false }
@@ -175,6 +175,7 @@ const settingsSection = computed<SettingsSection>(() => {
 
 const lastSpaceId = ref('')
 const spaceId = computed(() => String(route.params.spaceId || lastSpaceId.value || visibleSpaces.value[0]?.id || spaces.value[0]?.id || ''))
+const hasSecondaryPane = computed(() => mode.value === 'settings' || (mode.value === 'files' && !!spaceId.value))
 const parentId = computed(() => String(route.params.folderId || '0'))
 const currentSpace = computed(() => spaces.value.find(s => s.id === spaceId.value))
 const currentSelection = computed(() => nodes.value.filter(n => selected.value.has(n.id)))
@@ -879,14 +880,13 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       </div>
     </aside>
 
-    <!-- 第二栏：中间上下文侧栏（空间目录树 / 个人中心分组导航 / 视图说明） -->
-    <aside class="drive-tree-pane" :class="{ 'is-open': drawerTreeOpen }" :aria-label="mode === 'settings' ? '个人中心导航' : '目录树'">
+    <!-- 第二栏：仅在文件目录树或个人中心分组导航时展示，其余页面不占用空间 -->
+    <aside v-if="hasSecondaryPane" class="drive-tree-pane" :class="{ 'is-open': drawerTreeOpen }" :aria-label="mode === 'settings' ? '个人中心导航' : '目录树'">
       <header class="tree-pane-header">
         <div class="tree-pane-title">
           <Settings v-if="mode === 'settings'" :size="16" />
-          <Search v-else-if="mode === 'search'" :size="16" />
-          <Folder v-else :size="16" :style="mode === 'files' && currentSpace?.color ? { color: currentSpace.color } : undefined" />
-          <span>{{ mode === 'settings' ? '个人中心' : mode === 'search' ? '搜索与检索' : mode === 'favorites' ? '收藏视图' : currentSpace?.name || '目录树' }}</span>
+          <Folder v-else :size="16" :style="currentSpace?.color ? { color: currentSpace.color } : undefined" />
+          <span>{{ mode === 'settings' ? '个人中心' : currentSpace?.name || '目录树' }}</span>
         </div>
         <Button variant="ghost" size="icon-xs" :aria-label="viewportTier === 'desktop' ? '折叠目录树' : '关闭目录树'" @click="toggleTree"><X :size="15" /></Button>
       </header>
@@ -919,31 +919,12 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             </Button>
           </div>
         </template>
-        <template v-else-if="mode === 'files' && spaceId">
+        <template v-else>
           <Button variant="ghost" size="sm" class="tree-root-button" :class="{ active: parentId === '0' }" @click="navigate('0')">
             <Folder :size="15" /><span>全部文件</span>
           </Button>
           <FolderTree :space="spaceId" parent="0" :active="parentId" :revision="treeRevision" @navigate="navigate" @move="move" />
         </template>
-        <div v-else-if="mode === 'search'" class="tree-pane-note">
-          <p>默认在当前空间内搜索文件名与正文，可随时切换为跨空间全局检索。</p>
-          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
-        </div>
-        <div v-else-if="mode === 'tasks'" class="tree-pane-note">
-          <p>集中管理当前浏览器的上传队列与服务端持久化分片会话。</p>
-          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
-        </div>
-        <div v-else-if="mode === 'shared'" class="tree-pane-note">
-          <p>查看他人共享给你的目录、管理我发起的共享及处理空间邀请。</p>
-          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
-        </div>
-        <div v-else-if="mode === 'favorites'" class="tree-pane-note">
-          <p>展示当前空间内已收藏的文件与文件夹。</p>
-          <Button variant="outline" size="sm" @click="backToFiles">返回空间目录树</Button>
-        </div>
-        <div v-else class="tree-pane-note">
-          <p>选择左侧空间以浏览目录结构。</p>
-        </div>
       </div>
       <div
         v-if="viewportTier === 'desktop' && !layout.treeCollapsed"
@@ -967,7 +948,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       <header class="drive-topbar">
         <div class="topbar-leading">
           <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="sidebarVisible ? '收起导航栏' : '展开导航栏'" :aria-pressed="sidebarVisible" @click="toggleSidebar"><PanelLeft :size="17" /></Button>
-          <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="treeVisible ? '收起目录树' : '展开目录树'" :aria-pressed="treeVisible" @click="toggleTree"><ListTree :size="17" /></Button>
+          <Button v-if="hasSecondaryPane" variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="treeVisible ? '收起目录树' : '展开目录树'" :aria-pressed="treeVisible" @click="toggleTree"><ListTree :size="17" /></Button>
           <span class="topbar-crumb">{{ topbarTitle }}</span>
         </div>
 
