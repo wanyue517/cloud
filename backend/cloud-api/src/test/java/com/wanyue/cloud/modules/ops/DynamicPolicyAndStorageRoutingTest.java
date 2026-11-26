@@ -320,4 +320,58 @@ class DynamicPolicyAndStorageRoutingTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("client_id=gh-cid")));
     }
+
+    @Test
+    void errorReportingStorageEditPreTestAndImageAssetUpload() throws Exception {
+        // 1. 触发一次异常（访问不存在的存储实例测试 -> 404）-> 自动落库 sys_error_report
+        mvc.perform(post("/api/v1/admin/storage-profiles/999999999/test").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNotFound());
+
+        String errList = mvc.perform(get("/api/v1/admin/error-reports?resolved=false").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.unresolved").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)))
+                .andReturn().getResponse().getContentAsString();
+        String firstErrId = new tools.jackson.databind.json.JsonMapper().readTree(errList).get("data").get("items").get(0).get("id").asString();
+        mvc.perform(put("/api/v1/admin/error-reports/" + firstErrId + "/resolve").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        // 2. 存储表单无需保存即可直接测试连通性（DB 模式）+ 创建后可修改配置
+        mvc.perform(post("/api/v1/admin/storage-profiles/test-config").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"provider\":\"DB\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ok").value(true));
+
+        String created = mvc.perform(post("/api/v1/admin/storage-profiles").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"name\":\"初始名称\",\"provider\":\"DB\",\"maxFileBytes\":2097152}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String profileId = new tools.jackson.databind.json.JsonMapper().readTree(created).get("data").asString();
+
+        mvc.perform(put("/api/v1/admin/storage-profiles/" + profileId).header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"name\":\"修改后名称\",\"provider\":\"DB\",\"maxFileBytes\":4194304}"))
+                .andExpect(status().isOk());
+
+        // 3. 图片资源直传写入当前默认存储方案（切换为刚创建的 DB 存储验证动态路由），并可通过公开地址读取
+        mvc.perform(put("/api/v1/admin/storage-profiles/" + profileId + "/default").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(4, 4, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.io.ByteArrayOutputStream pngOut = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(img, "png", pngOut);
+        MockMultipartFile avatar = new MockMultipartFile("file", "logo.png", "image/png", pngOut.toByteArray());
+
+        String assetResp = mvc.perform(multipart("/api/v1/assets/images").file(avatar)
+                        .param("category", "site-logo")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.storageProfileId").value(profileId))
+                .andReturn().getResponse().getContentAsString();
+        String assetUrl = new tools.jackson.databind.json.JsonMapper().readTree(assetResp).get("data").get("url").asString();
+
+        mvc.perform(get(assetUrl))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/png"));
+    }
 }

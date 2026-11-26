@@ -145,6 +145,97 @@ public class AdminController {
         return R.ok(String.valueOf(id));
     }
 
+    @PutMapping("/storage-profiles/{id}")
+    @Transactional
+    public R<Void> updateStorageProfile(@PathVariable long id, @Valid @RequestBody StorageProfileInput input) {
+        var existing = db.queryForList("SELECT id FROM storage_profile WHERE id=?", id);
+        if (existing.isEmpty()) throw BizException.notFound("存储实例不存在");
+        String provider = input.provider();
+        String root = input.rootPath() == null ? "" : input.rootPath().strip();
+        if ("LOCAL".equals(provider)) {
+            if (root.isEmpty() || root.contains("..")) {
+                throw new BizException(HttpStatus.BAD_REQUEST, 400, "本地存储路径不能为空且不允许包含相对上级引用");
+            }
+        } else if ("S3".equals(provider)) {
+            if (input.endpoint() == null || input.endpoint().isBlank() || input.bucket() == null || input.bucket().isBlank()) {
+                throw new BizException(HttpStatus.BAD_REQUEST, 400, "S3 存储必须提供 Endpoint 和 Bucket");
+            }
+            if (root.isEmpty()) root = "s3://" + input.bucket().strip();
+        } else {
+            if (root.isEmpty()) root = "db://blob_db_content";
+        }
+        db.update(
+                "UPDATE storage_profile SET name=?, provider=?, root_path=?, endpoint=?, bucket=?, region=?, access_key=?, max_file_bytes=? WHERE id=?",
+                input.name().strip(), provider, root,
+                input.endpoint() == null ? null : input.endpoint().strip(),
+                input.bucket() == null ? null : input.bucket().strip(),
+                input.region() == null ? null : input.region().strip(),
+                input.accessKey() == null ? null : input.accessKey().strip(),
+                input.maxFileBytes(), id);
+        if (input.secretKey() != null && !input.secretKey().isBlank()) {
+            db.update("UPDATE storage_profile SET secret_cipher=? WHERE id=?",
+                    cipher.encrypt(input.secretKey().strip()), id);
+        }
+        return R.ok();
+    }
+
+    public record StorageProfileTestInput(
+            Long id,
+            @Pattern(regexp = "LOCAL|S3|DB") String provider,
+            @Size(max = 1024) String rootPath,
+            @Size(max = 512) String endpoint,
+            @Size(max = 128) String bucket,
+            @Size(max = 64) String region,
+            @Size(max = 255) String accessKey,
+            @Size(max = 255) String secretKey) {}
+
+    /** 表单即时测试：无需先入库即可探测 LOCAL / S3 / DB 连通性；编辑场景若未填 secretKey 自动复用库内密文 */
+    @PostMapping("/storage-profiles/test-config")
+    public R<Map<String, Object>> testStorageProfileConfig(@Valid @RequestBody StorageProfileTestInput input) {
+        String provider = input.provider();
+        if ("S3".equalsIgnoreCase(provider)) {
+            String secret = input.secretKey() == null ? "" : input.secretKey().strip();
+            if (secret.isEmpty() && input.id() != null) {
+                var rows = db.queryForList("SELECT secret_cipher FROM storage_profile WHERE id=?", input.id());
+                if (!rows.isEmpty() && rows.get(0).get("secret_cipher") != null) {
+                    secret = cipher.decrypt(String.valueOf(rows.get(0).get("secret_cipher")));
+                }
+            }
+            return R.ok(s3Provider.testConnection(
+                    input.endpoint() == null ? "" : input.endpoint().strip(),
+                    input.bucket() == null ? "" : input.bucket().strip(),
+                    input.region() == null || input.region().isBlank() ? "us-east-1" : input.region().strip(),
+                    input.accessKey() == null ? "" : input.accessKey().strip(),
+                    secret));
+        }
+        if ("DB".equalsIgnoreCase(provider)) {
+            long start = System.currentTimeMillis();
+            try {
+                var stored = dbProvider.put("probe/" + IdWorker.getId(), new ByteArrayInputStream("probe".getBytes(StandardCharsets.UTF_8)), 1024);
+                boolean ok = dbProvider.exists(stored.key());
+                dbProvider.delete(stored.key());
+                return R.ok(Map.of("ok", ok, "provider", "DB", "elapsedMs", System.currentTimeMillis() - start));
+            } catch (IOException e) {
+                throw new BizException(HttpStatus.SERVICE_UNAVAILABLE, 16003, "数据库存储探针失败: " + e.getMessage());
+            }
+        }
+        String root = input.rootPath() == null ? "" : input.rootPath().strip();
+        if (root.isEmpty() || root.contains("..")) {
+            throw new BizException(HttpStatus.BAD_REQUEST, 400, "本地存储路径不能为空且不允许包含相对上级引用");
+        }
+        long start = System.currentTimeMillis();
+        Path dir = Path.of(root).toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(dir);
+            Path probe = Files.createTempFile(dir, ".storage-probe-", ".tmp");
+            Files.writeString(probe, "ok");
+            Files.deleteIfExists(probe);
+            return R.ok(Map.of("ok", true, "path", dir.toString(), "elapsedMs", System.currentTimeMillis() - start));
+        } catch (IOException e) {
+            throw new BizException(HttpStatus.SERVICE_UNAVAILABLE, 16003, "本地存储目录不可写: " + e.getMessage());
+        }
+    }
+
     @PutMapping("/storage-profiles/{id}/default")
     @Transactional
     public R<Void> setDefaultStorageProfile(@PathVariable long id) {

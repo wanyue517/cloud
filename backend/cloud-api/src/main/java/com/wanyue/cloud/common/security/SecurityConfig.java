@@ -64,6 +64,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/site-config").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/assets/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/shares/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/public/shares/**").permitAll()

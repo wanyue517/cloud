@@ -17,16 +17,19 @@ public class AdminOpsController {
     private final AsyncJobWorkerService jobs;
     private final StorageGcService gc;
     private final RequestObservabilityFilter observability;
+    private final ErrorReportService errorReports;
     private final JdbcTemplate db;
 
     public AdminOpsController(
             AsyncJobWorkerService jobs,
             StorageGcService gc,
             RequestObservabilityFilter observability,
+            ErrorReportService errorReports,
             JdbcTemplate db) {
         this.jobs = jobs;
         this.gc = gc;
         this.observability = observability;
+        this.errorReports = errorReports;
         this.db = db;
     }
 
@@ -78,5 +81,24 @@ public class AdminOpsController {
     @GetMapping("/logs")
     public R<Map<String, Object>> logs() {
         return R.ok(observability.snapshot());
+    }
+
+    @GetMapping("/error-reports")
+    public R<Map<String, Object>> listErrorReports(
+            @RequestParam(required = false) Boolean resolved,
+            @RequestParam(required = false) String level,
+            @RequestParam(defaultValue = "50") int limit) {
+        return R.ok(errorReports.list(resolved, level, limit));
+    }
+
+    @PutMapping("/error-reports/{id}/resolve")
+    public R<Void> resolveErrorReport(@PathVariable long id) {
+        errorReports.resolve(id);
+        return R.ok();
+    }
+
+    @DeleteMapping("/error-reports/resolved")
+    public R<Map<String, Object>> clearResolvedErrorReports() {
+        return R.ok(Map.of("deleted", errorReports.clearResolved()));
     }
 }

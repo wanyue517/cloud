@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Laptop, LogOut, Palette, RefreshCw, Shield, SlidersHorizontal, User } from '@lucide/vue'
+import { Laptop, LogOut, Palette, RefreshCw, Shield, SlidersHorizontal, Trash2, Upload, User } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { Separator } from '@repo/ui/separator'
@@ -72,9 +72,41 @@ function setCompact(checked: boolean) { theme.compact = checked }
 
 const displayName = ref(props.profile.displayName)
 const avatarUrl = ref(props.profile.avatarUrl || '')
+const avatarInput = ref<HTMLInputElement | null>(null)
+const avatarUploading = ref(false)
 const profileSaving = ref(false)
 const feedback = ref('')
 const error = ref('')
+
+async function onAvatarSelected(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  avatarUploading.value = true
+  error.value = ''
+  feedback.value = ''
+  try {
+    const uploaded = await request.upload<{ id: string; url: string }>('/v1/assets/images', file, {
+      extraData: { category: 'avatar' },
+    })
+    avatarUrl.value = uploaded.url
+    await request.put('/v1/me', { displayName: displayName.value || props.profile.displayName, avatarUrl: uploaded.url })
+    const me = await request.get<UserProfile>('/v1/me')
+    emit('profile-updated', me)
+    feedback.value = '头像已上传至当前存储方案并保存'
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '上传头像失败'
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
+async function clearAvatar() {
+  if (avatarUploading.value || profileSaving.value) return
+  avatarUrl.value = ''
+  await saveProfile()
+}
 
 const sessions = ref<DeviceSessionItem[]>([])
 const sessionsLoading = ref(false)
@@ -254,21 +286,24 @@ onMounted(() => {
           <div v-else class="profile-avatar-fallback">
             {{ (displayName || profile.displayName || 'U').slice(0, 1).toUpperCase() }}
           </div>
-          <div class="profile-meta">
+          <div class="profile-meta flex-1">
             <strong>{{ profile.displayName || '未设置昵称' }}</strong>
             <span>账号 ID：{{ profile.id || '—' }} · 角色：{{ profile.admin ? '超级管理员' : '普通成员' }}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <input ref="avatarInput" type="file" accept="image/*" class="hidden" @change="onAvatarSelected" />
+            <Button type="button" variant="outline" size="sm" :disabled="avatarUploading || profileSaving" @click="avatarInput?.click()">
+              <Upload :size="14" /> {{ avatarUploading ? '上传中…' : '上传头像' }}
+            </Button>
+            <Button v-if="avatarUrl" type="button" variant="ghost" size="sm" :disabled="avatarUploading || profileSaving" @click="clearAvatar">
+              <Trash2 :size="14" /> 恢复默认
+            </Button>
           </div>
         </div>
 
         <label class="settings-field">
           <span>显示昵称</span>
           <Input v-model="displayName" aria-label="显示昵称" :disabled="profileSaving" placeholder="输入显示昵称" />
-        </label>
-
-        <label class="settings-field">
-          <span>头像地址（可选）</span>
-          <Input v-model="avatarUrl" aria-label="头像地址" :disabled="profileSaving" placeholder="https://example.com/avatar.png" />
-          <small>支持 http(s) 图片地址或站内相对路径，留空则使用首字母头像。</small>
         </label>
 
         <div class="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs">

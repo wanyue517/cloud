@@ -64,11 +64,21 @@ export interface components {
       secretKey?: string
       maxFileBytes?: number
     }
+    AdminController_StorageProfileTestInput: {
+      id?: string
+      provider?: string
+      rootPath?: string
+      endpoint?: string
+      bucket?: string
+      region?: string
+      accessKey?: string
+      secretKey?: string
+    }
     ApiResponse: {
-      traceId?: string | null
-      msg: string
-      data?: null
       code: number
+      data?: null
+      msg: string
+      traceId?: string | null
     }
     AuthController_ResetPasswordReq: {
       email?: string
@@ -2345,6 +2355,48 @@ export interface paths {
       }
     }
   }
+  "/api/v1/admin/error-reports": {
+    get: {
+      parameters: {
+        query?: {
+          resolved?: boolean
+          level?: string
+          limit?: number
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/admin/error-reports/{id}/resolve": {
+    put: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/admin/error-reports/resolved": {
+    delete: {
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/admin/jobs": {
     get: {
       parameters: {
@@ -2543,6 +2595,22 @@ export interface paths {
       }
     }
   }
+  "/api/v1/admin/storage-profiles/{id}": {
+    put: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      requestBody: components['schemas']["AdminController_StorageProfileInput"]
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/admin/storage-profiles/{id}/default": {
     put: {
       parameters: {
@@ -2565,6 +2633,17 @@ export interface paths {
           id: string
         }
       }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/admin/storage-profiles/test-config": {
+    post: {
+      requestBody: components['schemas']["AdminController_StorageProfileTestInput"]
       response: {
         code: number
         msg: string
@@ -2651,6 +2730,21 @@ export interface paths {
         code: number
         msg: string
         data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/assets/images": {
+    post: {
+      parameters: {
+        query?: {
+          category?: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
         traceId?: string | null
       }
     }
@@ -2851,6 +2945,16 @@ export interface paths {
         data?: null
         traceId?: string | null
       }
+    }
+  }
+  "/api/v1/public/assets/{id}": {
+    get: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      response: Blob
     }
   }
   "/api/v1/public/shares/{token}": {
