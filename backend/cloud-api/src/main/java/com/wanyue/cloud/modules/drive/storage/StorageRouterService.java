@@ -14,8 +14,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 /**
- * 统一存储路由服务（需求 6.3 / 6.5）：
- * 根据 storage_profile_id 动态路由至 LOCAL（支持多独立根目录）、DB（数据库小文件存储）或 S3，
+ * 统一存储路由服务（需求 6.3 / 6.5 / 6.7）：
+ * 根据 storage_profile_id 动态路由至 LOCAL（支持多独立根目录）、DB（数据库小文件存储）或 S3（AWS SigV4 兼容对象存储），
  * 实现默认存储实例热切换且历史对象按原 profile 正常读取。
  */
 @Service
@@ -23,21 +23,30 @@ public class StorageRouterService {
     private final JdbcTemplate db;
     private final LocalStorageProvider defaultLocal;
     private final DatabaseStorageProvider dbProvider;
+    private final S3StorageProvider s3Provider;
+    private final SecretCipher cipher;
     private final Path materializeCacheDir;
 
     public StorageRouterService(
             JdbcTemplate db,
             LocalStorageProvider defaultLocal,
             DatabaseStorageProvider dbProvider,
+            S3StorageProvider s3Provider,
+            SecretCipher cipher,
             @Value("${cloud.storage.worker-tmp:data/worker-tmp}") String workerTmp) throws IOException {
         this.db = db;
         this.defaultLocal = defaultLocal;
         this.dbProvider = dbProvider;
+        this.s3Provider = s3Provider;
+        this.cipher = cipher;
         this.materializeCacheDir = Path.of(workerTmp, "storage-cache").toAbsolutePath().normalize();
         Files.createDirectories(this.materializeCacheDir);
     }
 
-    public record StorageProfileMeta(long id, String provider, String rootPath, Long maxFileBytes) {}
+    public record StorageProfileMeta(
+            long id, String provider, String rootPath,
+            String endpoint, String bucket, String region,
+            String accessKey, String secretCipher, Long maxFileBytes) {}
 
     public long resolveDefaultProfileId() {
         var rows = db.queryForList("SELECT id FROM storage_profile WHERE is_default=TRUE ORDER BY id ASC LIMIT 1");
@@ -49,15 +58,22 @@ public class StorageRouterService {
 
     public StorageProfileMeta getProfile(long profileId) {
         var rows = db.queryForList(
-                "SELECT id, provider, root_path, max_file_bytes FROM storage_profile WHERE id=?", profileId);
+                "SELECT id, provider, root_path, endpoint, bucket, region, access_key, secret_cipher, max_file_bytes "
+                        + "FROM storage_profile WHERE id=?",
+                profileId);
         if (rows.isEmpty()) {
-            return new StorageProfileMeta(1L, "LOCAL", "", null);
+            return new StorageProfileMeta(1L, "LOCAL", "", null, null, null, null, null, null);
         }
         var row = rows.get(0);
         return new StorageProfileMeta(
                 ((Number) row.get("id")).longValue(),
                 String.valueOf(row.get("provider")),
                 row.get("root_path") == null ? "" : String.valueOf(row.get("root_path")),
+                row.get("endpoint") == null ? "" : String.valueOf(row.get("endpoint")),
+                row.get("bucket") == null ? "" : String.valueOf(row.get("bucket")),
+                row.get("region") == null ? "us-east-1" : String.valueOf(row.get("region")),
+                row.get("access_key") == null ? "" : String.valueOf(row.get("access_key")),
+                row.get("secret_cipher") == null ? "" : String.valueOf(row.get("secret_cipher")),
                 row.get("max_file_bytes") == null ? null : ((Number) row.get("max_file_bytes")).longValue());
     }
 
@@ -68,10 +84,11 @@ public class StorageRouterService {
             return dbProvider.put("db/" + UUID.randomUUID().toString().replace("-", ""), input, limit);
         }
         if ("S3".equalsIgnoreCase(profile.provider())) {
-            throw new BizException(HttpStatus.NOT_IMPLEMENTED, 501,
-                    "当前 S3 实例仅支持连接测试，对象直写请配置完整对象存储凭证后启用");
+            String key = "objects/" + UUID.randomUUID().toString().replace("-", "");
+            String secret = cipher.decrypt(profile.secretCipher());
+            return s3Provider.putObject(profile.endpoint(), profile.bucket(), profile.region(),
+                    profile.accessKey(), secret, key, input, maxBytes);
         }
-        // LOCAL 存储：按 profile 专属 root_path 写入，避免写死单一目录
         if (profile.id() == 1L || profile.rootPath().isBlank()) {
             return defaultLocal.put(UUID.randomUUID().toString(), input, maxBytes);
         }
@@ -81,7 +98,10 @@ public class StorageRouterService {
     public Path resolveReadablePath(long profileId, String storageKey) {
         StorageProfileMeta profile = getProfile(profileId);
         if ("DB".equalsIgnoreCase(profile.provider())) {
-            return materializeDbObject(storageKey);
+            return materializeDbObject(profileId, storageKey);
+        }
+        if ("S3".equalsIgnoreCase(profile.provider())) {
+            return materializeS3Object(profile, storageKey);
         }
         if (profile.id() == 1L || profile.rootPath().isBlank()) {
             return defaultLocal.resolve(storageKey);
@@ -98,8 +118,14 @@ public class StorageRouterService {
         StorageProfileMeta profile = getProfile(profileId);
         if ("DB".equalsIgnoreCase(profile.provider())) {
             dbProvider.delete(storageKey);
-            Path cached = cacheFileFor(storageKey);
-            Files.deleteIfExists(cached);
+            Files.deleteIfExists(cacheFileFor(profileId, storageKey));
+            return;
+        }
+        if ("S3".equalsIgnoreCase(profile.provider())) {
+            String secret = cipher.decrypt(profile.secretCipher());
+            s3Provider.deleteObject(profile.endpoint(), profile.bucket(), profile.region(),
+                    profile.accessKey(), secret, storageKey);
+            Files.deleteIfExists(cacheFileFor(profileId, storageKey));
             return;
         }
         if (profile.id() == 1L || profile.rootPath().isBlank()) {
@@ -113,16 +139,14 @@ public class StorageRouterService {
         }
     }
 
-    private Path cacheFileFor(String storageKey) {
-        String safeName = storageKey.replaceAll("[^a-zA-Z0-9._-]", "_");
+    private Path cacheFileFor(long profileId, String storageKey) {
+        String safeName = profileId + "_" + storageKey.replaceAll("[^a-zA-Z0-9._-]", "_");
         return materializeCacheDir.resolve(safeName + ".bin").normalize();
     }
 
-    private Path materializeDbObject(String storageKey) {
-        Path cached = cacheFileFor(storageKey);
-        if (Files.isRegularFile(cached)) {
-            return cached;
-        }
+    private Path materializeDbObject(long profileId, String storageKey) {
+        Path cached = cacheFileFor(profileId, storageKey);
+        if (Files.isRegularFile(cached)) return cached;
         try (InputStream in = dbProvider.get(storageKey)) {
             Files.createDirectories(materializeCacheDir);
             Path tmp = Files.createTempFile(materializeCacheDir, "db-", ".tmp");
@@ -135,6 +159,26 @@ public class StorageRouterService {
             }
         } catch (IOException e) {
             throw BizException.notFound("数据库存储对象读取失败");
+        }
+    }
+
+    private Path materializeS3Object(StorageProfileMeta profile, String storageKey) {
+        Path cached = cacheFileFor(profile.id(), storageKey);
+        if (Files.isRegularFile(cached)) return cached;
+        try {
+            Files.createDirectories(materializeCacheDir);
+            Path tmp = Files.createTempFile(materializeCacheDir, "s3-", ".tmp");
+            try {
+                String secret = cipher.decrypt(profile.secretCipher());
+                s3Provider.downloadToPath(profile.endpoint(), profile.bucket(), profile.region(),
+                        profile.accessKey(), secret, storageKey, tmp);
+                Files.move(tmp, cached, StandardCopyOption.REPLACE_EXISTING);
+                return cached;
+            } finally {
+                Files.deleteIfExists(tmp);
+            }
+        } catch (IOException e) {
+            throw BizException.notFound("S3 对象读取失败: " + e.getMessage());
         }
     }
 

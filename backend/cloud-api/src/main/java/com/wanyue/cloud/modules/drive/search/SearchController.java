@@ -45,8 +45,21 @@ public class SearchController {
 
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     @PostMapping("/admin/search/rebuild")
-    public R<Map<String, Object>> rebuild() {
-        int indexed = indexService.rebuildAll();
-        return R.ok(Map.of("indexed", indexed));
+    public R<Map<String, Object>> rebuild(
+            @RequestParam(required = false) Long spaceId,
+            @RequestParam(required = false) Long nodeId) {
+        int indexed;
+        String scope;
+        if (nodeId != null) {
+            indexed = indexService.rebuildByNode(nodeId);
+            scope = "NODE";
+        } else if (spaceId != null) {
+            indexed = indexService.rebuildBySpace(spaceId);
+            scope = "SPACE";
+        } else {
+            indexed = indexService.rebuildAll();
+            scope = "ALL";
+        }
+        return R.ok(Map.of("indexed", indexed, "scope", scope));
     }
 }

@@ -137,4 +137,94 @@ class DynamicPolicyAndStorageRoutingTest {
                         .content("{\"email\":\"someone@example.com\",\"password\":\"Password123!\"}"))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    void s3SigV4RoundTripUploadReadAndScopedSearchRebuildAndAccountQuota() throws Exception {
+        // 启动本机内存 Mock S3 服务验证真实 AWS SigV4 PUT/GET/HEAD/DELETE 全链路
+        java.util.concurrent.ConcurrentHashMap<String, byte[]> store = new java.util.concurrent.ConcurrentHashMap<>();
+        com.sun.net.httpserver.HttpServer mockS3 = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        mockS3.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String method = exchange.getRequestMethod();
+            String auth = exchange.getRequestHeaders().getFirst("Authorization");
+            if (auth == null || !auth.startsWith("AWS4-HMAC-SHA256 ")) {
+                exchange.sendResponseHeaders(403, -1);
+                exchange.close();
+                return;
+            }
+            if ("HEAD".equals(method)) {
+                exchange.sendResponseHeaders(200, -1);
+            } else if ("PUT".equals(method)) {
+                byte[] body = exchange.getRequestBody().readAllBytes();
+                store.put(path, body);
+                exchange.sendResponseHeaders(200, -1);
+            } else if ("GET".equals(method)) {
+                byte[] body = store.get(path);
+                if (body == null) {
+                    exchange.sendResponseHeaders(404, -1);
+                } else {
+                    exchange.sendResponseHeaders(200, body.length);
+                    exchange.getResponseBody().write(body);
+                }
+            } else if ("DELETE".equals(method)) {
+                store.remove(path);
+                exchange.sendResponseHeaders(204, -1);
+            } else {
+                exchange.sendResponseHeaders(405, -1);
+            }
+            exchange.close();
+        });
+        mockS3.start();
+        try {
+            String endpoint = "http://127.0.0.1:" + mockS3.getAddress().getPort();
+            String s3Created = mvc.perform(post("/api/v1/admin/storage-profiles").header("Authorization", "Bearer " + adminToken)
+                            .contentType("application/json")
+                            .content("{\"name\":\"MockS3\",\"provider\":\"S3\",\"endpoint\":\"" + endpoint
+                                    + "\",\"bucket\":\"demo\",\"region\":\"us-east-1\",\"accessKey\":\"ak\",\"secretKey\":\"sk\"}"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            String s3Id = new tools.jackson.databind.json.JsonMapper().readTree(s3Created).get("data").asString();
+
+            // 连接测试通过
+            mvc.perform(post("/api/v1/admin/storage-profiles/" + s3Id + "/test").header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.ok").value(true));
+
+            // 切换默认存储为 S3 并真实上传文件
+            mvc.perform(put("/api/v1/admin/storage-profiles/" + s3Id + "/default").header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk());
+
+            MockMultipartFile s3File = new MockMultipartFile("file", "s3-hello.txt", "text/plain",
+                    "hello-from-sigv4-s3".getBytes(StandardCharsets.UTF_8));
+            String uploadResp = mvc.perform(multipart("/api/v1/spaces/" + spaceId + "/files").file(s3File)
+                            .param("parentId", "0").header("Authorization", "Bearer " + userToken))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            String nodeId = new tools.jackson.databind.json.JsonMapper().readTree(uploadResp).get("data").get("id").asString();
+            assertFalse(store.isEmpty(), "S3 Mock 桶中应写入对象");
+
+            // 通过 SigV4 GET 拉取内容并在线预览
+            mvc.perform(get("/api/v1/spaces/" + spaceId + "/nodes/" + nodeId + "/text").header("Authorization", "Bearer " + userToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content").value("hello-from-sigv4-s3"));
+
+            // 单文件 & 单空间重建索引（需求 5.9）
+            mvc.perform(post("/api/v1/admin/search/rebuild?nodeId=" + nodeId).header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.scope").value("NODE"));
+            mvc.perform(post("/api/v1/admin/search/rebuild?spaceId=" + spaceId).header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.scope").value("SPACE"));
+
+            // 个人中心动态配额查询与回收站清理接口
+            mvc.perform(get("/api/v1/me").header("Authorization", "Bearer " + userToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.usedBytes").isNumber())
+                    .andExpect(jsonPath("$.data.quotaBytes").isNumber());
+            mvc.perform(post("/api/v1/admin/storage/purge-trash").header("Authorization", "Bearer " + adminToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.retentionDays").isNumber());
+        } finally {
+            mockS3.stop(0);
+        }
+    }
 }

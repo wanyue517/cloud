@@ -23,7 +23,7 @@ public class SearchIndexService {
     private static final tools.jackson.databind.json.JsonMapper JSON = new tools.jackson.databind.json.JsonMapper();
 
     private final JdbcTemplate db;
-    private final LocalStorage storage;
+    private final com.wanyue.cloud.modules.drive.storage.StorageRouterService storageRouter;
     private final TextExtractionService extractor;
     private final String meiliUrl;
     private final String meiliApiKey;
@@ -32,13 +32,13 @@ public class SearchIndexService {
 
     public SearchIndexService(
             JdbcTemplate db,
-            LocalStorage storage,
+            com.wanyue.cloud.modules.drive.storage.StorageRouterService storageRouter,
             TextExtractionService extractor,
             @Value("${cloud.search.meilisearch-url:}") String meiliUrl,
             @Value("${cloud.search.meilisearch-api-key:}") String meiliApiKey,
             @Value("${cloud.search.chunk-chars:2000}") int chunkChars) {
         this.db = db;
-        this.storage = storage;
+        this.storageRouter = storageRouter;
         this.extractor = extractor;
         this.meiliUrl = meiliUrl == null ? "" : meiliUrl.strip().replaceAll("/+$", "");
         this.meiliApiKey = meiliApiKey == null ? "" : meiliApiKey.strip();
@@ -106,7 +106,7 @@ public class SearchIndexService {
     public void reindexNode(long spaceId, long nodeId) {
         var rows = db.queryForList(
                 "SELECT n.id, n.space_id, n.parent_id, n.name, n.node_type, n.hidden, n.deleted_at, n.current_version_id, "
-                        + "b.storage_key, COALESCE(b.size_bytes, 0) size_bytes "
+                        + "COALESCE(b.storage_profile_id, 1) storage_profile_id, b.storage_key, COALESCE(b.size_bytes, 0) size_bytes "
                         + "FROM file_node n "
                         + "LEFT JOIN file_version v ON v.id=n.current_version_id "
                         + "LEFT JOIN blob_object b ON b.id=v.blob_id "
@@ -130,7 +130,8 @@ public class SearchIndexService {
         if ("FILE".equals(nodeType) && row.get("current_version_id") != null && row.get("storage_key") != null) {
             versionId = ((Number) row.get("current_version_id")).longValue();
             long sizeBytes = ((Number) row.get("size_bytes")).longValue();
-            Path path = storage.resolve(String.valueOf(row.get("storage_key")));
+            long profileId = ((Number) row.get("storage_profile_id")).longValue();
+            Path path = storageRouter.resolveReadablePath(profileId, String.valueOf(row.get("storage_key")));
             String extracted = extractor.extractText(path, name, sizeBytes);
             chunks = splitIntoChunks(extracted, chunkChars);
             for (int i = 0; i < chunks.size(); i++) {
@@ -152,6 +153,27 @@ public class SearchIndexService {
             count++;
         }
         return count;
+    }
+
+    public int rebuildBySpace(long spaceId) {
+        var nodes = db.queryForList(
+                "SELECT n.space_id, n.id FROM file_node n JOIN space s ON s.id=n.space_id "
+                        + "WHERE n.space_id=? AND n.deleted_at IS NULL AND n.hidden=FALSE AND s.deleted=0 AND s.status='ACTIVE' LIMIT 5000",
+                spaceId);
+        int count = 0;
+        for (var n : nodes) {
+            reindexNode(((Number) n.get("space_id")).longValue(), ((Number) n.get("id")).longValue());
+            count++;
+        }
+        return count;
+    }
+
+    public int rebuildByNode(long nodeId) {
+        var rows = db.queryForList("SELECT space_id FROM file_node WHERE id=?", nodeId);
+        if (rows.isEmpty()) return 0;
+        long spaceId = ((Number) rows.get(0).get("space_id")).longValue();
+        reindexNode(spaceId, nodeId);
+        return 1;
     }
 
     public IndexStatus status() {

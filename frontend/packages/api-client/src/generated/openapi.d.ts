@@ -6,6 +6,10 @@ export type ResourceId = string
 
 export interface components {
   schemas: {
+    AccountController_ChangePasswordInput: {
+      currentPassword?: string
+      newPassword?: string
+    }
     AccountController_ProfileInput: {
       displayName?: string
       avatarUrl?: string
@@ -62,9 +66,9 @@ export interface components {
     }
     ApiResponse: {
       traceId?: string | null
-      code: number
-      data?: null
       msg: string
+      data?: null
+      code: number
     }
     AuthController_ResetPasswordReq: {
       email?: string
@@ -2429,6 +2433,12 @@ export interface paths {
   }
   "/api/v1/admin/search/rebuild": {
     post: {
+      parameters: {
+        query?: {
+          spaceId?: number
+          nodeId?: number
+        }
+      }
       response: {
         code: number
         msg: string
@@ -2579,6 +2589,16 @@ export interface paths {
       }
     }
   }
+  "/api/v1/admin/storage/purge-trash": {
+    post: {
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/admin/tasks": {
     get: {
       parameters: {
@@ -2701,6 +2721,17 @@ export interface paths {
     }
     put: {
       requestBody: components['schemas']["AccountController_ProfileInput"]
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/me/password": {
+    put: {
+      requestBody: components['schemas']["AccountController_ChangePasswordInput"]
       response: {
         code: number
         msg: string

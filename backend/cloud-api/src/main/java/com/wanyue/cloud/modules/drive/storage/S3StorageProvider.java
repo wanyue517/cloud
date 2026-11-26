@@ -59,6 +59,84 @@ public class S3StorageProvider implements StorageProvider {
         }
     }
 
+    /** SigV4 签名写入对象并计算 SHA-256 */
+    public StoredObject putObject(
+            String endpoint, String bucket, String region, String accessKey, String secretKey,
+            String key, InputStream input, long maxBytes) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        MessageDigest sha;
+        try { sha = MessageDigest.getInstance("SHA-256"); }
+        catch (Exception e) { throw new IOException(e); }
+        long total = 0L;
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = input.read(buf)) >= 0) {
+            total += n;
+            if (total > maxBytes) {
+                throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件大小超出系统上传限制");
+            }
+            sha.update(buf, 0, n);
+            out.write(buf, 0, n);
+        }
+        byte[] payload = out.toByteArray();
+        URI uri = buildObjectUri(endpoint, bucket, key);
+        String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
+        try {
+            HttpRequest req = buildSignedRequest("PUT", uri, safeRegion, accessKey, secretKey, payload, null);
+            HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                throw new IOException("S3 对象写入失败，HTTP 状态码: " + resp.statusCode());
+            }
+            return new StoredObject(key, total, HexFormat.of().formatHex(sha.digest()));
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("S3 对象写入异常: " + e.getMessage(), e);
+        }
+    }
+
+    /** SigV4 签名读取对象到本地目标文件 */
+    public void downloadToPath(
+            String endpoint, String bucket, String region, String accessKey, String secretKey,
+            String key, java.nio.file.Path target) throws IOException {
+        URI uri = buildObjectUri(endpoint, bucket, key);
+        String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
+        try {
+            HttpRequest req = buildSignedRequest("GET", uri, safeRegion, accessKey, secretKey, new byte[0], null);
+            HttpResponse<InputStream> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                throw new IOException("S3 对象读取失败，HTTP 状态码: " + resp.statusCode());
+            }
+            java.nio.file.Files.createDirectories(target.getParent());
+            try (InputStream body = resp.body()) {
+                java.nio.file.Files.copy(body, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("S3 对象读取异常: " + e.getMessage(), e);
+        }
+    }
+
+    /** SigV4 签名删除对象 */
+    public void deleteObject(
+            String endpoint, String bucket, String region, String accessKey, String secretKey, String key) throws IOException {
+        URI uri = buildObjectUri(endpoint, bucket, key);
+        String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
+        try {
+            HttpRequest req = buildSignedRequest("DELETE", uri, safeRegion, accessKey, secretKey, new byte[0], null);
+            httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            throw new IOException("S3 对象删除异常: " + e.getMessage(), e);
+        }
+    }
+
+    private static URI buildObjectUri(String endpoint, String bucket, String key) {
+        String base = endpoint.strip().replaceAll("/+$", "");
+        String cleanKey = key.replaceAll("^/+", "");
+        return URI.create(base + "/" + bucket.strip() + "/" + cleanKey);
+    }
+
     public HttpRequest buildSignedRequest(
             String method, URI uri, String region, String accessKey, String secretKey, byte[] payload, String rangeHeader) throws Exception {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);

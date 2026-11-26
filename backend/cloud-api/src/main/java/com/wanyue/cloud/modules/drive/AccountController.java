@@ -27,11 +27,20 @@ public class AccountController {
     private final WebSessionService sessions;
     private final JdbcTemplate db;
     private final PasswordEncoder passwordEncoder;
+    private final DriveService driveService;
+    private final com.wanyue.cloud.modules.ops.SystemPolicyService policyService;
 
-    public AccountController(WebSessionService sessions, JdbcTemplate db, PasswordEncoder passwordEncoder) {
+    public AccountController(
+            WebSessionService sessions,
+            JdbcTemplate db,
+            PasswordEncoder passwordEncoder,
+            DriveService driveService,
+            com.wanyue.cloud.modules.ops.SystemPolicyService policyService) {
         this.sessions = sessions;
         this.db = db;
         this.passwordEncoder = passwordEncoder;
+        this.driveService = driveService;
+        this.policyService = policyService;
     }
 
     public static void cookie(HttpServletResponse response, String token, boolean secure) {
@@ -73,8 +82,11 @@ public class AccountController {
 
     @GetMapping("/me")
     public R<Map<String, Object>> me(Authentication auth) {
-        var data = db.queryForMap("SELECT CAST(id AS CHAR) id,display_name displayName,avatar_url avatarUrl FROM sys_user WHERE id=? AND deleted=0", DriveController.user(auth));
+        long uid = DriveController.user(auth);
+        var data = db.queryForMap("SELECT CAST(id AS CHAR) id,display_name displayName,avatar_url avatarUrl FROM sys_user WHERE id=? AND deleted=0", uid);
         data.put("admin", auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPER_ADMIN")));
+        data.put("usedBytes", driveService.usedBytes(uid));
+        data.put("quotaBytes", policyService.userDefaultQuotaBytes());
         return R.ok(data);
     }
 
@@ -110,6 +122,29 @@ public class AccountController {
             throw new BizException(HttpStatus.FORBIDDEN, 403, "密码错误，请重新输入");
         }
         return R.ok(true);
+    }
+
+    public record ChangePasswordInput(
+            @NotBlank @Size(max = 128) String currentPassword,
+            @NotBlank @Size(min = 8, max = 32) String newPassword) {}
+
+    @PutMapping("/me/password")
+    public R<Void> changePassword(Authentication auth, @Valid @RequestBody ChangePasswordInput input) {
+        long uid = DriveController.user(auth);
+        var rows = db.queryForList(
+                "SELECT id, password_hash FROM auth_password_credential WHERE user_id=? AND deleted=0 LIMIT 1", uid);
+        if (rows.isEmpty()) {
+            throw new BizException(HttpStatus.BAD_REQUEST, 400, "当前账号未设置登录密码");
+        }
+        String hash = String.valueOf(rows.get(0).get("password_hash"));
+        if (!passwordEncoder.matches(input.currentPassword(), hash)) {
+            throw new BizException(HttpStatus.FORBIDDEN, 403, "原密码错误");
+        }
+        long credId = ((Number) rows.get(0).get("id")).longValue();
+        db.update("UPDATE auth_password_credential SET password_hash=?, updated_at=UTC_TIMESTAMP(3) WHERE id=?",
+                passwordEncoder.encode(input.newPassword()), credId);
+        db.update("UPDATE auth_user_security SET session_version=session_version+1 WHERE user_id=? AND deleted=0", uid);
+        return R.ok();
     }
 
     private static String normalizeAvatarUrl(String raw) {

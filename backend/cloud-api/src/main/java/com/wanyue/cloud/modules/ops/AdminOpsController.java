@@ -50,6 +50,11 @@ public class AdminOpsController {
         return R.ok(gc.scanAndCollect(dryRun, graceMinutes));
     }
 
+    @PostMapping("/storage/purge-trash")
+    public R<Map<String, Object>> purgeExpiredTrash() {
+        return R.ok(gc.purgeExpiredTrash());
+    }
+
     @GetMapping("/search/consistency")
     public R<Map<String, Object>> searchConsistency() {
         Long totalFiles = db.queryForObject(

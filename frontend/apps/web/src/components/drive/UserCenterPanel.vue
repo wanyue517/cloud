@@ -14,6 +14,8 @@ export interface UserProfile {
   displayName: string
   avatarUrl: string | null
   admin: boolean
+  usedBytes?: number
+  quotaBytes?: number
 }
 
 interface DeviceSessionItem {
@@ -76,6 +78,54 @@ const error = ref('')
 const sessions = ref<DeviceSessionItem[]>([])
 const sessionsLoading = ref(false)
 const revokingId = ref('')
+
+const currentPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordSaving = ref(false)
+
+const quotaPercent = computed(() => {
+  const quota = Number(props.profile.quotaBytes || 0)
+  const used = Number(props.profile.usedBytes || 0)
+  if (!quota) return 0
+  return Math.min(100, Math.round((used / quota) * 1000) / 10)
+})
+
+function formatBytes(bytes: number) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  return `${(bytes / 1024 ** i).toFixed(i ? 1 : 0)} ${units[i]}`
+}
+
+async function changePassword() {
+  if (passwordSaving.value) return
+  error.value = ''
+  feedback.value = ''
+  if (!currentPassword.value || newPassword.value.length < 8) {
+    error.value = '请输入当前密码与 8–32 位新密码'
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    error.value = '两次输入的新密码不一致'
+    return
+  }
+  passwordSaving.value = true
+  try {
+    await request.put('/v1/me/password', {
+      currentPassword: currentPassword.value,
+      newPassword: newPassword.value,
+    })
+    currentPassword.value = ''
+    newPassword.value = ''
+    confirmPassword.value = ''
+    feedback.value = '登录密码已修改，其他设备会话已自动失效。'
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '修改密码失败'
+  } finally {
+    passwordSaving.value = false
+  }
+}
 
 watch(
   () => props.profile,
@@ -189,6 +239,19 @@ onMounted(() => {
           <small>支持 http(s) 图片地址或站内相对路径，留空则使用首字母头像。</small>
         </label>
 
+        <div class="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-muted-foreground">存储空间用量</span>
+            <span class="font-medium tabular-nums">
+              {{ formatBytes(Number(profile.usedBytes || 0)) }} /
+              {{ Number(profile.quotaBytes || 0) > 0 ? formatBytes(Number(profile.quotaBytes)) : '不限' }}
+            </span>
+          </div>
+          <div v-if="Number(profile.quotaBytes || 0) > 0" class="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${quotaPercent}%` }" />
+          </div>
+        </div>
+
         <div class="settings-actions">
           <Button type="submit" :disabled="profileSaving">
             {{ profileSaving ? '正在保存…' : '保存资料' }}
@@ -236,6 +299,22 @@ onMounted(() => {
           </Button>
         </div>
       </div>
+
+      <Separator />
+
+      <form class="settings-form" @submit.prevent="changePassword">
+        <div class="text-sm font-medium">修改登录密码</div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Input v-model="currentPassword" type="password" autocomplete="current-password" placeholder="当前密码" :disabled="passwordSaving" />
+          <Input v-model="newPassword" type="password" autocomplete="new-password" maxlength="32" placeholder="新密码（8–32位）" :disabled="passwordSaving" />
+          <Input v-model="confirmPassword" type="password" autocomplete="new-password" maxlength="32" placeholder="确认新密码" :disabled="passwordSaving" />
+        </div>
+        <div class="settings-actions">
+          <Button type="submit" size="sm" variant="outline" :disabled="passwordSaving">
+            {{ passwordSaving ? '正在修改…' : '更新登录密码' }}
+          </Button>
+        </div>
+      </form>
 
       <Separator />
 

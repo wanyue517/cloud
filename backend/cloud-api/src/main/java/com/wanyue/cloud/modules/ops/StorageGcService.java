@@ -16,11 +16,40 @@ public class StorageGcService {
     private final JdbcTemplate db;
     private final LocalStorageProvider localStorage;
     private final DatabaseStorageProvider dbStorage;
+    private final SystemPolicyService policy;
 
-    public StorageGcService(JdbcTemplate db, LocalStorageProvider localStorage, DatabaseStorageProvider dbStorage) {
+    public StorageGcService(
+            JdbcTemplate db,
+            LocalStorageProvider localStorage,
+            DatabaseStorageProvider dbStorage,
+            SystemPolicyService policy) {
         this.db = db;
         this.localStorage = localStorage;
         this.dbStorage = dbStorage;
+        this.policy = policy;
+    }
+
+    /** 每日凌晨 3:30 自动清理超出系统 trash_retention_days 策略的回收站过期逻辑节点 */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 30 3 * * *")
+    public void scheduledPurgeExpiredTrash() {
+        try {
+            purgeExpiredTrash();
+        } catch (Exception ignored) {}
+    }
+
+    public Map<String, Object> purgeExpiredTrash() {
+        int retentionDays = policy.trashRetentionDays();
+        List<Long> expiredNodeIds = db.queryForList(
+                "SELECT id FROM file_node WHERE deleted_at IS NOT NULL AND deleted_at <= TIMESTAMPADD(DAY, -?, UTC_TIMESTAMP(3)) LIMIT 500",
+                Long.class, retentionDays);
+        int purgedNodes = 0;
+        for (long nodeId : expiredNodeIds) {
+            db.update("DELETE FROM file_node_closure WHERE ancestor_id=? OR descendant_id=?", nodeId, nodeId);
+            db.update("DELETE FROM search_text_chunk WHERE node_id=?", nodeId);
+            db.update("DELETE FROM file_version WHERE file_id=?", nodeId);
+            purgedNodes += db.update("DELETE FROM file_node WHERE id=?", nodeId);
+        }
+        return Map.of("retentionDays", retentionDays, "purgedNodes", purgedNodes);
     }
 
     public Map<String, Object> scanAndCollect(boolean dryRun, int graceMinutes) {

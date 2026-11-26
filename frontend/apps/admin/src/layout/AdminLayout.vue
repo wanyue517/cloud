@@ -20,9 +20,12 @@ import { Button } from '@repo/ui/button'
 import ThemeSettings from '@repo/ui/ThemeSettings.vue'
 import { logout } from '@repo/session/session'
 import { loginUrl } from '@repo/session/navigation'
+import { request } from '@repo/session/request'
 import { ADMIN_NAV_GROUPS, ADMIN_NAV_ITEMS } from './navigation'
 
 const route = useRoute()
+const siteName = ref('Cloudlane')
+const siteLogoUrl = ref('')
 const sidebarCollapsed = ref(false)
 const mobileMenuOpen = ref(false)
 const signingOut = ref(false)
@@ -86,7 +89,15 @@ async function signOut() {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  document.addEventListener('keydown', onKeydown)
+  void request.get<{ siteName?: string; siteLogoUrl?: string }>('/v1/public/site-config')
+    .then(res => {
+      if (res.siteName) siteName.value = res.siteName
+      if (res.siteLogoUrl) siteLogoUrl.value = res.siteLogoUrl
+    })
+    .catch(() => {})
+})
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
@@ -109,10 +120,11 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
     >
       <div class="h-14 px-4 border-b border-sidebar-border flex items-center justify-between gap-2 shrink-0">
         <RouterLink to="/" class="flex items-center gap-2.5 min-w-0 font-semibold text-base" @click="closeMobileMenu">
-          <span class="size-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <ShieldCheck class="size-4" />
+          <span class="size-7 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0 overflow-hidden">
+            <img v-if="siteLogoUrl" :src="siteLogoUrl" :alt="siteName" class="size-full object-contain" />
+            <ShieldCheck v-else class="size-4" />
           </span>
-          <span class="truncate">Cloudlane</span>
+          <span class="truncate">{{ siteName }}</span>
         </RouterLink>
         <Button variant="ghost" size="icon-xs" class="md:hidden" aria-label="关闭后台导航" @click="closeMobileMenu">
           <X class="size-4" />
@@ -155,7 +167,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           >
             <PanelLeft class="size-4" />
           </Button>
-          <h1 class="font-semibold text-base md:text-lg truncate">Cloudlane 管理后台</h1>
+          <h1 class="font-semibold text-base md:text-lg truncate">{{ siteName }} 管理后台</h1>
           <span class="hidden sm:inline text-muted-foreground">/</span>
           <span class="hidden sm:inline text-sm text-muted-foreground truncate">{{ currentItem.label }}</span>
         </div>
