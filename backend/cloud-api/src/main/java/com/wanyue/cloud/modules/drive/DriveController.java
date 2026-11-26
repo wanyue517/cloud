@@ -33,8 +33,9 @@ public class DriveController {
         return R.ok(drive.list(user(a),space,parentId,page,pageSize,folders,trash,query,sort,hidden,favorites,category));
     }
     @GetMapping("/spaces/{space}/stats")
-    public R<DirectoryStats> stats(Authentication a,@PathVariable long space,@RequestParam(defaultValue="0") long parentId,@RequestParam(defaultValue="false") boolean hidden) {
-        return R.ok(drive.stats(user(a),space,parentId,hidden));
+    public R<DirectoryStats> stats(Authentication a,@PathVariable long space,@RequestParam(defaultValue="0") long parentId,
+            @RequestParam(defaultValue="false") boolean hidden,@RequestParam(defaultValue="false") boolean includeSubdirs) {
+        return R.ok(drive.stats(user(a),space,parentId,hidden,includeSubdirs));
     }
     @GetMapping("/spaces/{space}/nodes/{id}/ancestors") public R<List<Node>> ancestors(Authentication a,@PathVariable long space,@PathVariable long id) {
         return R.ok(drive.ancestorsForUser(user(a), space, id));
@@ -44,6 +45,8 @@ public class DriveController {
     @PostMapping("/spaces/{space}/nodes/{id}/transfer") public R<Node> transfer(Authentication a,@PathVariable long space,@PathVariable long id,@Valid @RequestBody TransferInput input) { return R.ok(drive.transfer(user(a),space,id,input)); }
     @DeleteMapping("/spaces/{space}/nodes/{id}") public R<Void> trash(Authentication a,@PathVariable long space,@PathVariable long id,@RequestParam long revision) { drive.trash(user(a),space,id,revision); return R.ok(); }
     @PostMapping("/spaces/{space}/nodes/{id}/restore") public R<Void> restore(Authentication a,@PathVariable long space,@PathVariable long id) { drive.restore(user(a),space,id); return R.ok(); }
+    @DeleteMapping("/spaces/{space}/trash/{id}") public R<Integer> purgeTrashNode(Authentication a,@PathVariable long space,@PathVariable long id) { return R.ok(drive.purgeTrashNode(user(a),space,id)); }
+    @DeleteMapping("/spaces/{space}/trash") public R<Integer> emptyTrash(Authentication a,@PathVariable long space) { return R.ok(drive.emptyTrash(user(a),space)); }
     @PostMapping("/spaces/{space}/files") public R<Node> upload(Authentication a,@PathVariable long space,@RequestParam(defaultValue="0") long parentId,
             @RequestParam MultipartFile file,@RequestParam(required=false) Long replaceId,@RequestParam(required=false) Long revision) throws IOException {
         try(var input=file.getInputStream()) { return R.ok(drive.upload(user(a),space,parentId,file.getOriginalFilename(),file.getContentType(),input,file.getSize(),replaceId,revision)); }

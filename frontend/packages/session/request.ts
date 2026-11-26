@@ -65,6 +65,20 @@ interface RequestHooks {
 
 let hooks: RequestHooks = {}
 let refreshPromise: Promise<string | null> | null = null
+const privateSpaceTokens = new Map<string, string>()
+
+export function setPrivateSpaceToken(spaceId: string, token: string) {
+    privateSpaceTokens.set(spaceId, token)
+}
+
+export function clearPrivateSpaceToken(spaceId?: string) {
+    if (spaceId) privateSpaceTokens.delete(spaceId)
+    else privateSpaceTokens.clear()
+}
+
+export function hasPrivateSpaceToken(spaceId: string): boolean {
+    return privateSpaceTokens.has(spaceId)
+}
 
 /** 在 main.ts / 应用初始化时注册一次 */
 export function setupRequest(config: RequestHooks) {
@@ -100,6 +114,14 @@ client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     if (!options.skipAuth && isTrustedRequest(config) && token &&
         !config.headers.has('Authorization')) {
         config.headers.set('Authorization', `Bearer ${token}`)
+    }
+    if (isTrustedRequest(config) && config.url && !config.headers.has('X-Private-Token')) {
+        const match = /\/v1\/spaces\/(\d+)\b/.exec(config.url)
+        const spaceId = match?.[1]
+        if (spaceId) {
+            const pt = privateSpaceTokens.get(spaceId)
+            if (pt) config.headers.set('X-Private-Token', pt)
+        }
     }
     return config
 })

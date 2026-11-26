@@ -294,11 +294,29 @@ public class DriveService {
         }
     }
     public DirectoryStats stats(long user, long space, long parent, boolean hidden) {
+        return stats(user, space, parent, hidden, false);
+    }
+    public DirectoryStats stats(long user, long space, long parent, boolean hidden, boolean includeSubdirs) {
         resolveNodeAccess(user, space, parent, false, false);
         parent(space, parent);
-        String sql = "SELECT node_type, name FROM file_node WHERE space_id=? AND parent_id=? AND deleted_at IS NULL"
-                + (hidden ? "" : " AND hidden=FALSE");
-        var rows = db.queryForList(sql, space, parent);
+        List<Map<String, Object>> rows;
+        if (includeSubdirs) {
+            if (parent == 0) {
+                String sql = "SELECT node_type, name FROM file_node WHERE space_id=? AND deleted_at IS NULL"
+                        + (hidden ? "" : " AND hidden=FALSE");
+                rows = db.queryForList(sql, space);
+            } else {
+                String sql = "SELECT n.node_type, n.name FROM file_node_closure c "
+                        + "JOIN file_node n ON n.id=c.descendant_id "
+                        + "WHERE c.space_id=? AND c.ancestor_id=? AND c.depth > 0 AND n.deleted_at IS NULL"
+                        + (hidden ? "" : " AND n.hidden=FALSE");
+                rows = db.queryForList(sql, space, parent);
+            }
+        } else {
+            String sql = "SELECT node_type, name FROM file_node WHERE space_id=? AND parent_id=? AND deleted_at IS NULL"
+                    + (hidden ? "" : " AND hidden=FALSE");
+            rows = db.queryForList(sql, space, parent);
+        }
         long folders = 0, files = 0;
         Map<String, Long> categories = new LinkedHashMap<>();
         for (var row : rows) {
@@ -510,6 +528,39 @@ public class DriveService {
         for (var item : nodes) {
             enqueueSearchEvent("UPSERT", space, Long.parseLong(item[0]), null);
         }
+    }
+    @Transactional
+    public int purgeTrashNode(long user, long space, long id) {
+        access(user, space, true, true);
+        getNode(space, id, true);
+        var ids = db.queryForList(
+                "WITH RECURSIVE tree AS (SELECT id FROM file_node WHERE id=? AND space_id=? AND deleted_at IS NOT NULL "
+                        + "UNION ALL SELECT n.id FROM file_node n JOIN tree t ON n.parent_id=t.id WHERE n.space_id=? AND n.deleted_at IS NOT NULL) "
+                        + "SELECT id FROM tree",
+                Long.class, id, space, space);
+        int removed = 0;
+        for (long targetId : ids) {
+            db.update("DELETE FROM file_node_closure WHERE space_id=? AND (ancestor_id=? OR descendant_id=?)", space, targetId, targetId);
+            db.update("DELETE FROM search_text_chunk WHERE node_id=?", targetId);
+            db.update("DELETE FROM user_quick_access WHERE node_id=?", targetId);
+            db.update("DELETE FROM file_version WHERE file_id=?", targetId);
+            removed += db.update("DELETE FROM file_node WHERE id=? AND space_id=? AND deleted_at IS NOT NULL", targetId, space);
+        }
+        return removed;
+    }
+    @Transactional
+    public int emptyTrash(long user, long space) {
+        access(user, space, true, true);
+        var ids = db.queryForList("SELECT id FROM file_node WHERE space_id=? AND deleted_at IS NOT NULL", Long.class, space);
+        int removed = 0;
+        for (long targetId : ids) {
+            db.update("DELETE FROM file_node_closure WHERE space_id=? AND (ancestor_id=? OR descendant_id=?)", space, targetId, targetId);
+            db.update("DELETE FROM search_text_chunk WHERE node_id=?", targetId);
+            db.update("DELETE FROM user_quick_access WHERE node_id=?", targetId);
+            db.update("DELETE FROM file_version WHERE file_id=?", targetId);
+            removed += db.update("DELETE FROM file_node WHERE id=? AND space_id=? AND deleted_at IS NOT NULL", targetId, space);
+        }
+        return removed;
     }
     @Transactional
     public Node upload(long user,long space,long parent,String name,String mime,InputStream input,long length,Long replace,Long expectedRevision) throws IOException {

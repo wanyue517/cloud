@@ -85,7 +85,7 @@ import {
   type LayoutPreferences,
 } from '@/lib/layout'
 import { logout as endSession } from '@repo/session/session'
-import { request, saveBlob } from '@/utils/request'
+import { clearPrivateSpaceToken, hasPrivateSpaceToken, request, RequestError, saveBlob, setPrivateSpaceToken } from '@/utils/request'
 import '@/styles/drive.css'
 
 const route = useRoute(), router = useRouter()
@@ -432,6 +432,68 @@ async function confirmDeleteSpace() {
 }
 
 function fail(e: unknown) { error.value = e instanceof Error ? e.message : '操作失败，请重试' }
+
+const includeSubdirs = ref(false)
+const privateUnlockOpen = ref(false)
+const privateUnlockPassword = ref('')
+const privateUnlockIdle = ref(15)
+const privateUnlockBusy = ref(false)
+const privateUnlockError = ref('')
+
+async function submitPrivateUnlock() {
+  if (privateUnlockBusy.value || !spaceId.value) return
+  if (!privateUnlockPassword.value) {
+    privateUnlockError.value = '请输入账号密码'
+    return
+  }
+  privateUnlockBusy.value = true
+  privateUnlockError.value = ''
+  try {
+    const res = await opsApi.unlockPrivate(spaceId.value, privateUnlockPassword.value, Number(privateUnlockIdle.value) || 15)
+    setPrivateSpaceToken(spaceId.value, res.privateToken)
+    privateUnlockOpen.value = false
+    privateUnlockPassword.value = ''
+    notice.value = `私密空间已解锁（空闲 ${res.idleMinutes} 分钟后自动锁定）`
+    await refresh()
+  } catch (e) {
+    privateUnlockError.value = e instanceof Error ? e.message : '密码验证失败'
+  } finally {
+    privateUnlockBusy.value = false
+  }
+}
+
+async function lockCurrentPrivateSpace() {
+  if (!spaceId.value) return
+  try {
+    await opsApi.lockPrivate(spaceId.value)
+  } catch { /* ignore */ }
+  clearPrivateSpaceToken(spaceId.value)
+  nodes.value = []
+  total.value = 0
+  notice.value = '私密空间已锁定'
+  privateUnlockOpen.value = true
+}
+
+function purgeSelection() {
+  const count = selected.value.size
+  if (!count) return
+  ask('永久删除', `输入“永久删除”确认彻底销毁所选 ${count} 项（不可恢复）`, '', async value => {
+    if (value !== '永久删除') throw new Error('请输入“永久删除”确认')
+    await batch(drive.purgeTrashNode)
+    notice.value = `已永久删除 ${count} 项`
+  })
+}
+
+function confirmEmptyTrash() {
+  if (!spaceId.value) return
+  ask('清空回收站', '输入“清空”确认永久销毁当前空间回收站中的所有项目（不可恢复）', '', async value => {
+    if (value !== '清空') throw new Error('请输入“清空”确认')
+    const removed = await drive.emptyTrash(spaceId.value)
+    await refresh()
+    notice.value = `已清空回收站（共彻底删除 ${removed} 项）`
+  })
+}
+
 async function loadSpaces() { spaces.value = await drive.spaces() }
 async function refresh() {
   if (mode.value === 'settings' || mode.value === 'tasks' || !spaceId.value) return
@@ -444,11 +506,22 @@ async function refresh() {
         favorites: mode.value === 'favorites', category: mode.value === 'files' && category.value ? category.value : undefined,
       }),
       parentId.value === '0' || mode.value !== 'files' ? Promise.resolve([]) : drive.ancestors(spaceId.value, parentId.value),
-      mode.value === 'files' ? drive.stats(spaceId.value, parentId.value, hidden.value) : Promise.resolve({ folders: 0, files: 0, categories: {} }),
+      mode.value === 'files' ? drive.stats(spaceId.value, parentId.value, hidden.value, includeSubdirs.value) : Promise.resolve({ folders: 0, files: 0, categories: {} }),
     ])
     if (current !== generation) return
     nodes.value = result.items; total.value = result.total; ancestors.value = path; dirStats.value = statsResult
-  } catch (e) { if (current === generation) fail(e) } finally { if (current === generation) loading.value = false }
+  } catch (e) {
+    if (current !== generation) return
+    if (e instanceof RequestError && e.httpStatus === 423) {
+      clearPrivateSpaceToken(spaceId.value)
+      nodes.value = []; total.value = 0
+      privateUnlockError.value = ''
+      privateUnlockPassword.value = ''
+      privateUnlockOpen.value = true
+      return
+    }
+    fail(e)
+  } finally { if (current === generation) loading.value = false }
 }
 
 function navigate(id: string, space = spaceId.value) {
@@ -1000,6 +1073,14 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           <h1 v-else>{{ mode === 'trash' ? '回收站' : '我的收藏' }}</h1>
 
           <div v-if="mode === 'files'" class="heading-actions">
+            <Button
+              v-if="currentSpace?.kind === 'PRIVATE' && hasPrivateSpaceToken(spaceId)"
+              variant="outline"
+              size="sm"
+              @click="lockCurrentPrivateSpace"
+            >
+              锁定私密空间
+            </Button>
             <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="共享与成员" title="共享与成员" @click="membersDialogOpen = true">
               <Users :size="16" />
             </Button>
@@ -1014,12 +1095,20 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               <Upload :size="15" /> 上传文件
             </Button>
           </div>
+          <div v-else-if="mode === 'trash'" class="heading-actions">
+            <Button variant="outline" size="sm" class="text-destructive" :disabled="!nodes.length" @click="confirmEmptyTrash">
+              <Trash2 :size="14" /> 清空回收站
+            </Button>
+          </div>
         </div>
 
         <div v-if="mode === 'files' && (dirStats.files > 0 || dirStats.folders > 0)" class="category-bar" role="tablist" aria-label="文件类型筛选">
           <Button variant="ghost" size="sm" role="tab" :aria-selected="!category" :class="{ 'is-active-tab': !category }" @click="selectCategory('')">全部 ({{ dirStats.files }})</Button>
           <Button v-for="[cat, count] in activeCategories" :key="cat" variant="ghost" size="sm" role="tab" :aria-selected="category === cat" :class="{ 'is-active-tab': category === cat }" @click="selectCategory(cat)">{{ CATEGORY_LABELS[cat] || cat }} ({{ count }})</Button>
           <span v-if="dirStats.folders > 0" class="category-folder-meta">{{ dirStats.folders }} 个文件夹</span>
+          <Button variant="ghost" size="sm" class="ml-auto text-xs" :class="{ 'text-primary': includeSubdirs }" @click="includeSubdirs = !includeSubdirs; void refresh()">
+            {{ includeSubdirs ? '已包含子目录统计' : '包含子目录' }}
+          </Button>
         </div>
 
         <div class="drive-toolbar">
@@ -1033,6 +1122,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           <div v-if="selected.size" class="toolbar-actions" role="toolbar" aria-label="已选文件操作">
             <template v-if="mode === 'trash'">
               <Button variant="outline" size="sm" @click="batch(drive.restore)">恢复选中项</Button>
+              <Button variant="outline" size="sm" class="text-destructive" @click="purgeSelection">彻底删除</Button>
               <Button v-if="selected.size === 1" variant="outline" size="sm" @click="detailNode = currentSelection[0]"><Info :size="14" /> 详情</Button>
             </template>
             <template v-else>
@@ -1182,6 +1272,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                       <template v-if="mode === 'trash'">
                         <DropdownMenuItem @select="selected = new Set([node.id]); batch(drive.restore)">恢复</DropdownMenuItem>
                         <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem class="text-destructive" @select="selected = new Set([node.id]); purgeSelection()">彻底删除</DropdownMenuItem>
                       </template>
                       <template v-else>
                         <DropdownMenuItem @select="open(node)">
@@ -1216,6 +1308,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               <template v-if="mode === 'trash'">
                 <ContextMenuItem @select="selected = new Set([node.id]); batch(drive.restore)">恢复</ContextMenuItem>
                 <ContextMenuItem @select="detailNode = node">查看详情</ContextMenuItem>
+                <ContextMenuItem class="text-destructive" @select="selected = new Set([node.id]); purgeSelection()">彻底删除</ContextMenuItem>
               </template>
               <template v-else>
                 <ContextMenuItem @select="open(node)">{{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}</ContextMenuItem>
@@ -1360,6 +1453,34 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     </aside>
 
     <PreviewDialog v-if="preview" :node="preview" :version="previewVersion" :siblings="nodes" @select="next => { preview = next; previewVersion = undefined }" @close="preview = undefined" />
+
+    <Dialog :open="privateUnlockOpen" @update:open="value => { if (!value && !privateUnlockBusy) privateUnlockOpen = false }">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>解锁私密空间</DialogTitle>
+          <DialogDescription>私密空间受二次密码验证保护，请输入当前账号登录密码解锁短期会话。</DialogDescription>
+        </DialogHeader>
+        <form class="space-y-4 mt-2" @submit.prevent="submitPrivateUnlock">
+          <label class="block space-y-1.5 text-sm">
+            <span>账号密码</span>
+            <Input v-model="privateUnlockPassword" type="password" autocomplete="current-password" placeholder="输入登录密码" :disabled="privateUnlockBusy" />
+          </label>
+          <label class="block space-y-1.5 text-sm">
+            <span>空闲自动锁定时间（分钟）</span>
+            <select v-model.number="privateUnlockIdle" class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" :disabled="privateUnlockBusy">
+              <option :value="15">15 分钟</option>
+              <option :value="30">30 分钟</option>
+              <option :value="60">60 分钟</option>
+            </select>
+          </label>
+          <p v-if="privateUnlockError" role="alert" class="text-destructive text-sm">{{ privateUnlockError }}</p>
+          <DialogFooter>
+            <Button variant="outline" type="button" :disabled="privateUnlockBusy" @click="privateUnlockOpen = false">取消</Button>
+            <Button type="submit" :disabled="privateUnlockBusy">{{ privateUnlockBusy ? '正在验证…' : '确认解锁' }}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="!!dialog" @update:open="value => { if (!value && !dialogBusy) dialog = undefined }">
       <DialogContent>

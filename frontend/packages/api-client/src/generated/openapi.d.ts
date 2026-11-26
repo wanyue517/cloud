@@ -65,9 +65,9 @@ export interface components {
       maxFileBytes?: number
     }
     ApiResponse: {
-      traceId?: string | null
-      msg: string
       data?: null
+      msg: string
+      traceId?: string | null
       code: number
     }
     AuthController_ResetPasswordReq: {
@@ -3774,12 +3774,44 @@ export interface paths {
         query?: {
           parentId?: number
           hidden?: boolean
+          includeSubdirs?: boolean
         }
       }
       response: {
         code: number
         msg: string
         data?: components['schemas']["DriveModels_DirectoryStats"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/spaces/{space}/trash": {
+    delete: {
+      parameters: {
+        path: {
+          space: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: number
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/spaces/{space}/trash/{id}": {
+    delete: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: number
         traceId?: string | null
       }
     }

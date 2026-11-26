@@ -31,13 +31,13 @@ export type Version = Required<ApiSchemas['DriveModels_Version']>
 export type Upload = Omit<Required<ApiSchemas['DriveModels_Upload']>, 'fileId'> & { fileId: ResourceId | null }
 export const drive = {
   spaces: () => request.get<Space[]>('/v1/spaces'),
-  createSpace: (name: string, extra: { description?: string; color?: string; icon?: string; sortOrder?: number } = {}) =>
+  createSpace: (name: string, extra: { kind?: 'PERSONAL' | 'SHARED' | 'PRIVATE'; description?: string; color?: string; icon?: string; sortOrder?: number } = {}) =>
     request.post<string>('/v1/spaces', { name, ...extra }),
   updateSpace: (id: string, name: string, sortOrder = 0, extra: { description?: string; color?: string; icon?: string } = {}) =>
     request.put(`/v1/spaces/${id}`, { name, sortOrder, ...extra }),
   deleteSpace: (id: string, confirmation: string) => request.delete(`/v1/spaces/${id}`, { confirmation }),
-  stats: (space: string, parentId = '0', hidden = false) =>
-    request.get<DirectoryStats>(`/v1/spaces/${space}/stats`, { parentId, hidden }),
+  stats: (space: string, parentId = '0', hidden = false, includeSubdirs = false) =>
+    request.get<DirectoryStats>(`/v1/spaces/${space}/stats`, { parentId, hidden, includeSubdirs }),
   transfer: (node: DriveNode, targetSpaceId: string, targetParentId: string, mode: 'MOVE' | 'COPY') =>
     request.post<DriveNode>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/transfer`, { targetSpaceId, targetParentId, mode, revision: node.revision }),
   nodes: (space: string, params: Record<string, unknown> = {}) => request.get<NodePage>(`/v1/spaces/${space}/nodes`, params),
@@ -46,6 +46,8 @@ export const drive = {
   change: (node: DriveNode, name: string, parentId = node.parentId) => request.patch<DriveNode>(`/v1/spaces/${node.spaceId}/nodes/${node.id}`, { name, parentId, revision: node.revision }),
   trash: (node: DriveNode) => request.delete(`/v1/spaces/${node.spaceId}/nodes/${node.id}`, { revision: node.revision }),
   restore: (node: DriveNode) => request.post(`/v1/spaces/${node.spaceId}/nodes/${node.id}/restore`),
+  purgeTrashNode: (node: DriveNode) => request.delete<number>(`/v1/spaces/${node.spaceId}/trash/${node.id}`),
+  emptyTrash: (space: string) => request.delete<number>(`/v1/spaces/${space}/trash`),
   content: (node: DriveNode, versionId?: string) => request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/content`, { versionId }),
   textChunk: (node: DriveNode, params: { versionId?: string; offset?: number; limit?: number } = {}) =>
     request.get<TextChunk>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/text`, params),

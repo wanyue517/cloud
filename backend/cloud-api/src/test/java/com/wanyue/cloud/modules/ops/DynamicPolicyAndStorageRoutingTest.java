@@ -227,4 +227,45 @@ class DynamicPolicyAndStorageRoutingTest {
             mockS3.stop(0);
         }
     }
+
+    @Test
+    void trashPermanentDeleteEmptyAndRecursiveDirectoryStats() throws Exception {
+        // 创建子目录并上传 2 个文件，验证 includeSubdirs=true 递归统计
+        String folderResp = mvc.perform(post("/api/v1/spaces/" + spaceId + "/folders").header("Authorization", "Bearer " + userToken)
+                        .contentType("application/json").content("{\"parentId\":0,\"name\":\"sub\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String subId = new tools.jackson.databind.json.JsonMapper().readTree(folderResp).get("data").get("id").asString();
+
+        MockMultipartFile f1 = new MockMultipartFile("file", "a.txt", "text/plain", "a".getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile f2 = new MockMultipartFile("file", "b.md", "text/plain", "b".getBytes(StandardCharsets.UTF_8));
+        String n1Resp = mvc.perform(multipart("/api/v1/spaces/" + spaceId + "/files").file(f1)
+                        .param("parentId", subId).header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String n1Id = new tools.jackson.databind.json.JsonMapper().readTree(n1Resp).get("data").get("id").asString();
+        String n2Resp = mvc.perform(multipart("/api/v1/spaces/" + spaceId + "/files").file(f2)
+                        .param("parentId", "0").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String n2Id = new tools.jackson.databind.json.JsonMapper().readTree(n2Resp).get("data").get("id").asString();
+
+        // 根目录直属仅 1 文件，包含子目录时为 2 文件
+        mvc.perform(get("/api/v1/spaces/" + spaceId + "/stats?parentId=0&includeSubdirs=false").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.files").value(1));
+        mvc.perform(get("/api/v1/spaces/" + spaceId + "/stats?parentId=0&includeSubdirs=true").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.files").value(2));
+
+        // 移入回收站 -> 单条永久删除 n1 -> 一键清空剩余回收站
+        mvc.perform(delete("/api/v1/spaces/" + spaceId + "/nodes/" + n1Id + "?revision=0").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/spaces/" + spaceId + "/nodes/" + n2Id + "?revision=0").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk());
+
+        mvc.perform(delete("/api/v1/spaces/" + spaceId + "/trash/" + n1Id).header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(1));
+        mvc.perform(delete("/api/v1/spaces/" + spaceId + "/trash").header("Authorization", "Bearer " + userToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(1));
+    }
 }
