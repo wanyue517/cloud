@@ -95,6 +95,22 @@ async function loadInitial() {
     loadedBytes.value = chunk.bytesRead
     totalBytes.value = chunk.totalBytes
     hasMore.value = chunk.hasMore
+    // HTML 效果预览需完整文档（避免超过 128KB 时尾部脚本/样式被截断），2MB 内自动续读完整
+    if (isHtml.value && !chunk.binaryDetected && chunk.totalBytes <= 2 * 1024 * 1024) {
+      while (hasMore.value && loadedBytes.value < 2 * 1024 * 1024) {
+        const next = await drive.textChunk(props.node, {
+          versionId: props.version?.id,
+          offset: loadedBytes.value,
+          limit: 131072,
+        })
+        if (seq !== loadSeq) return
+        if (!next.bytesRead) break
+        rawText.value += next.content
+        loadedBytes.value += next.bytesRead
+        totalBytes.value = next.totalBytes
+        hasMore.value = next.hasMore
+      }
+    }
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e instanceof Error ? e.message : '文本加载失败'
@@ -192,7 +208,7 @@ onMounted(() => { void loadInitial() })
     <div v-else-if="isHtml && htmlViewMode === 'render'" class="min-h-0 flex-1 bg-white">
       <iframe
         :srcdoc="rawText"
-        sandbox="allow-same-origin"
+        sandbox="allow-scripts allow-forms allow-popups"
         referrerpolicy="no-referrer"
         title="HTML 渲染预览"
         class="h-full w-full border-0"
