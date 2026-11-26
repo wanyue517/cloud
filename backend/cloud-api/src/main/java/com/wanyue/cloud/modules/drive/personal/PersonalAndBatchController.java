@@ -38,6 +38,28 @@ public class PersonalAndBatchController {
         return R.ok();
     }
 
+    @PostMapping("/me/private/unlock")
+    public R<UnlockPrivateResult> unlockVault(Authentication auth, @Valid @RequestBody UnlockPrivateInput input) {
+        return R.ok(service.unlockVault(user(auth), input));
+    }
+
+    @PostMapping("/me/private/lock")
+    public R<Void> lockVault(Authentication auth) {
+        service.lockVault(user(auth));
+        return R.ok();
+    }
+
+    @GetMapping("/me/private/overview")
+    public R<PersonalAndBatchService.PrivateOverview> privateOverview(Authentication auth) {
+        return R.ok(service.privateOverview(user(auth)));
+    }
+
+    @PutMapping("/me/private/spaces/{space}")
+    public R<Void> setSpacePrivate(Authentication auth, @PathVariable long space, @RequestParam boolean enabled) {
+        service.setSpacePrivate(user(auth), space, enabled);
+        return R.ok();
+    }
+
     @PostMapping("/spaces/{space}/batch/execute")
     public R<BatchJobView> executeBatch(Authentication auth, @PathVariable long space, @Valid @RequestBody BatchExecuteInput input) {
         return R.ok(service.executeBatch(user(auth), space, input));

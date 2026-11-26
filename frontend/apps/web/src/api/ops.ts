@@ -78,7 +78,40 @@ export interface UnlockPrivateResult {
   idleMinutes: number
 }
 
+export interface PrivateSpaceItem {
+  id: string
+  name: string
+  kind: 'PERSONAL' | 'PRIVATE'
+  color: string
+  privateEnabled: boolean
+}
+
+export interface PrivateNodeItem {
+  id: string
+  spaceId: string
+  spaceName: string
+  parentId: string
+  name: string
+  nodeType: 'FILE' | 'FOLDER'
+  currentVersionId: string | null
+  revision: number
+  size: number
+  mimeType: string
+  updatedAt: string
+}
+
+export interface PrivateOverview {
+  spaces: PrivateSpaceItem[]
+  items: PrivateNodeItem[]
+}
+
 export const opsApi = {
+  unlockVault: (password: string, idleMinutes = 15) =>
+    request.post<UnlockPrivateResult>('/v1/me/private/unlock', { password, idleMinutes }),
+  lockVault: () => request.post<void>('/v1/me/private/lock'),
+  privateOverview: () => request.get<PrivateOverview>('/v1/me/private/overview', undefined, { silent: true }),
+  setSpacePrivate: (spaceId: string, enabled: boolean) =>
+    request.put<void>(`/v1/me/private/spaces/${spaceId}`, undefined, { params: { enabled } }),
   getVersionPolicy: () => request.get<UserVersionPolicy>('/v1/me/version-policy'),
   updateVersionPolicy: (maxVersions: number) => request.put<UserVersionPolicy>('/v1/me/version-policy', { maxVersions }),
   listQuickAccess: () => request.get<QuickAccessItem[]>('/v1/quick-access'),

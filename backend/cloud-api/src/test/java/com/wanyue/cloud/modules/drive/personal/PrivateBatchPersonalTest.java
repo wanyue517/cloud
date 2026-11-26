@@ -93,6 +93,65 @@ class PrivateBatchPersonalTest {
     }
 
     @Test
+    void vaultUnlockTogglesSpacePrivacyAndManagesPrivateItems() throws Exception {
+        var json = new tools.jackson.databind.json.JsonMapper();
+        // 未解锁时私密设置不可访问
+        mvc.perform(get("/api/v1/me/private/overview").header("Authorization", "Bearer " + token))
+                .andExpect(status().isLocked());
+        mvc.perform(post("/api/v1/me/private/unlock").header("Authorization", "Bearer " + token)
+                        .contentType("application/json").content("{\"password\":\"bad\",\"idleMinutes\":10}"))
+                .andExpect(status().isForbidden());
+        String unlock = mvc.perform(post("/api/v1/me/private/unlock").header("Authorization", "Bearer " + token)
+                        .contentType("application/json").content("{\"password\":\"Vault#2026\",\"idleMinutes\":10}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String vault = json.readTree(unlock).get("data").get("privateToken").asString();
+
+        // 单独设置私密文件：主列表与搜索均不可见，私密设置中可见
+        var f = new MockMultipartFile("file", "diary-secret.txt", "text/plain", "DiaryBody".getBytes(StandardCharsets.UTF_8));
+        String up = mvc.perform(multipart("/api/v1/spaces/" + personalSpace + "/files").file(f).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String fileId = json.readTree(up).get("data").get("id").asString();
+        mvc.perform(put("/api/v1/spaces/" + personalSpace + "/nodes/" + fileId + "/hidden").param("enabled", "true")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + personalSpace + "/nodes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(0));
+        mvc.perform(get("/api/v1/me/private/overview").header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(fileId))
+                .andExpect(jsonPath("$.data.spaces[0].privateEnabled").value(false));
+
+        // 取消私密必须持有私密设置授权
+        mvc.perform(put("/api/v1/spaces/" + personalSpace + "/nodes/" + fileId + "/hidden").param("enabled", "false")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isLocked());
+
+        // 单独开启空间私密：无授权访问返回 423，持全局授权可访问
+        mvc.perform(put("/api/v1/me/private/spaces/" + personalSpace).param("enabled", "true")
+                        .header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + personalSpace + "/nodes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isLocked());
+        mvc.perform(get("/api/v1/spaces/" + personalSpace + "/nodes").header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/v1/spaces/" + personalSpace + "/nodes/" + fileId + "/hidden").param("enabled", "false")
+                        .header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/v1/me/private/spaces/" + personalSpace).param("enabled", "false")
+                        .header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/spaces/" + personalSpace + "/nodes").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1));
+
+        // 一键锁定后授权失效
+        mvc.perform(post("/api/v1/me/private/lock").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/me/private/overview").header("Authorization", "Bearer " + token).header("X-Private-Token", vault))
+                .andExpect(status().isLocked());
+    }
+
+    @Test
     void hiddenFilesBatchZipPreferencesAndRecentAccessWork() throws Exception {
         var f1 = new MockMultipartFile("file", "a.txt", "text/plain", "AAA".getBytes(StandardCharsets.UTF_8));
         var f2 = new MockMultipartFile("file", "b.txt", "text/plain", "BBB".getBytes(StandardCharsets.UTF_8));

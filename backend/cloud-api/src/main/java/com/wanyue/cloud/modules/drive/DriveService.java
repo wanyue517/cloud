@@ -99,7 +99,7 @@ public class DriveService {
             String hash = com.wanyue.cloud.modules.drive.sharelink.ShareLinkService.sha256Hex(token);
             var sess = db.queryForList(
                     "SELECT id, idle_timeout_minutes FROM private_space_session "
-                            + "WHERE space_id=? AND user_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP(3) LIMIT 1",
+                            + "WHERE space_id IN (?, 0) AND user_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP(3) LIMIT 1",
                     space, user, hash);
             if (sess.isEmpty()) {
                 throw new BizException(HttpStatus.LOCKED, 423, "私密空间授权已过期或已锁定，请重新解锁");
@@ -114,6 +114,25 @@ public class DriveService {
             return String.valueOf(row.get("member_role"));
         }
         return null;
+    }
+
+    /** 校验个人中心「私密设置」全局解锁会话（space_id=0），并按空闲超时续期。 */
+    public void requireVaultSession(long user) {
+        String token = com.wanyue.cloud.modules.drive.personal.PrivateTokenFilter.currentToken();
+        if (token == null || token.isBlank()) {
+            throw new BizException(HttpStatus.LOCKED, 423, "私密设置已锁定，请先输入密码解锁");
+        }
+        String hash = com.wanyue.cloud.modules.drive.sharelink.ShareLinkService.sha256Hex(token);
+        var sess = db.queryForList(
+                "SELECT id, idle_timeout_minutes FROM private_space_session "
+                        + "WHERE space_id=0 AND user_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at > UTC_TIMESTAMP(3) LIMIT 1",
+                user, hash);
+        if (sess.isEmpty()) {
+            throw new BizException(HttpStatus.LOCKED, 423, "私密设置授权已过期或已锁定，请重新验证密码");
+        }
+        int idleMin = ((Number) sess.get(0).get("idle_timeout_minutes")).intValue();
+        db.update("UPDATE private_space_session SET expires_at=DATE_ADD(UTC_TIMESTAMP(3), INTERVAL ? MINUTE) WHERE id=?",
+                idleMin, ((Number) sess.get(0).get("id")).longValue());
     }
 
     /** Resolve node-level access: space role first, then nearest ancestor resource_share via closure table. */
@@ -722,6 +741,7 @@ public class DriveService {
     }
     @Transactional
     public void setHidden(long user, long space, long id, boolean enabled) {
+        if (!enabled) requireVaultSession(user); // 取消私密只能在已解锁的私密设置中进行
         access(user, space, true, true);
         getNode(space, id, false);
         db.update("UPDATE file_node SET hidden=?, revision=revision+1, updated_at=UTC_TIMESTAMP(3) WHERE space_id=? AND id=? AND deleted_at IS NULL",

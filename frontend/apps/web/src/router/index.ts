@@ -37,6 +37,11 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'trash',
         name: 'trash',
+        redirect: '/app/settings/trash',
+      },
+      {
+        path: 'search',
+        name: 'search',
         component: () => import('@/views/drive/index.vue'),
       },
       {
@@ -59,7 +64,7 @@ const routes: RouteRecordRaw[] = [
         redirect: '/app/settings/profile',
       },
       {
-        path: 'settings/:section(profile|security|appearance|files)',
+        path: 'settings/:section(profile|security|appearance|files|private|trash)',
         name: 'settings',
         component: () => import('@/views/drive/index.vue'),
       },

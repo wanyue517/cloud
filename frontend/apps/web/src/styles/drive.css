@@ -59,13 +59,70 @@
   transition: width var(--app-duration-normal) ease, opacity var(--app-duration-fast) ease, padding var(--app-duration-normal) ease;
 }
 .drive-app.is-sidebar-collapsed .drive-sidebar {
-  width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  border-right-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
+  width: 68px;
+  padding: var(--app-space-4) var(--app-space-2);
+  align-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.drive-app.is-sidebar-collapsed .drive-brand-row {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  width: 100%;
+}
+.drive-app.is-sidebar-collapsed .drive-brand {
+  grid-template-columns: 36px;
+  justify-items: center;
+}
+.drive-app.is-sidebar-collapsed .drive-brand-text,
+.drive-app.is-sidebar-collapsed .sidebar-caption-label,
+.drive-app.is-sidebar-collapsed .sidebar-item-label,
+.drive-app.is-sidebar-collapsed .space-kind-badge,
+.drive-app.is-sidebar-collapsed .sidebar-user-meta,
+.drive-app.is-sidebar-collapsed .sidebar-user-chevron,
+.drive-app.is-sidebar-collapsed .qa-unpin-btn {
+  display: none;
+}
+.drive-app.is-sidebar-collapsed .sidebar-caption {
+  justify-content: center;
+  padding: 6px 0;
+  width: 100%;
+}
+.drive-app.is-sidebar-collapsed .sidebar-caption:not(.has-action) {
+  display: none;
+}
+.drive-app.is-sidebar-collapsed .space-list {
+  width: 100%;
+  align-items: center;
+}
+.drive-app.is-sidebar-collapsed .drive-sidebar .space-button,
+.drive-app.is-sidebar-collapsed .drive-sidebar .nav-button {
+  width: 42px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  position: relative;
+}
+.drive-app.is-sidebar-collapsed .drive-sidebar .topbar-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  padding: 0 4px;
+}
+.drive-app.is-sidebar-collapsed .sidebar-bottom {
+  width: 100%;
+  align-items: center;
+}
+.drive-app.is-sidebar-collapsed .sidebar-user-card {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
 }
 .drive-brand-row {
   display: flex;
@@ -84,6 +141,12 @@
   color: var(--foreground);
   text-decoration: none;
   min-width: 0;
+}
+.drive-brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
 }
 .pane-close-btn {
   flex-shrink: 0;

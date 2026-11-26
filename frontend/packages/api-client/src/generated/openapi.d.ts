@@ -436,6 +436,30 @@ export interface components {
       outcomes?: Array<components['schemas']["PersonalAndBatchService_BatchItemOutcome"]>
       errorMessage?: string
     }
+    PersonalAndBatchService_PrivateNodeItem: {
+      id?: string
+      spaceId?: string
+      spaceName?: string
+      parentId?: string
+      name?: string
+      nodeType?: string
+      currentVersionId?: string
+      revision: number
+      size: number
+      mimeType?: string
+      updatedAt?: string
+    }
+    PersonalAndBatchService_PrivateOverview: {
+      spaces?: Array<components['schemas']["PersonalAndBatchService_PrivateSpaceItem"]>
+      items?: Array<components['schemas']["PersonalAndBatchService_PrivateNodeItem"]>
+    }
+    PersonalAndBatchService_PrivateSpaceItem: {
+      id?: string
+      name?: string
+      kind?: string
+      color?: string
+      privateEnabled: boolean
+    }
     PersonalAndBatchService_RecentAccessItem: {
       id?: string
       spaceId?: string
@@ -2873,6 +2897,55 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["PersonalAndBatchService_UserPreferences"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/me/private/lock": {
+    post: {
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/me/private/overview": {
+    get: {
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["PersonalAndBatchService_PrivateOverview"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/me/private/spaces/{space}": {
+    put: {
+      parameters: {
+        path: {
+          space: string
+        }
+        query?: {
+          enabled: boolean
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/me/private/unlock": {
+    post: {
+      requestBody: components['schemas']["PersonalAndBatchService_UnlockPrivateInput"]
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["PersonalAndBatchService_UnlockPrivateResult"]
         traceId?: string | null
       }
     }

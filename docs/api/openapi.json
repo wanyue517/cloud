@@ -835,6 +835,48 @@
       }
     },
     "/api/admin/auth/password-credential/{id}" : {
+      "get" : {
+        "tags" : [ "PasswordCredential" ],
+        "operationId" : "PasswordCredentialController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PasswordCredentialRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "delete" : {
         "tags" : [ "PasswordCredential" ],
         "operationId" : "PasswordCredentialController_delete_delete",
@@ -916,48 +958,6 @@
                     },
                     "data" : {
                       "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "PasswordCredential" ],
-        "operationId" : "PasswordCredentialController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/PasswordCredentialRespVO"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -1142,48 +1142,6 @@
       }
     },
     "/api/admin/auth/permission/{id}" : {
-      "delete" : {
-        "tags" : [ "Permission" ],
-        "operationId" : "PermissionController_delete_delete",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "put" : {
         "tags" : [ "Permission" ],
         "operationId" : "PermissionController_update_put",
@@ -1265,6 +1223,48 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/PermissionRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "Permission" ],
+        "operationId" : "PermissionController_delete_delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
                     },
                     "traceId" : {
                       "type" : "string",
@@ -1669,48 +1669,6 @@
       }
     },
     "/api/admin/auth/role-permission/{id}" : {
-      "delete" : {
-        "tags" : [ "RolePermission" ],
-        "operationId" : "RolePermissionController_delete_delete",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "put" : {
         "tags" : [ "RolePermission" ],
         "operationId" : "RolePermissionController_update_put",
@@ -1792,6 +1750,48 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/RolePermissionRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "RolePermission" ],
+        "operationId" : "RolePermissionController_delete_delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
                     },
                     "traceId" : {
                       "type" : "string",
@@ -2280,6 +2280,48 @@
       }
     },
     "/api/admin/auth/session/{id}" : {
+      "get" : {
+        "tags" : [ "Session" ],
+        "operationId" : "SessionController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/SessionRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "delete" : {
         "tags" : [ "Session" ],
         "operationId" : "SessionController_delete_delete",
@@ -2361,48 +2403,6 @@
                     },
                     "data" : {
                       "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "Session" ],
-        "operationId" : "SessionController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/SessionRespVO"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -2499,58 +2499,6 @@
       }
     },
     "/api/admin/auth/user-role/{id}" : {
-      "put" : {
-        "tags" : [ "UserRole" ],
-        "operationId" : "UserRoleController_update_put",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/UserRoleUpdateReqVO"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "get" : {
         "tags" : [ "UserRole" ],
         "operationId" : "UserRoleController_get_get",
@@ -2605,6 +2553,58 @@
           },
           "required" : true
         } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "put" : {
+        "tags" : [ "UserRole" ],
+        "operationId" : "UserRoleController_update_put",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UserRoleUpdateReqVO"
+              }
+            }
+          },
+          "required" : true
+        },
         "responses" : {
           "200" : {
             "content" : {
@@ -2718,6 +2718,48 @@
       }
     },
     "/api/admin/auth/user-security/{id}" : {
+      "get" : {
+        "tags" : [ "UserSecurity" ],
+        "operationId" : "UserSecurityController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/UserSecurityRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "delete" : {
         "tags" : [ "UserSecurity" ],
         "operationId" : "UserSecurityController_delete_delete",
@@ -2799,48 +2841,6 @@
                     },
                     "data" : {
                       "nullable" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "UserSecurity" ],
-        "operationId" : "UserSecurityController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/UserSecurityRespVO"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -2937,48 +2937,6 @@
       }
     },
     "/api/admin/space/member/{id}" : {
-      "get" : {
-        "tags" : [ "Member" ],
-        "operationId" : "MemberController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/MemberRespVO"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "delete" : {
         "tags" : [ "Member" ],
         "operationId" : "MemberController_delete_delete",
@@ -3060,6 +3018,48 @@
                     },
                     "data" : {
                       "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "get" : {
+        "tags" : [ "Member" ],
+        "operationId" : "MemberController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/MemberRespVO"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -3156,48 +3156,6 @@
       }
     },
     "/api/admin/space/space/{id}" : {
-      "get" : {
-        "tags" : [ "Space" ],
-        "operationId" : "SpaceController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/SpaceRespVO"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "delete" : {
         "tags" : [ "Space" ],
         "operationId" : "SpaceController_delete_delete",
@@ -3279,6 +3237,48 @@
                     },
                     "data" : {
                       "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "get" : {
+        "tags" : [ "Space" ],
+        "operationId" : "SpaceController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/SpaceRespVO"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -3859,6 +3859,48 @@
       }
     },
     "/api/admin/sys/user-setting/{id}" : {
+      "get" : {
+        "tags" : [ "UserSetting" ],
+        "operationId" : "UserSettingController_get_get",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/UserSettingRespVO"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "delete" : {
         "tags" : [ "UserSetting" ],
         "operationId" : "UserSettingController_delete_delete",
@@ -3952,48 +3994,6 @@
             "description" : "OK"
           }
         }
-      },
-      "get" : {
-        "tags" : [ "UserSetting" ],
-        "operationId" : "UserSettingController_get_get",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "$ref" : "#/components/schemas/UserSettingRespVO"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
       }
     },
     "/api/admin/sys/user/page" : {
@@ -4032,6 +4032,48 @@
       }
     },
     "/api/admin/sys/user/{id}" : {
+      "delete" : {
+        "tags" : [ "User" ],
+        "operationId" : "UserController_delete_delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "put" : {
         "tags" : [ "User" ],
         "operationId" : "UserController_update_put",
@@ -4113,48 +4155,6 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/UserRespVO"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "delete" : {
-        "tags" : [ "User" ],
-        "operationId" : "UserController_delete_delete",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "nullable" : true
                     },
                     "traceId" : {
                       "type" : "string",
@@ -4440,6 +4440,42 @@
       }
     },
     "/api/v1/admin/messages" : {
+      "get" : {
+        "tags" : [ "Message" ],
+        "operationId" : "MessageController_listAdminMessages_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "array",
+                      "items" : {
+                        "$ref" : "#/components/schemas/MessageModels_AdminMessageRecord"
+                      }
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "post" : {
         "tags" : [ "Message" ],
         "operationId" : "MessageController_publishAdminMessage_post",
@@ -4470,42 +4506,6 @@
                     },
                     "data" : {
                       "type" : "string"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "Message" ],
-        "operationId" : "MessageController_listAdminMessages_get",
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "type" : "array",
-                      "items" : {
-                        "$ref" : "#/components/schemas/MessageModels_AdminMessageRecord"
-                      }
                     },
                     "traceId" : {
                       "type" : "string",
@@ -4974,6 +4974,43 @@
       }
     },
     "/api/v1/admin/storage-profiles" : {
+      "get" : {
+        "tags" : [ "Admin" ],
+        "operationId" : "AdminController_storageProfiles_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "array",
+                      "items" : {
+                        "type" : "object",
+                        "additionalProperties" : true
+                      }
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "post" : {
         "tags" : [ "Admin" ],
         "operationId" : "AdminController_createStorageProfile_post",
@@ -5004,43 +5041,6 @@
                     },
                     "data" : {
                       "type" : "string"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "Admin" ],
-        "operationId" : "AdminController_storageProfiles_get",
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "type" : "array",
-                      "items" : {
-                        "type" : "object",
-                        "additionalProperties" : true
-                      }
                     },
                     "traceId" : {
                       "type" : "string",
@@ -5806,40 +5806,6 @@
       }
     },
     "/api/v1/me" : {
-      "get" : {
-        "tags" : [ "Account" ],
-        "operationId" : "AccountController_me_get",
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "type" : "object",
-                      "additionalProperties" : true
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
       "put" : {
         "tags" : [ "Account" ],
         "operationId" : "AccountController_updateMe_put",
@@ -5870,6 +5836,40 @@
                     },
                     "data" : {
                       "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "get" : {
+        "tags" : [ "Account" ],
+        "operationId" : "AccountController_me_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "object",
+                      "additionalProperties" : true
                     },
                     "traceId" : {
                       "type" : "string",
@@ -5993,6 +5993,172 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/PersonalAndBatchService_UserPreferences"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/me/private/lock" : {
+      "post" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_lockVault_post",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/me/private/overview" : {
+      "get" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_privateOverview_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PersonalAndBatchService_PrivateOverview"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/me/private/spaces/{space}" : {
+      "put" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_setSpacePrivate_put",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "space",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        }, {
+          "in" : "query",
+          "name" : "enabled",
+          "schema" : {
+            "type" : "boolean"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/me/private/unlock" : {
+      "post" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_unlockVault_post",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PersonalAndBatchService_UnlockPrivateInput"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PersonalAndBatchService_UnlockPrivateResult"
                     },
                     "traceId" : {
                       "type" : "string",
@@ -7091,6 +7257,42 @@
       }
     },
     "/api/v1/spaces" : {
+      "get" : {
+        "tags" : [ "Drive" ],
+        "operationId" : "DriveController_spaces_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "array",
+                      "items" : {
+                        "$ref" : "#/components/schemas/DriveModels_Space"
+                      }
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "post" : {
         "tags" : [ "Drive" ],
         "operationId" : "DriveController_createSpace_post",
@@ -7121,42 +7323,6 @@
                     },
                     "data" : {
                       "type" : "string"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "Drive" ],
-        "operationId" : "DriveController_spaces_get",
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "type" : "array",
-                      "items" : {
-                        "$ref" : "#/components/schemas/DriveModels_Space"
-                      }
                     },
                     "traceId" : {
                       "type" : "string",
@@ -7987,6 +8153,64 @@
       }
     },
     "/api/v1/spaces/{space}/nodes/{id}" : {
+      "delete" : {
+        "tags" : [ "Drive" ],
+        "operationId" : "DriveController_trash_delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "space",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        }, {
+          "in" : "path",
+          "name" : "id",
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          },
+          "required" : true
+        }, {
+          "in" : "query",
+          "name" : "revision",
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "required" : true
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "patch" : {
         "tags" : [ "Drive" ],
         "operationId" : "DriveController_change_patch",
@@ -8034,64 +8258,6 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/DriveModels_Node"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "delete" : {
-        "tags" : [ "Drive" ],
-        "operationId" : "DriveController_trash_delete",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "space",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        }, {
-          "in" : "path",
-          "name" : "id",
-          "schema" : {
-            "type" : "string",
-            "description" : "64-bit identifier transmitted as string"
-          },
-          "required" : true
-        }, {
-          "in" : "query",
-          "name" : "revision",
-          "schema" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "required" : true
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "nullable" : true
                     },
                     "traceId" : {
                       "type" : "string",
@@ -9782,6 +9948,43 @@
       }
     },
     "/api/v1/uploads" : {
+      "get" : {
+        "tags" : [ "Upload" ],
+        "operationId" : "UploadController_list_get",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "array",
+                      "items" : {
+                        "type" : "object",
+                        "additionalProperties" : true
+                      }
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
       "post" : {
         "tags" : [ "Upload" ],
         "operationId" : "UploadController_create_post",
@@ -9812,43 +10015,6 @@
                     },
                     "data" : {
                       "$ref" : "#/components/schemas/DriveModels_Upload"
-                    },
-                    "traceId" : {
-                      "type" : "string",
-                      "nullable" : true
-                    }
-                  }
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        }
-      },
-      "get" : {
-        "tags" : [ "Upload" ],
-        "operationId" : "UploadController_list_get",
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "type" : "object",
-                  "required" : [ "code", "msg" ],
-                  "properties" : {
-                    "code" : {
-                      "type" : "integer",
-                      "format" : "int32"
-                    },
-                    "msg" : {
-                      "type" : "string"
-                    },
-                    "data" : {
-                      "type" : "array",
-                      "items" : {
-                        "type" : "object",
-                        "additionalProperties" : true
-                      }
                     },
                     "traceId" : {
                       "type" : "string",
@@ -11544,6 +11710,85 @@
           }
         },
         "required" : [ "totalCount", "successCount", "failedCount" ]
+      },
+      "PersonalAndBatchService_PrivateNodeItem" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "spaceId" : {
+            "type" : "string"
+          },
+          "spaceName" : {
+            "type" : "string"
+          },
+          "parentId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "nodeType" : {
+            "type" : "string"
+          },
+          "currentVersionId" : {
+            "type" : "string"
+          },
+          "revision" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "mimeType" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "revision", "size" ]
+      },
+      "PersonalAndBatchService_PrivateOverview" : {
+        "type" : "object",
+        "properties" : {
+          "spaces" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PersonalAndBatchService_PrivateSpaceItem"
+            }
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/PersonalAndBatchService_PrivateNodeItem"
+            }
+          }
+        }
+      },
+      "PersonalAndBatchService_PrivateSpaceItem" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "color" : {
+            "type" : "string"
+          },
+          "privateEnabled" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "privateEnabled" ]
       },
       "PersonalAndBatchService_RecentAccessItem" : {
         "type" : "object",

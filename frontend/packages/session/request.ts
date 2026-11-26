@@ -66,6 +66,16 @@ interface RequestHooks {
 let hooks: RequestHooks = {}
 let refreshPromise: Promise<string | null> | null = null
 const privateSpaceTokens = new Map<string, string>()
+/** 个人中心「私密设置」全局解锁令牌：可访问全部私密空间与私密条目 */
+let vaultToken: string | null = null
+
+export function setVaultToken(token: string | null) {
+    vaultToken = token
+}
+
+export function hasVaultToken(): boolean {
+    return !!vaultToken
+}
 
 export function setPrivateSpaceToken(spaceId: string, token: string) {
     privateSpaceTokens.set(spaceId, token)
@@ -73,11 +83,14 @@ export function setPrivateSpaceToken(spaceId: string, token: string) {
 
 export function clearPrivateSpaceToken(spaceId?: string) {
     if (spaceId) privateSpaceTokens.delete(spaceId)
-    else privateSpaceTokens.clear()
+    else {
+        privateSpaceTokens.clear()
+        vaultToken = null
+    }
 }
 
 export function hasPrivateSpaceToken(spaceId: string): boolean {
-    return privateSpaceTokens.has(spaceId)
+    return privateSpaceTokens.has(spaceId) || !!vaultToken
 }
 
 /** 在 main.ts / 应用初始化时注册一次 */
@@ -118,10 +131,8 @@ client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     if (isTrustedRequest(config) && config.url && !config.headers.has('X-Private-Token')) {
         const match = /\/v1\/spaces\/(\d+)\b/.exec(config.url)
         const spaceId = match?.[1]
-        if (spaceId) {
-            const pt = privateSpaceTokens.get(spaceId)
-            if (pt) config.headers.set('X-Private-Token', pt)
-        }
+        const pt = (spaceId && privateSpaceTokens.get(spaceId)) || vaultToken
+        if (pt) config.headers.set('X-Private-Token', pt)
     }
     return config
 })
