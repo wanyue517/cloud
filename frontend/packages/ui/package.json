@@ -10,6 +10,7 @@
     "./ThemeSettings.vue": "./src/ThemeSettings.vue",
     "./*": "./src/components/*/index.ts",
     "./button/Button.vue": "./src/components/button/Button.vue",
+    "./checkbox/Checkbox.vue": "./src/components/checkbox/Checkbox.vue",
     "./context-menu/ContextMenuContent.vue": "./src/components/context-menu/ContextMenuContent.vue",
     "./dialog/Dialog.vue": "./src/components/dialog/Dialog.vue",
     "./dialog/DialogClose.vue": "./src/components/dialog/DialogClose.vue",

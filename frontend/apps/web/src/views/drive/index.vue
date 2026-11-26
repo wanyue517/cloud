@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Button } from '@repo/ui/button'
+import { Checkbox } from '@repo/ui/checkbox'
 import { Input } from '@repo/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@repo/ui/dialog'
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@repo/ui/context-menu'
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@repo/ui/context-menu'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -231,8 +232,11 @@ let undoTimer: ReturnType<typeof setTimeout> | undefined
 const allSelected = computed(() => nodes.value.length > 0 && selected.value.size === nodes.value.length)
 const someSelected = computed(() => selected.value.size > 0 && selected.value.size < nodes.value.length)
 
-function ensureNodeSelected(node: DriveNode) {
-  if (!selected.value.has(node.id)) selected.value = new Set([node.id])
+function toggleNodeSelected(node: DriveNode, checked: boolean | 'indeterminate') {
+  const next = new Set(selected.value)
+  if (checked === true) next.add(node.id)
+  else next.delete(node.id)
+  selected.value = next
 }
 function previewDetailNode() {
   const target = detailNode.value
@@ -576,14 +580,6 @@ async function commitInlineRename(node: DriveNode) {
   } catch (e) { fail(e) } finally { inlineRenameBusy.value = false }
 }
 
-function choose(node: DriveNode, event: Pick<MouseEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>) {
-  const next = new Set(event.ctrlKey || event.metaKey ? selected.value : [])
-  if (event.shiftKey && selected.value.size) {
-    const anchor = nodes.value.findIndex(n => n.id === [...selected.value][0]), end = nodes.value.indexOf(node)
-    nodes.value.slice(Math.min(anchor, end), Math.max(anchor, end) + 1).forEach(n => next.add(n.id))
-  } else { next.has(node.id) ? next.delete(node.id) : next.add(node.id) }
-  selected.value = next
-}
 function open(node: DriveNode) {
   if (node.nodeType === 'FOLDER') navigate(node.id)
   else {
@@ -640,8 +636,7 @@ function canShowThumb(node: DriveNode): boolean {
   return THUMB_EXTS.has(ext)
 }
 
-async function ensureGridThumbnails() {
-  if (view.value !== 'grid') return
+async function ensureThumbnails() {
   for (const node of nodes.value) {
     if (!canShowThumb(node)) continue
     const key = `${node.id}:${node.currentVersionId || ''}`
@@ -656,7 +651,7 @@ async function ensureGridThumbnails() {
   }
 }
 
-watch([() => view.value, () => nodes.value], () => { void ensureGridThumbnails() })
+watch([() => view.value, () => nodes.value], () => { void ensureThumbnails() })
 async function move(source: string, target: string) {
   const node = nodes.value.find(n => n.id === source)
   if (!node) return
@@ -1197,9 +1192,9 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
               <option value="updated">最近修改</option>
               <option value="size">文件大小</option>
             </select>
-            <Button variant="outline" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="17" /></Button>
-            <Button variant="outline" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="17" /></Button>
-            <Button variant="outline" aria-label="刷新文件" @click="refresh"><RefreshCw :size="16" /></Button>
+            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="16" /></Button>
+            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="16" /></Button>
+            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="刷新文件" @click="refresh"><RefreshCw :size="15" /></Button>
           </div>
         </div>
 
@@ -1217,23 +1212,32 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
         <div v-else class="file-collection" :class="view" role="list" aria-label="文件列表">
           <div v-if="view === 'list'" class="file-columns">
             <span class="flex items-center gap-3">
-              <input
-                type="checkbox"
-                :checked="allSelected"
-                :indeterminate="someSelected"
+              <Checkbox
+                :model-value="allSelected ? true : someSelected ? 'indeterminate' : false"
                 aria-label="表头全选"
-                @change="toggleSelectAll"
+                @update:model-value="toggleSelectAll"
               />
               <span>名称</span>
             </span>
             <span>大小</span><span>修改时间</span><span>类型</span><span class="text-right">操作</span>
           </div>
           <div v-if="inlineCreateActive" class="file-item selected" role="listitem">
-            <span class="file-name">
-              <span class="file-icon folder"><Folder :size="view === 'grid' ? 42 : 24" /></span>
-              <input ref="inlineCreateInput" v-model="inlineCreateName" class="inline-edit-input" aria-label="新建文件夹名称" :disabled="inlineCreateBusy" @keydown.enter.prevent="commitInlineCreate" @keydown.esc.prevent="cancelInlineEdit" @blur="commitInlineCreate" />
-            </span>
-            <span>—</span><span>新建中…</span><small>文件夹</small><span />
+            <template v-if="view === 'grid'">
+              <div class="file-thumb-stage">
+                <span class="file-icon folder"><Folder :size="52" /></span>
+              </div>
+              <div class="file-card-body">
+                <input ref="inlineCreateInput" v-model="inlineCreateName" class="inline-edit-input" aria-label="新建文件夹名称" :disabled="inlineCreateBusy" @keydown.enter.prevent="commitInlineCreate" @keydown.esc.prevent="cancelInlineEdit" @blur="commitInlineCreate" />
+                <div class="file-card-meta"><span>新建中…</span><span>文件夹</span></div>
+              </div>
+            </template>
+            <template v-else>
+              <span class="file-name">
+                <span class="file-icon folder"><Folder :size="20" /></span>
+                <input ref="inlineCreateInput" v-model="inlineCreateName" class="inline-edit-input" aria-label="新建文件夹名称" :disabled="inlineCreateBusy" @keydown.enter.prevent="commitInlineCreate" @keydown.esc.prevent="cancelInlineEdit" @blur="commitInlineCreate" />
+              </span>
+              <span>—</span><span>新建中…</span><small>文件夹</small><span />
+            </template>
           </div>
           <ContextMenu v-for="node in nodes" :key="node.id">
             <ContextMenuTrigger as-child>
@@ -1248,92 +1252,182 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                 @dragover.prevent="node.nodeType === 'FOLDER' && draggingId !== node.id && (dropTargetId = node.id)"
                 @dragleave="dropTargetId === node.id && (dropTargetId = '')"
                 @drop.prevent.stop="dropTargetId = ''; draggingId = ''; node.nodeType === 'FOLDER' && move($event.dataTransfer?.getData('application/cloudlane-node') || '', node.id)"
-                @click="inlineRenameId !== node.id && choose(node, $event)"
                 @dblclick="inlineRenameId !== node.id && open(node)"
-                @contextmenu.prevent="ensureNodeSelected(node)"
                 @keydown.enter.stop="inlineRenameId !== node.id && open(node)"
               >
-                <span class="file-name">
-                  <input type="checkbox" :checked="selected.has(node.id)" :aria-label="`选择 ${node.name}`" @click.stop @change="choose(node, { ctrlKey: true, metaKey: false, shiftKey: false })" />
-                  <span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }">
-                    <img
-                      v-if="view === 'grid' && thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
-                      :src="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
-                      :alt="node.name"
-                      class="h-14 w-20 rounded-md object-cover shadow-xs"
+                <!-- 卡片视图（缩略图/图标占大部分区域） -->
+                <template v-if="view === 'grid'">
+                  <div class="file-thumb-stage">
+                    <span class="file-card-check" @click.stop @dblclick.stop>
+                      <Checkbox
+                        :model-value="selected.has(node.id)"
+                        :aria-label="`选择 ${node.name}`"
+                        @update:model-value="v => toggleNodeSelected(node, v)"
+                      />
+                    </span>
+                    <span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }">
+                      <img
+                        v-if="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                        :src="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                        :alt="node.name"
+                        class="file-thumb-img"
+                      />
+                      <Folder v-else-if="node.nodeType === 'FOLDER'" :size="56" />
+                      <File v-else :size="48" />
+                    </span>
+                    <span class="item-more-wrap" @click.stop @dblclick.stop>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                          <Button variant="ghost" size="icon-xs" :aria-label="`更多操作：${node.name}`">
+                            <MoreHorizontal :size="16" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" class="w-48">
+                          <DropdownMenuItem @select="open(node)">
+                            <Eye v-if="node.nodeType === 'FILE'" :size="14" />
+                            <Folder v-else :size="14" />
+                            {{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)"><Download :size="14" /> 下载</DropdownMenuItem>
+                          <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
+                          <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)"><History :size="14" /> 历史版本</DropdownMenuItem>
+                          <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem v-if="node.nodeType === 'FOLDER'" @select="sharingNode = node"><Share2 :size="14" /> 共享给他人…</DropdownMenuItem>
+                          <DropdownMenuItem @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
+                          <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
+                          <DropdownMenuItem @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</DropdownMenuItem>
+                          <DropdownMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
+                            {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem @select="pinNode(node, true)"><Pin :size="14" /> 固定到快捷访问</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </span>
+                  </div>
+                  <div class="file-card-body">
+                    <input
+                      v-if="inlineRenameId === node.id"
+                      :data-inline-rename="node.id"
+                      v-model="inlineRenameName"
+                      class="inline-edit-input"
+                      :aria-label="`重命名 ${node.name}`"
+                      :disabled="inlineRenameBusy"
+                      @click.stop
+                      @dblclick.stop
+                      @keydown.enter.prevent.stop="commitInlineRename(node)"
+                      @keydown.esc.prevent.stop="cancelInlineEdit"
+                      @blur="commitInlineRename(node)"
                     />
-                    <Folder v-else-if="node.nodeType === 'FOLDER'" :size="view === 'grid' ? 42 : 24" />
-                    <File v-else :size="view === 'grid' ? 38 : 22" />
+                    <span v-else class="filename" :title="node.name">{{ node.name }}</span>
+                    <div class="file-card-meta">
+                      <span>{{ node.nodeType === 'FOLDER' ? '文件夹' : size(node.size) }}</span>
+                      <span>{{ node.nodeType === 'FOLDER' ? '' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</span>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 列表视图（左侧显示对应缩略图 + 组件库 Checkbox） -->
+                <template v-else>
+                  <span class="file-name">
+                    <span class="inline-flex shrink-0" @click.stop @dblclick.stop>
+                      <Checkbox
+                        :model-value="selected.has(node.id)"
+                        :aria-label="`选择 ${node.name}`"
+                        @update:model-value="v => toggleNodeSelected(node, v)"
+                      />
+                    </span>
+                    <span class="file-icon" :class="{ folder: node.nodeType === 'FOLDER' }">
+                      <img
+                        v-if="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                        :src="thumbUrls[`${node.id}:${node.currentVersionId || ''}`]"
+                        :alt="node.name"
+                        class="file-thumb-img"
+                      />
+                      <Folder v-else-if="node.nodeType === 'FOLDER'" :size="20" />
+                      <File v-else :size="19" />
+                    </span>
+                    <input
+                      v-if="inlineRenameId === node.id"
+                      :data-inline-rename="node.id"
+                      v-model="inlineRenameName"
+                      class="inline-edit-input"
+                      :aria-label="`重命名 ${node.name}`"
+                      :disabled="inlineRenameBusy"
+                      @click.stop
+                      @dblclick.stop
+                      @keydown.enter.prevent.stop="commitInlineRename(node)"
+                      @keydown.esc.prevent.stop="cancelInlineEdit"
+                      @blur="commitInlineRename(node)"
+                    />
+                    <span v-else class="filename" :title="node.name">{{ node.name }}</span>
                   </span>
-                  <input
-                    v-if="inlineRenameId === node.id"
-                    :data-inline-rename="node.id"
-                    v-model="inlineRenameName"
-                    class="inline-edit-input"
-                    :aria-label="`重命名 ${node.name}`"
-                    :disabled="inlineRenameBusy"
-                    @click.stop
-                    @dblclick.stop
-                    @keydown.enter.prevent.stop="commitInlineRename(node)"
-                    @keydown.esc.prevent.stop="cancelInlineEdit"
-                    @blur="commitInlineRename(node)"
-                  />
-                  <span v-else class="filename">{{ node.name }}</span>
-                </span>
-                <span>{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span>
-                <time :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time>
-                <small>{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
-                <span class="item-more-wrap flex justify-end" @click.stop @dblclick.stop>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger as-child>
-                      <Button variant="ghost" size="icon-xs" :aria-label="`更多操作：${node.name}`" @click.stop="ensureNodeSelected(node)">
-                        <MoreHorizontal :size="16" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" class="w-48">
-                      <DropdownMenuItem @select="open(node)">
-                        <Eye v-if="node.nodeType === 'FILE'" :size="14" />
-                        <Folder v-else :size="14" />
-                        {{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)"><Download :size="14" /> 下载</DropdownMenuItem>
-                      <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
-                      <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)"><History :size="14" /> 历史版本</DropdownMenuItem>
-                      <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem v-if="node.nodeType === 'FOLDER'" @select="sharingNode = node"><Share2 :size="14" /> 共享给他人…</DropdownMenuItem>
-                      <DropdownMenuItem @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
-                      <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
-                      <DropdownMenuItem @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</DropdownMenuItem>
-                      <DropdownMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
-                        {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem @select="pinNode(node, true)"><Pin :size="14" /> 固定到快捷访问</DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </span>
+                  <span>{{ node.nodeType === 'FOLDER' ? '—' : size(node.size) }}</span>
+                  <time :datetime="node.updatedAt">{{ new Date(node.updatedAt).toLocaleString('zh-CN') }}</time>
+                  <small>{{ node.nodeType === 'FOLDER' ? '文件夹' : node.name.split('.').pop()?.toUpperCase() || '文件' }}</small>
+                  <span class="item-more-wrap flex justify-end" @click.stop @dblclick.stop>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger as-child>
+                        <Button variant="ghost" size="icon-xs" :aria-label="`更多操作：${node.name}`">
+                          <MoreHorizontal :size="16" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" class="w-48">
+                        <DropdownMenuItem @select="open(node)">
+                          <Eye v-if="node.nodeType === 'FILE'" :size="14" />
+                          <Folder v-else :size="14" />
+                          {{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)"><Download :size="14" /> 下载</DropdownMenuItem>
+                        <DropdownMenuItem @select="detailNode = node"><Info :size="14" /> 查看详情</DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)"><History :size="14" /> 历史版本</DropdownMenuItem>
+                        <DropdownMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem v-if="node.nodeType === 'FOLDER'" @select="sharingNode = node"><Share2 :size="14" /> 共享给他人…</DropdownMenuItem>
+                        <DropdownMenuItem @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem @select="rename(node)">重命名</DropdownMenuItem>
+                        <DropdownMenuItem @select="moving = node">移动到…</DropdownMenuItem>
+                        <DropdownMenuItem @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</DropdownMenuItem>
+                        <DropdownMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
+                          {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem @select="pinNode(node, true)"><Pin :size="14" /> 固定到快捷访问</DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </span>
+                </template>
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent class="w-48">
-              <ContextMenuItem @select="open(node)">{{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}</ContextMenuItem>
-              <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="download(node)">下载</ContextMenuItem>
-              <ContextMenuItem @select="detailNode = node">查看详情</ContextMenuItem>
-              <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="showVersions(node)">历史版本</ContextMenuItem>
-              <ContextMenuItem v-if="node.nodeType === 'FILE'" @select="replacing = node; replacement?.click()">替换文件</ContextMenuItem>
-              <ContextMenuItem v-if="node.nodeType === 'FOLDER'" @select="sharingNode = node">共享给他人…</ContextMenuItem>
-              <ContextMenuItem @select="shareLinkNode = node">创建公开分享链接…</ContextMenuItem>
-              <ContextMenuItem @select="rename(node)">重命名</ContextMenuItem>
-              <ContextMenuItem @select="moving = node">移动到…</ContextMenuItem>
-              <ContextMenuItem @select="markNodePrivate(node)">设为私密</ContextMenuItem>
-              <ContextMenuItem @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
+              <ContextMenuItem class="gap-2" @select="open(node)">
+                <Eye v-if="node.nodeType === 'FILE'" :size="14" />
+                <Folder v-else :size="14" />
+                {{ node.nodeType === 'FOLDER' ? '打开文件夹' : '预览' }}
+              </ContextMenuItem>
+              <ContextMenuItem v-if="node.nodeType === 'FILE'" class="gap-2" @select="download(node)"><Download :size="14" /> 下载</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="detailNode = node"><Info :size="14" /> 查看详情</ContextMenuItem>
+              <ContextMenuItem v-if="node.nodeType === 'FILE'" class="gap-2" @select="showVersions(node)"><History :size="14" /> 历史版本</ContextMenuItem>
+              <ContextMenuItem v-if="node.nodeType === 'FILE'" class="gap-2" @select="replacing = node; replacement?.click()">替换文件</ContextMenuItem>
+              <ContextMenuSeparator class="my-1 h-px bg-border" />
+              <ContextMenuItem v-if="node.nodeType === 'FOLDER'" class="gap-2" @select="sharingNode = node"><Share2 :size="14" /> 共享给他人…</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="shareLinkNode = node"><Link2 :size="14" /> 创建公开分享链接…</ContextMenuItem>
+              <ContextMenuSeparator class="my-1 h-px bg-border" />
+              <ContextMenuItem class="gap-2" @select="rename(node)">重命名</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="moving = node">移动到…</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="markNodePrivate(node)"><LockKeyhole :size="14" /> 设为私密</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="selected = new Set([node.id]); batch(n => drive.favorite(n, mode !== 'favorites'))">
                 {{ mode === 'favorites' ? '取消收藏' : '收藏' }}
               </ContextMenuItem>
-              <ContextMenuItem @select="pinNode(node, true)">固定到快捷访问</ContextMenuItem>
-              <ContextMenuItem class="text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</ContextMenuItem>
+              <ContextMenuItem class="gap-2" @select="pinNode(node, true)"><Pin :size="14" /> 固定到快捷访问</ContextMenuItem>
+              <ContextMenuSeparator class="my-1 h-px bg-border" />
+              <ContextMenuItem class="gap-2 text-destructive" @select="selected = new Set([node.id]); deleteSelection()">移到回收站</ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
         </div>

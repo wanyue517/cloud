@@ -5,6 +5,7 @@ import {
   Palette, Plus, RefreshCw, RotateCcw, Shield, SlidersHorizontal, Trash2, Unlock, Upload, User,
 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { Checkbox } from '@repo/ui/checkbox'
 import { Input } from '@repo/ui/input'
 import { Separator } from '@repo/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
@@ -1080,18 +1081,17 @@ onMounted(() => {
       <div v-else-if="!trashNodes.length" class="settings-empty">当前空间回收站是空的。</div>
       <div v-else class="divide-y divide-border rounded-lg border border-border">
         <div class="flex items-center gap-3 bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground">
-          <input type="checkbox" :checked="trashAllSelected" aria-label="全选回收站" @change="toggleTrashSelectAll" />
+          <Checkbox :model-value="trashAllSelected ? true : trashSelected.size > 0 ? 'indeterminate' : false" aria-label="全选回收站" @update:model-value="toggleTrashSelectAll" />
           <span class="flex-1">名称</span>
           <span class="w-20 text-right">大小</span>
           <span class="w-36 text-right">删除/更新时间</span>
           <span class="w-32 text-right">操作</span>
         </div>
         <div v-for="node in trashNodes" :key="node.id" class="flex items-center gap-3 px-3.5 py-2.5 text-sm">
-          <input
-            type="checkbox"
-            :checked="trashSelected.has(node.id)"
+          <Checkbox
+            :model-value="trashSelected.has(node.id)"
             :aria-label="`选择 ${node.name}`"
-            @change="toggleTrashSelect(node.id)"
+            @update:model-value="toggleTrashSelect(node.id)"
           />
           <div class="flex min-w-0 flex-1 items-center gap-2">
             <Folder v-if="node.nodeType === 'FOLDER'" :size="16" class="shrink-0 text-amber-500" />
