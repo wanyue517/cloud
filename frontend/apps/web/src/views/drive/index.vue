@@ -756,7 +756,7 @@ async function replace(event: Event) {
   try { await drive.replace(replacing.value, file); notice.value = '已保存新版本'; await refresh() } catch (e) { fail(e) }
   ;(event.target as HTMLInputElement).value = ''
 }
-async function upload(files: File[]) {
+async function upload(files: File[], targetParentId = parentId.value) {
   if (!spaceId.value || !files.length) return
   folderCache.clear()
   uploadPanelVisible.value = true
@@ -764,11 +764,104 @@ async function upload(files: File[]) {
     file,
     name: file.webkitRelativePath || file.name,
     spaceId: spaceId.value,
-    parentId: parentId.value,
+    parentId: targetParentId,
   })))
 }
 function selectFiles(event: Event) { const target = event.target as HTMLInputElement; void upload(Array.from(target.files || [])); target.value = '' }
-function dropFiles(event: DragEvent) { if (mode.value === 'files' && event.dataTransfer?.files.length) void upload(Array.from(event.dataTransfer.files)) }
+
+const externalDragOver = ref(false)
+let externalDragDepth = 0
+
+const currentDropTargetName = computed(() => {
+  if (ancestors.value.length) return ancestors.value[ancestors.value.length - 1]!.name
+  return currentSpace.value?.name ? `${currentSpace.value.name}（根目录）` : '当前目录'
+})
+
+function isExternalFileDrag(event: DragEvent): boolean {
+  if (draggingId.value) return false
+  const types = event.dataTransfer?.types
+  return Boolean(types && Array.from(types).includes('Files'))
+}
+
+function resetExternalDrag() {
+  externalDragDepth = 0
+  externalDragOver.value = false
+  dropTargetId.value = ''
+}
+
+function onMainDragEnter(event: DragEvent) {
+  if (mode.value !== 'files' || !isExternalFileDrag(event)) return
+  event.preventDefault()
+  externalDragDepth++
+  externalDragOver.value = true
+}
+
+function onMainDragOver(event: DragEvent) {
+  if (mode.value !== 'files') return
+  if (isExternalFileDrag(event)) {
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    externalDragOver.value = true
+  } else {
+    event.preventDefault()
+  }
+}
+
+function onMainDragLeave() {
+  if (mode.value !== 'files' || !externalDragOver.value) return
+  externalDragDepth = Math.max(0, externalDragDepth - 1)
+  if (externalDragDepth === 0) {
+    externalDragOver.value = false
+    dropTargetId.value = ''
+  }
+}
+
+function dropFiles(event: DragEvent) {
+  const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : []
+  resetExternalDrag()
+  if (mode.value === 'files' && files.length) {
+    void upload(files, parentId.value)
+  }
+}
+
+function onNodeDragOver(event: DragEvent, node: DriveNode) {
+  event.preventDefault()
+  if (isExternalFileDrag(event)) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+    externalDragOver.value = true
+    dropTargetId.value = node.nodeType === 'FOLDER' ? node.id : ''
+    return
+  }
+  if (node.nodeType === 'FOLDER' && draggingId.value && draggingId.value !== node.id) {
+    dropTargetId.value = node.id
+  }
+}
+
+function onNodeDragLeave(node: DriveNode) {
+  if (dropTargetId.value === node.id) dropTargetId.value = ''
+}
+
+function onNodeDrop(event: DragEvent, node: DriveNode) {
+  const externalFiles = isExternalFileDrag(event) && event.dataTransfer?.files?.length
+    ? Array.from(event.dataTransfer.files)
+    : []
+  const draggedNodeId = event.dataTransfer?.getData('application/cloudlane-node') || ''
+  resetExternalDrag()
+  draggingId.value = ''
+  if (externalFiles.length) {
+    if (mode.value !== 'files') return
+    if (node.nodeType === 'FOLDER') {
+      void upload(externalFiles, node.id)
+      toast.success(`已开始上传 ${externalFiles.length} 个文件到「${node.name}」`)
+    } else {
+      void upload(externalFiles, parentId.value)
+    }
+    return
+  }
+  if (node.nodeType === 'FOLDER' && draggedNodeId && draggedNodeId !== node.id) {
+    void move(draggedNodeId, node.id)
+  }
+}
 function size(bytes: number) { if (!bytes) return '0 B'; const units = ['B', 'KB', 'MB', 'GB']; const index = Math.min(3, Math.floor(Math.log(bytes) / Math.log(1024))); return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}` }
 async function logout() { try { await endSession() } catch (e) { fail(e) } finally { void router.replace('/auth/login') } }
 
@@ -1007,7 +1100,22 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     </aside>
 
     <!-- 第三栏：主内容区 -->
-    <main class="drive-main" @dragover.prevent @drop.prevent="dropFiles">
+    <main
+      class="drive-main"
+      @dragenter="onMainDragEnter"
+      @dragover="onMainDragOver"
+      @dragleave="onMainDragLeave"
+      @drop.prevent="dropFiles"
+    >
+      <div v-if="mode === 'files' && externalDragOver && !dropTargetId" class="drive-drop-overlay" aria-hidden="true">
+        <div class="drive-drop-overlay-card">
+          <div class="flex size-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+            <Upload :size="24" />
+          </div>
+          <p class="text-base font-semibold text-foreground">松开鼠标，上传到「{{ currentDropTargetName }}」</p>
+          <p class="text-xs text-muted-foreground">拖放到子文件夹行上可直接上传至该子文件夹</p>
+        </div>
+      </div>
       <header class="drive-topbar">
         <div class="topbar-leading">
           <Button variant="ghost" size="icon-sm" class="layout-toggle-btn" :aria-label="sidebarVisible ? '收起导航栏' : '展开导航栏'" :aria-pressed="sidebarVisible" @click="toggleSidebar"><PanelLeft :size="17" /></Button>
@@ -1308,9 +1416,9 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
                 draggable="true"
                 @dragstart="draggingId = node.id; $event.dataTransfer?.setData('application/cloudlane-node', node.id)"
                 @dragend="draggingId = ''; dropTargetId = ''"
-                @dragover.prevent="node.nodeType === 'FOLDER' && draggingId !== node.id && (dropTargetId = node.id)"
-                @dragleave="dropTargetId === node.id && (dropTargetId = '')"
-                @drop.prevent.stop="dropTargetId = ''; draggingId = ''; node.nodeType === 'FOLDER' && move($event.dataTransfer?.getData('application/cloudlane-node') || '', node.id)"
+                @dragover="onNodeDragOver($event, node)"
+                @dragleave="onNodeDragLeave(node)"
+                @drop.prevent.stop="onNodeDrop($event, node)"
                 @dblclick="inlineRenameId !== node.id && open(node)"
                 @keydown.enter.stop="inlineRenameId !== node.id && open(node)"
               >

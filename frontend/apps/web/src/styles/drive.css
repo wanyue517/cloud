@@ -740,8 +740,34 @@
   margin: 4px 0 0;
 }
 .drive-main {
+  position: relative;
   min-width: 0;
   flex: 1;
+}
+.drive-drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 40;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xl);
+  border: 2px dashed var(--primary);
+  background: color-mix(in oklab, var(--background) 78%, transparent);
+  backdrop-filter: blur(4px);
+}
+.drive-drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 36px;
+  border-radius: var(--radius-xl);
+  border: 1px solid color-mix(in oklab, var(--primary) 30%, var(--border));
+  background: var(--card);
+  box-shadow: var(--app-shadow-sm);
+  text-align: center;
 }
 .drive-topbar {
   height: var(--app-header-height);
