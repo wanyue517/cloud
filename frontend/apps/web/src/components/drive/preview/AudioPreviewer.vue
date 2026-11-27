@@ -8,7 +8,7 @@ const props = defineProps<{ node: DriveNode; version?: Version }>()
 
 const loading = ref(true)
 const error = ref('')
-const objectUrl = ref('')
+const streamUrl = ref('')
 const audioRef = ref<HTMLAudioElement | null>(null)
 const playing = ref(false)
 const muted = ref(false)
@@ -26,13 +26,6 @@ function formatTime(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-function revokeUrl() {
-  if (objectUrl.value) {
-    URL.revokeObjectURL(objectUrl.value)
-    objectUrl.value = ''
-  }
-}
-
 async function loadAudio() {
   const seq = ++loadSeq
   loading.value = true
@@ -40,16 +33,11 @@ async function loadAudio() {
   playing.value = false
   currentTime.value = 0
   duration.value = 0
-  revokeUrl()
+  streamUrl.value = ''
   try {
-    const size = props.version?.size ?? props.node.size
-    if (size > 128 * 1024 * 1024) {
-      error.value = '音频超过 128 MB，请下载后播放'
-      return
-    }
-    const blob = await drive.content(props.node, props.version?.id)
+    const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'ORIGINAL' })
     if (seq !== loadSeq) return
-    objectUrl.value = URL.createObjectURL(blob)
+    streamUrl.value = ticket.streamUrl
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e instanceof Error ? e.message : '音频加载失败'
@@ -92,7 +80,7 @@ watch(() => [props.node.id, props.version?.id], () => { void loadAudio() })
 onMounted(() => { void loadAudio() })
 onBeforeUnmount(() => {
   loadSeq++
-  revokeUrl()
+  streamUrl.value = ''
 })
 </script>
 
@@ -113,7 +101,7 @@ onBeforeUnmount(() => {
 
       <audio
         ref="audioRef"
-        :src="objectUrl"
+        :src="streamUrl"
         :loop="loopMode === 'one'"
         preload="metadata"
         @play="playing = true"

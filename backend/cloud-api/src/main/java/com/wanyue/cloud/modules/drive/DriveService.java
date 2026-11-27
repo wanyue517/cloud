@@ -670,6 +670,16 @@ public class DriveService {
         if(rows.isEmpty() || !java.nio.file.Files.isRegularFile(rows.get(0).path())) throw BizException.notFound("文件内容不存在");
         return rows.get(0);
     }
+    /** 仅限已验签的短期媒体流票据调用：跳过请求头鉴权与私密空间会话头，直接读取已授权文件版本。 */
+    public Content contentByVerifiedTicket(long space, long id, long versionId) {
+        Node n = getNode(space, id, false);
+        ancestors(space, id);
+        if (!n.nodeType().equals("FILE")) throw BizException.notFound("文件不存在");
+        var rows = db.query("SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
+                (r, i) -> new Content(storageRouter.resolveReadablePath(r.getLong(1), r.getString(2)), r.getLong(3), n.name(), r.getString(4), r.getString(5)), versionId, id);
+        if (rows.isEmpty() || !java.nio.file.Files.isRegularFile(rows.get(0).path())) throw BizException.notFound("文件内容不存在");
+        return rows.get(0);
+    }
     public TextChunk readTextChunk(long user, long space, long id, Long versionId, long offset, int limit) throws IOException {
         Content c = content(user, space, id, versionId);
         long safeOffset = Math.max(0L, offset);

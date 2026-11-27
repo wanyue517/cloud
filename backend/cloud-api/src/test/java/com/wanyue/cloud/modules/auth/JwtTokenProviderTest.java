@@ -66,4 +66,21 @@ class JwtTokenProviderTest {
         assertThrows(IllegalArgumentException.class, () -> new JwtTokenProvider(base64Secret, "cloudlane", 0, json));
         assertThrows(IllegalArgumentException.class, () -> tokens.createAccessToken(null, 0));
     }
+
+    @Test
+    void mediaStreamTicketIsIsolatedFromAccessTokenAndVerifiesClaims() {
+        String ticket = tokens.createMediaStreamTicket(101L, 202L, 303L, 404L, "VIDEO_MP4", 1800L);
+        JwtTokenProvider.MediaStreamTicket parsed = tokens.verifyMediaStreamTicket(ticket);
+        assertEquals(101L, parsed.userId());
+        assertEquals(202L, parsed.spaceId());
+        assertEquals(303L, parsed.nodeId());
+        assertEquals(404L, parsed.versionId());
+        assertEquals("VIDEO_MP4", parsed.assetType());
+
+        // 媒体流票据不能充当登录访问令牌
+        assertThrows(Exception.class, () -> tokens.verify(ticket));
+        // 登录访问令牌也不能充当媒体流票据
+        String access = tokens.createAccessToken(101L, 1);
+        assertThrows(Exception.class, () -> tokens.verifyMediaStreamTicket(access));
+    }
 }

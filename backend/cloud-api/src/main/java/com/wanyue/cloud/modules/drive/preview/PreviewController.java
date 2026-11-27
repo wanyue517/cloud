@@ -2,6 +2,7 @@ package com.wanyue.cloud.modules.drive.preview;
 
 import com.wanyue.cloud.common.result.R;
 import com.wanyue.cloud.common.security.UserIdPrincipal;
+import com.wanyue.cloud.modules.auth.support.JwtTokenProvider;
 import com.wanyue.cloud.modules.drive.DriveModels;
 import com.wanyue.cloud.modules.drive.DriveService;
 import com.wanyue.cloud.modules.drive.preview.PreviewModels.*;
@@ -25,18 +26,21 @@ public class PreviewController {
     private final ExcelPreviewService excelService;
     private final ArchivePreviewService archiveService;
     private final ThumbnailService thumbnailService;
+    private final JwtTokenProvider jwtTokenProvider;
 
     public PreviewController(
             DriveService drive,
             PreviewAssetService assetService,
             ExcelPreviewService excelService,
             ArchivePreviewService archiveService,
-            ThumbnailService thumbnailService) {
+            ThumbnailService thumbnailService,
+            JwtTokenProvider jwtTokenProvider) {
         this.drive = drive;
         this.assetService = assetService;
         this.excelService = excelService;
         this.archiveService = archiveService;
         this.thumbnailService = thumbnailService;
+        this.jwtTokenProvider = jwtTokenProvider;
     }
 
     private static long user(Authentication auth) {
@@ -134,6 +138,28 @@ public class PreviewController {
             @RequestParam(required = false) Long versionId) {
         DriveModels.Content content = drive.content(user(auth), space, id, versionId);
         return R.ok(assetService.probeVideo(content));
+    }
+
+    public record StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds) {}
+
+    @PostMapping("/stream-ticket")
+    public R<StreamTicketResponse> createStreamTicket(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @RequestParam(required = false) Long versionId,
+            @RequestParam(defaultValue = "ORIGINAL") String assetType) {
+        long uid = user(auth);
+        drive.content(uid, space, id, versionId);
+        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        String normalizedAsset = "VIDEO_MP4".equalsIgnoreCase(assetType) ? "VIDEO_MP4" : "ORIGINAL";
+        if ("VIDEO_MP4".equals(normalizedAsset)) {
+            assetService.resolveReadyAssetPath(resolvedVersion, "VIDEO_MP4");
+        }
+        long ttlSeconds = 1800L;
+        String ticket = jwtTokenProvider.createMediaStreamTicket(uid, space, id, resolvedVersion, normalizedAsset, ttlSeconds);
+        String streamUrl = "/api/v1/media/stream?ticket=" + java.net.URLEncoder.encode(ticket, StandardCharsets.UTF_8);
+        return R.ok(new StreamTicketResponse(ticket, streamUrl, ttlSeconds));
     }
 
     @GetMapping("/archive/entries")

@@ -98,4 +98,57 @@ public class JwtTokenProvider {
         }
         return claims;
     }
+
+    public record MediaStreamTicket(long userId, long spaceId, long nodeId, long versionId, String assetType) {}
+
+    public String createMediaStreamTicket(long userId, long spaceId, long nodeId, long versionId, String assetType, long ttlSeconds) {
+        if (userId <= 0 || spaceId <= 0 || nodeId <= 0 || versionId <= 0) {
+            throw new IllegalArgumentException("媒体流票据参数无效");
+        }
+        long safeTtl = Math.max(60, Math.min(3600, ttlSeconds));
+        String normalizedAsset = (assetType == null || assetType.isBlank()) ? "ORIGINAL" : assetType.trim().toUpperCase(java.util.Locale.ROOT);
+        Instant now = Instant.now();
+        return Jwts.builder()
+                .json(serializer)
+                .issuer(issuer)
+                .subject(Long.toString(userId))
+                .id(UUID.randomUUID().toString())
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plusSeconds(safeTtl)))
+                .claim("tokenType", "media_stream")
+                .claim("spaceId", spaceId)
+                .claim("nodeId", nodeId)
+                .claim("versionId", versionId)
+                .claim("assetType", normalizedAsset)
+                .signWith(signingKey, Jwts.SIG.HS256)
+                .compact();
+    }
+
+    public MediaStreamTicket verifyMediaStreamTicket(String ticket) {
+        if (ticket == null || ticket.isBlank()) {
+            throw new IllegalArgumentException("缺少媒体流票据");
+        }
+        AbstractDeserializer<Map<String, ?>> deserializer = new AbstractDeserializer<>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            protected Map<String, ?> doDeserialize(Reader reader) {
+                return objectMapper.readValue(reader, Map.class);
+            }
+        };
+        Claims claims = Jwts.parser().json(deserializer).verifyWith(signingKey)
+                .requireIssuer(issuer).require("tokenType", "media_stream").build()
+                .parseSignedClaims(ticket).getPayload();
+        if (claims.getExpiration() == null) {
+            throw new IllegalArgumentException("无效媒体流票据");
+        }
+        long userId = Long.parseLong(claims.getSubject());
+        Number spaceId = claims.get("spaceId", Number.class);
+        Number nodeId = claims.get("nodeId", Number.class);
+        Number versionId = claims.get("versionId", Number.class);
+        String assetType = claims.get("assetType", String.class);
+        if (userId <= 0 || spaceId == null || nodeId == null || versionId == null || assetType == null || assetType.isBlank()) {
+            throw new IllegalArgumentException("媒体流票据字段不完整");
+        }
+        return new MediaStreamTicket(userId, spaceId.longValue(), nodeId.longValue(), versionId.longValue(), assetType);
+    }
 }

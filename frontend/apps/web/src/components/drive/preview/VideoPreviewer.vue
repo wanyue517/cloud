@@ -15,7 +15,7 @@ const error = ref('')
 const probe = ref<VideoProbe | null>(null)
 const transcodeAsset = ref<PreviewAsset | null>(null)
 const retrying = ref(false)
-const objectUrl = ref('')
+const streamUrl = ref('')
 
 let player: Player | null = null
 let pollTimer: number | null = null
@@ -28,13 +28,6 @@ function destroyPlayer() {
   }
 }
 
-function revokeUrl() {
-  if (objectUrl.value) {
-    URL.revokeObjectURL(objectUrl.value)
-    objectUrl.value = ''
-  }
-}
-
 function clearPoll() {
   if (pollTimer !== null) {
     window.clearTimeout(pollTimer)
@@ -42,16 +35,15 @@ function clearPoll() {
   }
 }
 
-async function mountPlayer(blob: Blob) {
-  revokeUrl()
-  objectUrl.value = URL.createObjectURL(blob)
+async function mountPlayer(url: string) {
+  streamUrl.value = url
   loading.value = false
   await nextTick()
   destroyPlayer()
   if (!containerRef.value) return
   player = new Player({
     el: containerRef.value,
-    url: objectUrl.value,
+    url,
     fluid: false,
     width: '100%',
     height: '100%',
@@ -68,9 +60,9 @@ async function pollTranscode(currentSeq: number) {
     if (currentSeq !== seq) return
     transcodeAsset.value = asset
     if (asset.status === 'READY') {
-      const blob = await drive.previewAssetContent(props.node, 'VIDEO_MP4', props.version?.id)
+      const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'VIDEO_MP4' })
       if (currentSeq !== seq) return
-      await mountPlayer(blob)
+      await mountPlayer(ticket.streamUrl)
       return
     }
     if (asset.status === 'PENDING' || asset.status === 'PROCESSING') {
@@ -104,26 +96,20 @@ async function retryTranscode() {
 async function loadVideo() {
   clearPoll()
   destroyPlayer()
-  revokeUrl()
+  streamUrl.value = ''
   const currentSeq = ++seq
   loading.value = true
   error.value = ''
   probe.value = null
   transcodeAsset.value = null
   try {
-    const size = props.version?.size ?? props.node.size
-    if (size > 256 * 1024 * 1024) {
-      error.value = '视频超过 256 MB，请下载后观看'
-      loading.value = false
-      return
-    }
     const p = await drive.videoProbe(props.node, props.version?.id)
     if (currentSeq !== seq) return
     probe.value = p
     if (p.strategy === 'DIRECT_PLAY') {
-      const blob = await drive.content(props.node, props.version?.id)
+      const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'ORIGINAL' })
       if (currentSeq !== seq) return
-      await mountPlayer(blob)
+      await mountPlayer(ticket.streamUrl)
     } else {
       await pollTranscode(currentSeq)
     }
@@ -140,7 +126,7 @@ onBeforeUnmount(() => {
   seq++
   clearPoll()
   destroyPlayer()
-  revokeUrl()
+  streamUrl.value = ''
 })
 </script>
 
@@ -157,11 +143,11 @@ onBeforeUnmount(() => {
     <div class="relative flex min-h-0 flex-1 items-center justify-center">
       <p v-if="loading" role="status" class="text-sm text-white/80">正在探测并加载视频…</p>
       <div v-else-if="error || transcodeAsset?.status === 'FAILED'" class="flex max-w-md flex-col items-center gap-3 rounded-xl bg-zinc-900 p-6 text-center text-zinc-100">
-        <AlertCircle :size="32" :class="error.includes('256 MB') ? 'text-amber-400' : 'text-red-400'" />
-        <p class="text-sm font-medium">{{ error.includes('256 MB') ? '文件较大，建议下载观看' : '视频转码或加载失败' }}</p>
+        <AlertCircle :size="32" class="text-red-400" />
+        <p class="text-sm font-medium">视频转码或加载失败</p>
         <p class="text-xs text-zinc-400">{{ error || transcodeAsset?.errorMessage }}</p>
         <div class="flex gap-2">
-          <Button v-if="!error.includes('256 MB') && probe?.strategy !== 'DIRECT_PLAY'" variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
+          <Button v-if="probe?.strategy !== 'DIRECT_PLAY'" variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
             <RefreshCw :size="14" /> 重试转码
           </Button>
           <Button size="sm" @click="emit('download')"><Download :size="14" /> 下载原件</Button>
@@ -171,7 +157,7 @@ onBeforeUnmount(() => {
         <Loader2 :size="32" class="animate-spin text-primary" />
         <p class="text-sm">正在后台转码为浏览器兼容 MP4（{{ transcodeAsset.status }}）…</p>
       </div>
-      <div v-show="objectUrl && !loading && !error" ref="containerRef" class="h-full w-full" />
+      <div v-show="streamUrl && !loading && !error" ref="containerRef" class="h-full w-full" />
     </div>
   </div>
 </template>

@@ -26,7 +26,8 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(properties.getAllowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "Accept", "X-CSRF-TOKEN", "X-XSRF-TOKEN", "X-Requested-With"));
+                "Authorization", "Content-Type", "Accept", "Range", "X-CSRF-TOKEN", "X-XSRF-TOKEN", "X-Requested-With"));
+        configuration.setExposedHeaders(List.of("Accept-Ranges", "Content-Range", "Content-Length"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
         // 携带凭据时必须使用明确来源，禁止误配置为通配符。
@@ -69,6 +70,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/oauth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/shares/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/public/shares/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/media/stream").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/api/v1/media/stream").permitAll()
                         .requestMatchers(HttpMethod.POST, registerPaths).permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/refresh").permitAll()
                         .anyRequest().authenticated()
