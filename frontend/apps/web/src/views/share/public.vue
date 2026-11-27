@@ -23,14 +23,11 @@ import {
 import { Button } from '@repo/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
-import { theme } from '@repo/ui/theme'
-import ThemeSettings from '@repo/ui/ThemeSettings.vue'
 import { shareApi, type PublicNode, type PublicShareMeta } from '@/api/share'
 import { request } from '@/utils/request'
 
 const route = useRoute()
 const token = computed(() => String(route.params.token || ''))
-const isIslands = computed(() => theme.layoutStyle === 'islands')
 
 const siteName = ref('Cloudlane')
 const siteLogoUrl = ref('')
@@ -208,16 +205,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div
-    class="flex min-h-screen flex-col text-foreground transition-colors duration-200"
-    :class="isIslands ? 'bg-[var(--island-canvas)] p-2.5 sm:p-3 gap-2.5 sm:gap-3' : 'bg-[var(--app-canvas)]'"
-  >
-    <header
-      class="flex h-14 shrink-0 items-center justify-between gap-3 px-4 sm:px-6"
-      :class="isIslands
-        ? 'mx-auto w-full max-w-5xl rounded-[var(--island-radius)] border border-[var(--island-border)] bg-[var(--island-surface)] shadow-[var(--island-shadow)]'
-        : 'border-b border-border bg-card'"
-    >
+  <div class="flex min-h-screen flex-col bg-[var(--app-canvas)] text-foreground">
+    <header class="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 sm:px-6">
       <div class="flex min-w-0 items-center gap-2.5 font-semibold">
         <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10 text-primary">
           <img v-if="siteLogoUrl" :src="siteLogoUrl" :alt="siteName" class="size-full object-contain" />
@@ -226,18 +215,12 @@ onMounted(() => {
         <span class="truncate text-sm sm:text-base">{{ siteName }}</span>
         <span class="hidden sm:inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">公开分享</span>
       </div>
-      <div class="flex shrink-0 items-center gap-2">
-        <ThemeSettings :show-compact-option="false" trigger-class="shrink-0" />
-        <Button as-child variant="outline" size="sm">
-          <a href="/auth/login">登录工作台</a>
-        </Button>
-      </div>
+      <Button as-child variant="outline" size="sm">
+        <a href="/auth/login">登录工作台</a>
+      </Button>
     </header>
 
-    <main
-      class="mx-auto flex w-full max-w-5xl flex-1 flex-col"
-      :class="isIslands ? '' : 'px-4 py-6 sm:px-6'"
-    >
+    <main class="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6 sm:px-6">
       <!-- 加载中 -->
       <div
         v-if="loading"
@@ -250,30 +233,19 @@ onMounted(() => {
       <!-- 失效或无权访问 -->
       <div
         v-else-if="!meta"
-        class="my-auto mx-auto w-full max-w-md p-8 text-center"
-        :class="isIslands
-          ? 'rounded-[var(--island-radius)] border border-[var(--island-border)] bg-[var(--island-surface)] shadow-[var(--island-shadow)]'
-          : 'rounded-xl border border-border bg-card shadow-xs'"
+        class="my-auto mx-auto w-full max-w-md rounded-xl border border-border bg-card p-8 text-center shadow-xs"
       >
         <div class="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
           <ShieldAlert :size="24" />
         </div>
         <h1 class="text-lg font-semibold">无法访问该分享</h1>
         <p class="mt-2 text-sm text-muted-foreground">{{ error || '分享链接不存在、已过期或已被分享者停用。' }}</p>
-        <div class="mt-6">
-          <Button as-child variant="outline" size="sm">
-            <a href="/auth/login">前往登录工作台</a>
-          </Button>
-        </div>
       </div>
 
       <!-- 提取码验证 -->
       <div
         v-else-if="meta.requiresPassword && !meta.unlocked"
-        class="my-auto mx-auto w-full max-w-sm p-6 sm:p-7"
-        :class="isIslands
-          ? 'rounded-[var(--island-radius)] border border-[var(--island-border)] bg-[var(--island-surface)] shadow-[var(--island-shadow)]'
-          : 'rounded-xl border border-border bg-card shadow-xs'"
+        class="my-auto mx-auto w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xs sm:p-7"
       >
         <div class="mb-5 flex items-center gap-3">
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -285,7 +257,7 @@ onMounted(() => {
           </div>
         </div>
         <form class="space-y-3.5" @submit.prevent="unlock">
-          <Input v-model="password" placeholder="请输入 4–16 位提取码" :disabled="verifying" autofocus />
+          <Input v-model="password" placeholder="请输入提取码" :disabled="verifying" autofocus />
           <p v-if="error" role="alert" class="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{{ error }}</p>
           <Button type="submit" class="w-full" :disabled="verifying || !password.trim()">
             {{ verifying ? '正在校验…' : '提取并查看内容' }}
@@ -294,13 +266,7 @@ onMounted(() => {
       </div>
 
       <!-- 分享内容主卡片 -->
-      <div
-        v-else
-        class="flex flex-1 flex-col overflow-hidden"
-        :class="isIslands
-          ? 'rounded-[var(--island-radius)] border border-[var(--island-border)] bg-[var(--island-surface)] shadow-[var(--island-shadow)]'
-          : 'rounded-xl border border-border bg-card shadow-xs'"
-      >
+      <div v-else class="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs">
         <!-- 头部元信息 -->
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-border/80 px-5 py-4 sm:px-6">
           <div class="flex min-w-0 items-center gap-3.5">
