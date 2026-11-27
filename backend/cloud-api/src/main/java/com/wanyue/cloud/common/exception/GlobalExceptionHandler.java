@@ -101,9 +101,25 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<R<Void>> handleUnexpected(Exception e, HttpServletRequest req) {
+        if (isClientAbort(e)) {
+            log.warn("客户端主动断开或上传超时中断 traceId={} path={}", org.slf4j.MDC.get("traceId"), req != null ? req.getRequestURI() : "");
+            return ResponseEntity.status(499).build();
+        }
         log.error("未捕获系统异常 traceId={}", org.slf4j.MDC.get("traceId"), e);
         errorReportService.record(req, 500, 500, e.getMessage() == null ? "服务器内部错误" : e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(R.fail(500, "服务器内部错误，请稍后重试"));
+    }
+
+    private static boolean isClientAbort(Throwable ex) {
+        Throwable cur = ex;
+        while (cur != null) {
+            String name = cur.getClass().getName();
+            if (name.endsWith("ClientAbortException") || name.endsWith("AsyncRequestNotUsableException")) {
+                return true;
+            }
+            cur = cur.getCause();
+        }
+        return false;
     }
 }

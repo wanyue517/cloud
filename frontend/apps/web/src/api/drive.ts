@@ -102,7 +102,16 @@ export async function uploadFile(spaceId: string, parentId: string, file: File, 
           try {
             const form = new FormData()
             form.append('file', chunkBlob, file.name)
-            await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, { signal, timeout: 120_000 })
+            await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, {
+              signal,
+              timeout: 300_000,
+              onUploadProgress: (evt) => {
+                const loaded = evt.loaded ?? 0
+                const total = evt.total || chunkBlob.size || 1
+                const chunkFraction = Math.min(1, loaded / total)
+                progress(Math.min(99, Math.round(((index + chunkFraction) / upload.chunkCount) * 100)))
+              },
+            })
             lastErr = undefined
             break
           } catch (err) {
