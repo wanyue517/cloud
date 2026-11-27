@@ -858,9 +858,8 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <small>个人云端工作台</small>
           </div>
         </a>
-        <Button variant="ghost" size="icon-xs" class="pane-close-btn" :aria-label="viewportTier === 'mobile' ? '关闭导航栏' : layout.sidebarCollapsed ? '展开导航栏' : '折叠导航栏'" :title="layout.sidebarCollapsed ? '展开导航栏' : '折叠导航栏'" @click="toggleSidebar">
-          <X v-if="viewportTier === 'mobile'" :size="16" />
-          <PanelLeft v-else :size="16" />
+        <Button v-if="viewportTier === 'mobile'" variant="ghost" size="icon-xs" class="pane-close-btn" aria-label="关闭导航栏" @click="toggleSidebar">
+          <X :size="16" />
         </Button>
       </div>
 
