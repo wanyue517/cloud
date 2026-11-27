@@ -1,6 +1,7 @@
 import { reactive, watch } from "vue";
 
 export type ColorMode = "system" | "light" | "dark";
+export type LayoutStyle = "islands" | "classic";
 export const accentColors = {
   blue: "#2563eb",
   violet: "#7c3aed",
@@ -20,6 +21,7 @@ interface ThemePreferences {
   accent: keyof typeof accentColors;
   radius: number;
   compact: boolean;
+  layoutStyle: LayoutStyle;
 }
 const storageKey = "cloudlane.theme";
 function preferences(raw: string | null): ThemePreferences {
@@ -43,6 +45,9 @@ function preferences(raw: string | null): ThemePreferences {
       ? (saved.radius as number)
       : 0.75,
     compact: saved.compact === true,
+    layoutStyle: (["islands", "classic"].includes(saved.layoutStyle as string)
+      ? saved.layoutStyle
+      : "islands") as LayoutStyle,
   };
 }
 const saved = (() => {
@@ -72,6 +77,7 @@ function apply() {
   );
   root.style.setProperty("--radius", theme.radius + "rem");
   root.dataset.density = theme.compact ? "compact" : "comfortable";
+  root.dataset.layout = theme.layoutStyle;
 }
 export function initTheme() {
   if (initialized) return;

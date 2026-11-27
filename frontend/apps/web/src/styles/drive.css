@@ -1410,3 +1410,99 @@
     display: none;
   }
 }
+
+/* ============================================================
+   IDEA 2026 风格：岛屿式布局 (data-layout="islands")
+   ============================================================ */
+:root[data-layout="islands"] .drive-app {
+  background: var(--island-canvas);
+  padding: var(--island-gap);
+  gap: var(--island-gap);
+}
+
+:root[data-layout="islands"] .drive-sidebar {
+  background: var(--island-surface);
+  border: 1px solid var(--island-border);
+  border-radius: var(--island-radius);
+  box-shadow: var(--island-shadow);
+  height: calc(100vh - var(--island-gap) * 2);
+  max-height: calc(100vh - var(--island-gap) * 2);
+  top: var(--island-gap);
+}
+
+:root[data-layout="islands"] .drive-tree-pane {
+  background: var(--island-surface);
+  border: 1px solid var(--island-border);
+  border-radius: var(--island-radius);
+  box-shadow: var(--island-shadow);
+  height: calc(100vh - var(--island-gap) * 2);
+  max-height: calc(100vh - var(--island-gap) * 2);
+  top: var(--island-gap);
+}
+
+:root[data-layout="islands"] .drive-app.is-tree-collapsed .drive-tree-pane {
+  width: 0;
+  border-width: 0;
+  margin-left: calc(var(--island-gap) * -1);
+  box-shadow: none;
+}
+
+:root[data-layout="islands"] .drive-tree-resizer {
+  right: calc(var(--island-gap) * -1);
+  width: var(--island-gap);
+}
+
+:root[data-layout="islands"] .drive-tree-resizer::after {
+  left: calc(var(--island-gap) / 2 - 1px);
+  top: 12px;
+  bottom: 12px;
+  border-radius: 9999px;
+}
+
+:root[data-layout="islands"] .drive-main {
+  background: var(--island-surface);
+  border: 1px solid var(--island-border);
+  border-radius: var(--island-radius);
+  box-shadow: var(--island-shadow);
+  min-height: calc(100vh - var(--island-gap) * 2);
+  overflow: clip;
+}
+
+:root[data-layout="islands"] .drive-topbar {
+  background: var(--island-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+:root[data-layout="islands"] .drive-details {
+  background: var(--island-surface);
+  border: 1px solid var(--island-border);
+  border-radius: var(--island-radius);
+  box-shadow: var(--island-shadow);
+}
+
+@media (max-width: 1024px) {
+  :root[data-layout="islands"] .drive-tree-pane {
+    top: 0;
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    border-radius: 0 var(--island-radius) var(--island-radius) 0;
+  }
+}
+
+@media (max-width: 760px) {
+  :root[data-layout="islands"] .drive-app {
+    padding: 6px;
+    gap: 6px;
+  }
+  :root[data-layout="islands"] .drive-sidebar {
+    top: 0;
+    bottom: 0;
+    height: auto;
+    max-height: none;
+    border-radius: 0 var(--island-radius) var(--island-radius) 0;
+  }
+  :root[data-layout="islands"] .drive-main {
+    min-height: calc(100vh - 12px);
+  }
+}

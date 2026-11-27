@@ -14,7 +14,7 @@ import { Separator } from '@repo/ui/separator'
 import { Switch } from '@repo/ui/switch'
 import { toast } from '@repo/ui/toast'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@repo/ui/dialog'
-import { accentColors, theme, type ColorMode } from '@repo/ui/theme'
+import { accentColors, theme, type ColorMode, type LayoutStyle } from '@repo/ui/theme'
 import { clearPrivateSpaceToken, hasVaultToken, request, RequestError, setVaultToken } from '@/utils/request'
 import { drive, uploadFile, type DriveNode, type Space } from '@/api/drive'
 import { opsApi, type PrivateNodeItem, type PrivateSpaceItem } from '@/api/ops'
@@ -73,14 +73,20 @@ const colorModes: { id: ColorMode; name: string }[] = [
   { id: 'light', name: '浅色' },
   { id: 'dark', name: '深色' },
 ]
+const layoutStyles: { id: LayoutStyle; name: string; desc: string }[] = [
+  { id: 'islands', name: '岛屿式（IDEA 风格）', desc: '圆角浮岛分块，柔和底幕区分层次' },
+  { id: 'classic', name: '经典贴边', desc: '全屏贴边分栏，极致利用视口宽度' },
+]
 const radiusOptions = [0, 0.5, 0.75, 1] as const
 
 const currentMode = computed(() => theme.mode)
+const currentLayoutStyle = computed(() => theme.layoutStyle)
 const currentAccent = computed(() => theme.accent)
 const currentRadius = computed(() => theme.radius)
 const isCompact = computed(() => theme.compact)
 
 function setColorMode(mode: ColorMode) { theme.mode = mode }
+function setLayoutStyle(style: LayoutStyle) { theme.layoutStyle = style }
 function setAccent(accent: keyof typeof accentColors) { theme.accent = accent }
 function setRadius(radius: number) { theme.radius = radius }
 function setCompact(checked: boolean) { theme.compact = checked }
@@ -801,6 +807,26 @@ onMounted(() => {
       <Separator />
 
       <div class="settings-form">
+        <fieldset class="settings-fieldset">
+          <legend>界面布局</legend>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              v-for="option in layoutStyles"
+              :key="option.id"
+              type="button"
+              :aria-pressed="currentLayoutStyle === option.id"
+              class="flex cursor-pointer flex-col items-start gap-1 rounded-lg border px-3.5 py-2.5 text-left transition-colors"
+              :class="currentLayoutStyle === option.id
+                ? 'border-primary bg-primary/10 text-foreground ring-1 ring-primary'
+                : 'border-border bg-background hover:bg-muted/50'"
+              @click="setLayoutStyle(option.id)"
+            >
+              <span class="text-sm font-medium">{{ option.name }}</span>
+              <span class="text-xs text-muted-foreground">{{ option.desc }}</span>
+            </button>
+          </div>
+        </fieldset>
+
         <fieldset class="settings-fieldset">
           <legend>颜色模式</legend>
           <div class="settings-option-row">

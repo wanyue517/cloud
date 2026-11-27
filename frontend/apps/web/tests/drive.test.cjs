@@ -63,22 +63,24 @@ function themed(saved, blocked = false) {
   return { ...theme, local, properties, classes, root, media, counts, events, change: () => changed() }
 }
 test('theme restores appearance and persists updates including system color mode changes', () => {
-  const state = themed(JSON.stringify({ mode: 'dark', accent: 'violet', radius: 1, compact: true }))
+  const state = themed(JSON.stringify({ mode: 'dark', accent: 'violet', radius: 1, compact: true, layoutStyle: 'classic' }))
   assert.ok(state.classes.has('dark'))
   assert.equal(state.properties.get('--primary'), '#a78bfa')
   assert.equal(state.properties.get('--radius'), '1rem')
   assert.equal(state.root.dataset.density, 'compact')
-  state.theme.mode = 'system'; state.theme.accent = 'green'; state.change()
+  assert.equal(state.root.dataset.layout, 'classic')
+  state.theme.mode = 'system'; state.theme.accent = 'green'; state.theme.layoutStyle = 'islands'; state.change()
   assert.equal(state.classes.has('dark'), false)
+  assert.equal(state.root.dataset.layout, 'islands')
   state.media.matches = true; state.media.changed()
   assert.ok(state.classes.has('dark'))
   const saved = JSON.parse(state.local.getItem('cloudlane.theme'))
-  assert.equal(saved.mode, 'system'); assert.equal(saved.accent, 'green')
+  assert.equal(saved.mode, 'system'); assert.equal(saved.accent, 'green'); assert.equal(saved.layoutStyle, 'islands')
 })
 test('corrupt and unknown theme preferences fall back to supported settings', () => {
-  for (const saved of ['null', 'not-json', '123', JSON.stringify({ mode: 'unknown', accent: '__proto__', radius: 999 })]) {
+  for (const saved of ['null', 'not-json', '123', JSON.stringify({ mode: 'unknown', accent: '__proto__', radius: 999, layoutStyle: 'floating' })]) {
     const state = themed(saved)
-    assert.equal(state.theme.mode, 'system'); assert.equal(state.theme.accent, 'blue'); assert.equal(state.theme.radius, 0.75)
+    assert.equal(state.theme.mode, 'system'); assert.equal(state.theme.accent, 'blue'); assert.equal(state.theme.radius, 0.75); assert.equal(state.theme.layoutStyle, 'islands')
   }
 })
 

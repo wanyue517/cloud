@@ -26,6 +26,20 @@ const names = { blue: '海蓝', violet: '紫罗兰', green: '森林', rose: '玫
       </DialogHeader>
       <div class="space-y-5 pt-2">
         <fieldset class="space-y-2.5">
+          <legend class="text-sm font-medium">界面布局</legend>
+          <div class="flex flex-wrap gap-2">
+            <Button
+              v-for="option in [{ id: 'islands', name: '岛屿式（IDEA 风格）' }, { id: 'classic', name: '经典贴边' }]"
+              :key="option.id"
+              :variant="theme.layoutStyle === option.id ? 'default' : 'outline'"
+              :aria-pressed="theme.layoutStyle === option.id"
+              @click="theme.layoutStyle = option.id as typeof theme.layoutStyle"
+            >
+              {{ option.name }}
+            </Button>
+          </div>
+        </fieldset>
+        <fieldset class="space-y-2.5">
           <legend class="text-sm font-medium">颜色模式</legend>
           <div class="flex flex-wrap gap-2">
             <Button

@@ -76,6 +76,14 @@
   --app-selected: var(--accent);
   --app-selected-border: color-mix(in srgb, var(--primary) 40%, var(--border));
 
+  /* IDEA 2026 岛屿式布局令牌 */
+  --island-canvas: #e9edf4;
+  --island-surface: #ffffff;
+  --island-border: color-mix(in oklab, var(--border) 88%, #cbd5e1);
+  --island-shadow: 0 1px 2px rgb(15 23 42 / 4%), 0 4px 14px rgb(15 23 42 / 5%);
+  --island-gap: 10px;
+  --island-radius: max(12px, var(--radius));
+
   /* 文件类型 */
   --file-folder: #eab308;
   --file-image: #8b5cf6;
@@ -180,6 +188,12 @@
   --app-hover: #23262c;
   --app-selected: var(--accent);
   --app-selected-border: color-mix(in srgb, var(--primary) 40%, var(--border));
+
+  /* IDEA 2026 岛屿式布局令牌（深色） */
+  --island-canvas: #0c0e12;
+  --island-surface: #181a1f;
+  --island-border: color-mix(in oklab, var(--border) 85%, #3f4451);
+  --island-shadow: 0 1px 2px rgb(0 0 0 / 35%), 0 6px 18px rgb(0 0 0 / 28%);
 
   /* 文件类型 */
   --file-folder: #facc15;

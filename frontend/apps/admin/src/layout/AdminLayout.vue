@@ -18,6 +18,7 @@ import {
 } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { confirm } from '@repo/ui/confirm-dialog'
+import { theme } from '@repo/ui/theme'
 import ThemeSettings from '@repo/ui/ThemeSettings.vue'
 import { logout } from '@repo/session/session'
 import { loginUrl } from '@repo/session/navigation'
@@ -25,6 +26,7 @@ import { request } from '@repo/session/request'
 import { ADMIN_NAV_GROUPS, ADMIN_NAV_ITEMS } from './navigation'
 
 const route = useRoute()
+const isIslands = computed(() => theme.layoutStyle === 'islands')
 const siteName = ref('Cloudlane')
 const siteLogoUrl = ref('')
 const sidebarCollapsed = ref(false)
@@ -109,7 +111,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="min-h-screen flex bg-muted/30 text-foreground overflow-x-clip">
+  <div
+    class="min-h-screen flex text-foreground overflow-x-clip transition-colors duration-200"
+    :class="isIslands ? 'bg-[var(--island-canvas)] p-2 md:p-2.5 gap-2.5' : 'bg-muted/30'"
+  >
     <div
       v-if="mobileMenuOpen"
       class="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -119,9 +124,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
     <aside
       aria-label="后台导航"
-      class="shrink-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-all duration-200 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-64"
+      class="shrink-0 text-sidebar-foreground flex flex-col transition-all duration-200 max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-64 max-md:bg-sidebar max-md:border-r max-md:border-sidebar-border"
       :class="[
-        sidebarCollapsed ? 'md:w-0 md:overflow-hidden md:border-r-0 md:opacity-0 md:pointer-events-none' : 'md:w-60',
+        isIslands
+          ? 'md:rounded-[var(--island-radius)] md:border md:border-[var(--island-border)] md:bg-[var(--island-surface)] md:shadow-[var(--island-shadow)] md:h-[calc(100vh-20px)] md:sticky md:top-2.5'
+          : 'bg-sidebar border-r border-sidebar-border',
+        sidebarCollapsed
+          ? (isIslands ? 'md:w-0 md:overflow-hidden md:border-0 md:opacity-0 md:pointer-events-none md:-mr-2.5' : 'md:w-0 md:overflow-hidden md:border-r-0 md:opacity-0 md:pointer-events-none')
+          : 'md:w-60',
         mobileMenuOpen ? 'max-md:translate-x-0 max-md:shadow-xl' : 'max-md:-translate-x-full',
       ]"
     >
@@ -163,8 +173,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
       </div>
     </aside>
 
-    <div class="flex-1 min-w-0 flex flex-col">
-      <header class="h-14 border-b border-border bg-background px-4 md:px-6 flex items-center justify-between gap-3 sticky top-0 z-30">
+    <div
+      class="flex-1 min-w-0 flex flex-col"
+      :class="isIslands ? 'rounded-[var(--island-radius)] border border-[var(--island-border)] bg-[var(--island-surface)] shadow-[var(--island-shadow)] min-h-[calc(100vh-20px)] overflow-clip' : ''"
+    >
+      <header
+        class="h-14 border-b border-border px-4 md:px-6 flex items-center justify-between gap-3 sticky top-0 z-30"
+        :class="isIslands ? 'bg-[var(--island-surface)]/95 backdrop-blur-xs' : 'bg-background'"
+      >
         <div class="flex items-center gap-2.5 min-w-0">
           <Button
             variant="ghost"
