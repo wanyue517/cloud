@@ -9,6 +9,7 @@ import org.springframework.http.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -84,7 +85,12 @@ public class SystemAssetController {
     }
 
     @GetMapping("/public/assets/{id}")
-    public ResponseEntity<FileSystemResource> getPublicAsset(@PathVariable long id) {
+    public ResponseEntity<FileSystemResource> getPublicAsset(@PathVariable long id, WebRequest webRequest) {
+        String etag = "\"sys-asset-" + id + "\"";
+        CacheControl cc = CacheControl.maxAge(java.time.Duration.ofDays(30)).cachePublic().immutable();
+        if (webRequest.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cc).build();
+        }
         var rows = db.queryForList(
                 "SELECT storage_profile_id, storage_key, mime_type FROM sys_asset WHERE id=?", id);
         if (rows.isEmpty()) {
@@ -100,7 +106,8 @@ public class SystemAssetController {
         }
         return ResponseEntity.ok()
                 .header("X-Content-Type-Options", "nosniff")
-                .cacheControl(CacheControl.maxAge(java.time.Duration.ofDays(1)).cachePublic())
+                .eTag(etag)
+                .cacheControl(cc)
                 .contentType(MediaType.parseMediaType(mime))
                 .body(new FileSystemResource(path));
     }

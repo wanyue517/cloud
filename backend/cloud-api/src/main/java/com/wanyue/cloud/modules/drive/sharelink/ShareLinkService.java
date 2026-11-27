@@ -242,13 +242,13 @@ public class ShareLinkService {
             throw BizException.notFound("文件不存在或超出分享范围");
         }
         var rows = db.query(
-                "SELECT n.name, n.node_type, n.hidden, b.storage_key, b.storage_profile_id, b.size_bytes, v.mime_type "
+                "SELECT n.name, n.node_type, n.hidden, b.storage_key, b.storage_profile_id, b.size_bytes, v.mime_type, b.sha256 "
                         + "FROM file_node n JOIN file_version v ON v.id=n.current_version_id JOIN blob_object b ON b.id=v.blob_id "
                         + "WHERE n.space_id=? AND n.id=? AND n.deleted_at IS NULL AND n.hidden=FALSE",
                 (r, i) -> {
                     long profileId = r.getObject("storage_profile_id") == null ? 1L : r.getLong("storage_profile_id");
                     Path path = storageRouter.resolveReadablePath(profileId, r.getString("storage_key"));
-                    return new DriveModels.Content(path, r.getLong("size_bytes"), r.getString("name"), r.getString("mime_type"));
+                    return new DriveModels.Content(path, r.getLong("size_bytes"), r.getString("name"), r.getString("mime_type"), r.getString("sha256"));
                 },
                 spaceId, targetFileId);
         if (rows.isEmpty() || !Files.isRegularFile(rows.get(0).path())) {

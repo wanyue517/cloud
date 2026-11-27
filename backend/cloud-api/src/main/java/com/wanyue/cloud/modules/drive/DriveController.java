@@ -7,6 +7,7 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -52,12 +53,18 @@ public class DriveController {
         try(var input=file.getInputStream()) { return R.ok(drive.upload(user(a),space,parentId,file.getOriginalFilename(),file.getContentType(),input,file.getSize(),replaceId,revision)); }
     }
     @GetMapping("/spaces/{space}/nodes/{id}/content") public ResponseEntity<FileSystemResource> content(Authentication a,@PathVariable long space,@PathVariable long id,
-            @RequestParam(required=false) Long versionId,@RequestParam(defaultValue="false") boolean download) {
+            @RequestParam(required=false) Long versionId,@RequestParam(defaultValue="false") boolean download, WebRequest webRequest) {
         Content c=drive.content(user(a),space,id,versionId);
+        String etag=(c.etag()!=null && !c.etag().isBlank()) ? ("\""+c.etag()+"\"") : ("\""+id+"-"+c.size()+"\"");
+        if (!download && webRequest.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(CacheControl.noCache().cachePrivate()).build();
+        }
         return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
                 (download?ContentDisposition.attachment():ContentDisposition.inline()).filename(c.name(),StandardCharsets.UTF_8).build().toString())
                 .header("X-Content-Type-Options","nosniff").header("Content-Security-Policy","sandbox; default-src 'none'")
-                .cacheControl(CacheControl.noStore()).contentType(MediaType.parseMediaType(c.mimeType()))
+                .eTag(etag)
+                .cacheControl(download ? CacheControl.noStore() : CacheControl.noCache().cachePrivate())
+                .contentType(MediaType.parseMediaType(c.mimeType()))
                 .body(new FileSystemResource(c.path())); // Spring's resource converter handles HTTP Range.
     }
     @GetMapping("/spaces/{space}/nodes/{id}/text")

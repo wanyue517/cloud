@@ -8,9 +8,11 @@ import org.springframework.stereotype.Service;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.file.attribute.FileTime;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.*;
 
 /**
@@ -26,6 +28,7 @@ public class StorageRouterService {
     private final S3StorageProvider s3Provider;
     private final SecretCipher cipher;
     private final Path materializeCacheDir;
+    private final long cacheMaxBytes;
 
     public StorageRouterService(
             JdbcTemplate db,
@@ -33,13 +36,15 @@ public class StorageRouterService {
             DatabaseStorageProvider dbProvider,
             S3StorageProvider s3Provider,
             SecretCipher cipher,
-            @Value("${cloud.storage.worker-tmp:data/worker-tmp}") String workerTmp) throws IOException {
+            @Value("${cloud.storage.worker-tmp:data/worker-tmp}") String workerTmp,
+            @Value("${cloud.storage.cache-max-bytes:2147483648}") long cacheMaxBytes) throws IOException {
         this.db = db;
         this.defaultLocal = defaultLocal;
         this.dbProvider = dbProvider;
         this.s3Provider = s3Provider;
         this.cipher = cipher;
         this.materializeCacheDir = Path.of(workerTmp, "storage-cache").toAbsolutePath().normalize();
+        this.cacheMaxBytes = Math.max(64L * 1024 * 1024, cacheMaxBytes);
         Files.createDirectories(this.materializeCacheDir);
     }
 
@@ -169,15 +174,55 @@ public class StorageRouterService {
         return materializeCacheDir.resolve(safeName + ".bin").normalize();
     }
 
+    private void touchCache(Path cached) {
+        try {
+            Files.setLastModifiedTime(cached, FileTime.from(Instant.now()));
+        } catch (IOException ignored) { /* best-effort LRU touch */ }
+    }
+
+    /** 服务端物化缓存超限时按最久未访问（LRU）清理至 80% 水位线，防止磁盘撑满 */
+    private void evictCacheIfNeeded() {
+        try (var stream = Files.list(materializeCacheDir)) {
+            record Entry(Path path, long size, long lastModified) {}
+            List<Entry> entries = new ArrayList<>();
+            long total = 0L;
+            for (Path p : stream.toList()) {
+                if (!Files.isRegularFile(p) || !p.getFileName().toString().endsWith(".bin")) continue;
+                try {
+                    long sz = Files.size(p);
+                    long lm = Files.getLastModifiedTime(p).toMillis();
+                    entries.add(new Entry(p, sz, lm));
+                    total += sz;
+                } catch (IOException ignored) { /* file removed concurrently */ }
+            }
+            if (total <= cacheMaxBytes) return;
+            long target = (long) (cacheMaxBytes * 0.8);
+            entries.sort(Comparator.comparingLong(Entry::lastModified));
+            for (Entry e : entries) {
+                if (total <= target) break;
+                try {
+                    if (Files.deleteIfExists(e.path())) {
+                        total -= e.size();
+                    }
+                } catch (IOException ignored) { /* ignore busy file */ }
+            }
+        } catch (IOException ignored) { /* non-blocking eviction */ }
+    }
+
     private Path materializeDbObject(long profileId, String storageKey) {
         Path cached = cacheFileFor(profileId, storageKey);
-        if (Files.isRegularFile(cached)) return cached;
+        if (Files.isRegularFile(cached)) {
+            touchCache(cached);
+            return cached;
+        }
         try (InputStream in = dbProvider.get(storageKey)) {
             Files.createDirectories(materializeCacheDir);
             Path tmp = Files.createTempFile(materializeCacheDir, "db-", ".tmp");
             try {
                 Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
                 Files.move(tmp, cached, StandardCopyOption.REPLACE_EXISTING);
+                touchCache(cached);
+                evictCacheIfNeeded();
                 return cached;
             } finally {
                 Files.deleteIfExists(tmp);
@@ -189,7 +234,10 @@ public class StorageRouterService {
 
     private Path materializeS3Object(StorageProfileMeta profile, String storageKey) {
         Path cached = cacheFileFor(profile.id(), storageKey);
-        if (Files.isRegularFile(cached)) return cached;
+        if (Files.isRegularFile(cached)) {
+            touchCache(cached);
+            return cached;
+        }
         try {
             Files.createDirectories(materializeCacheDir);
             Path tmp = Files.createTempFile(materializeCacheDir, "s3-", ".tmp");
@@ -198,6 +246,8 @@ public class StorageRouterService {
                 s3Provider.downloadToPath(profile.endpoint(), profile.bucket(), profile.region(),
                         profile.accessKey(), secret, storageKey, tmp);
                 Files.move(tmp, cached, StandardCopyOption.REPLACE_EXISTING);
+                touchCache(cached);
+                evictCacheIfNeeded();
                 return cached;
             } finally {
                 Files.deleteIfExists(tmp);

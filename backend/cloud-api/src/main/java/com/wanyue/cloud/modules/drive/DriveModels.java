@@ -40,6 +40,10 @@ public final class DriveModels {
                               @NotBlank @Size(max=255) String name, @PositiveOrZero @Max(10737418240L) long size,
                               @Size(max=255) String mimeType) {}
     public record Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId) {}
-    public record Content(java.nio.file.Path path, long size, String name, String mimeType) {}
+    public record Content(java.nio.file.Path path, long size, String name, String mimeType, String etag) {
+        public Content(java.nio.file.Path path, long size, String name, String mimeType) {
+            this(path, size, name, mimeType, "");
+        }
+    }
     public record TextChunk(String content, long offset, int bytesRead, long totalBytes, boolean hasMore, boolean binaryDetected) {}
 }

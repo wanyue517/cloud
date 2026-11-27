@@ -10,10 +10,12 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/v1/spaces/{space}/nodes/{id}/preview")
@@ -79,17 +81,24 @@ public class PreviewController {
             @PathVariable long space,
             @PathVariable long id,
             @PathVariable String assetType,
-            @RequestParam(required = false) Long versionId) {
+            @RequestParam(required = false) Long versionId,
+            WebRequest webRequest) {
         long uid = user(auth);
         drive.content(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
         Path assetPath = assetService.resolveReadyAssetPath(resolvedVersion, assetType);
+        String etag = "\"asset-" + resolvedVersion + "-" + assetType.toUpperCase() + "\"";
+        CacheControl cc = CacheControl.maxAge(Duration.ofHours(1)).cachePrivate();
+        if (webRequest.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cc).build();
+        }
         String mime = "OFFICE_PDF".equalsIgnoreCase(assetType) ? "application/pdf" : "video/mp4";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(assetPath.getFileName().toString(), StandardCharsets.UTF_8).build().toString())
                 .header("X-Content-Type-Options", "nosniff")
                 .header("Content-Security-Policy", "sandbox; default-src 'none'")
-                .cacheControl(CacheControl.noStore())
+                .eTag(etag)
+                .cacheControl(cc)
                 .contentType(MediaType.parseMediaType(mime))
                 .body(new FileSystemResource(assetPath));
     }
@@ -161,17 +170,24 @@ public class PreviewController {
             @PathVariable long space,
             @PathVariable long id,
             @RequestParam(required = false) Long versionId,
-            @RequestParam(defaultValue = "320") int width) {
+            @RequestParam(defaultValue = "320") int width,
+            WebRequest webRequest) {
         long uid = user(auth);
         DriveModels.Content content = drive.content(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        String etag = "\"thumb-" + resolvedVersion + "-" + width + "\"";
+        CacheControl cc = CacheControl.maxAge(Duration.ofHours(24)).cachePrivate();
+        if (webRequest.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cc).build();
+        }
         var thumb = thumbnailService.getOrGenerate(resolvedVersion, content, width);
         if (thumb.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok()
                 .header("X-Content-Type-Options", "nosniff")
-                .cacheControl(CacheControl.noStore())
+                .eTag(etag)
+                .cacheControl(cc)
                 .contentType(MediaType.IMAGE_JPEG)
                 .body(new FileSystemResource(thumb.get()));
     }

@@ -78,6 +78,7 @@ import { roleLabel, type ResourceShareItem } from '@/api/share'
 import { opsApi, type QuickAccessItem, type RecentAccessItem, type UndoTokenReceipt } from '@/api/ops'
 import type { SearchHit } from '@/api/search'
 import { mainFilenameRange, partitionBreadcrumbs } from '@/lib/tree'
+import { getOrFetchThumbnail } from '@/lib/thumb-cache'
 import { createUploadQueue, statusLabel, type UploadQueueItem } from '@/lib/upload-queue'
 import {
   DEFAULT_TREE_WIDTH,
@@ -676,7 +677,7 @@ async function ensureThumbnails() {
     const key = `${node.id}:${node.currentVersionId || ''}`
     if (thumbUrls[key] || thumbLoading.has(key)) continue
     thumbLoading.add(key)
-    drive.thumbnail(node, 320)
+    getOrFetchThumbnail(`${key}:320`, () => drive.thumbnail(node, 320, node.currentVersionId || undefined))
       .then(blob => {
         if (blob && blob.size > 0) thumbUrls[key] = URL.createObjectURL(blob)
       })

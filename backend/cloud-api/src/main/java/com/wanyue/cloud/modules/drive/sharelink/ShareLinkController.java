@@ -9,6 +9,7 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -74,14 +75,20 @@ public class ShareLinkController {
             @RequestHeader(value = "X-Share-Password", required = false) String passwordHeader,
             @RequestParam(required = false) String password,
             @RequestParam(required = false) Long nodeId,
-            @RequestParam(defaultValue = "true") boolean download) {
+            @RequestParam(defaultValue = "true") boolean download,
+            WebRequest webRequest) {
         DriveModels.Content c = service.publicContent(token, passwordHeader != null ? passwordHeader : password, nodeId, download);
+        String etag = (c.etag() != null && !c.etag().isBlank()) ? ("\"" + c.etag() + "\"") : ("\"" + c.size() + "-" + c.name().hashCode() + "\"");
+        if (!download && webRequest.checkNotModified(etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(CacheControl.noCache().cachePrivate()).build();
+        }
         MediaType mediaType = resolveMediaType(c.mimeType(), c.name());
         var builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         (download ? ContentDisposition.attachment() : ContentDisposition.inline()).filename(c.name(), StandardCharsets.UTF_8).build().toString())
                 .header("X-Content-Type-Options", "nosniff")
-                .cacheControl(CacheControl.noStore())
+                .eTag(etag)
+                .cacheControl(download ? CacheControl.noStore() : CacheControl.noCache().cachePrivate())
                 .contentType(mediaType);
         if (!download && "text".equalsIgnoreCase(mediaType.getType()) && "html".equalsIgnoreCase(mediaType.getSubtype())) {
             builder.header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' *; img-src * data: blob:; script-src 'unsafe-inline' *;");

@@ -665,8 +665,8 @@ public class DriveService {
         resolveNodeAccess(user, space, id, false, false); Node n=getNode(space,id,false); ancestors(space,id);
         if(!n.nodeType().equals("FILE")) throw BizException.notFound("文件不存在");
         long version=versionId==null?Long.parseLong(n.currentVersionId()):versionId;
-        var rows=db.query("SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
-                (r,i)->new Content(storageRouter.resolveReadablePath(r.getLong(1), r.getString(2)),r.getLong(3),n.name(),r.getString(4)),version,id);
+        var rows=db.query("SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
+                (r,i)->new Content(storageRouter.resolveReadablePath(r.getLong(1), r.getString(2)),r.getLong(3),n.name(),r.getString(4),r.getString(5)),version,id);
         if(rows.isEmpty() || !java.nio.file.Files.isRegularFile(rows.get(0).path())) throw BizException.notFound("文件内容不存在");
         return rows.get(0);
     }
