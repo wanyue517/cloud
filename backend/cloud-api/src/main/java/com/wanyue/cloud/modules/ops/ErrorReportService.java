@@ -14,6 +14,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 /**
@@ -43,8 +46,8 @@ public class ErrorReportService {
             if (safeMsg.length() > 980) safeMsg = safeMsg.substring(0, 980);
             String stack = formatStack(ex);
             db.update(
-                    "INSERT INTO sys_error_report(id, trace_id, level, http_status, error_code, method, path, user_id, exception_class, message, stack_trace, resolved) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                    "INSERT INTO sys_error_report(id, trace_id, level, http_status, error_code, method, path, user_id, exception_class, message, stack_trace, resolved, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, UTC_TIMESTAMP(3))",
                     IdWorker.getId(), traceId, level, httpStatus, errorCode, method, path, userId, exClass, safeMsg, stack);
         } catch (Exception ignored) {
             // 错误上报自身绝不能影响主链路响应
@@ -79,6 +82,8 @@ public class ErrorReportService {
             Object res = row.get("resolved");
             boolean isResolved = (res instanceof Boolean b) ? b : (res instanceof Number n && n.intValue() != 0);
             row.put("resolved", isResolved);
+            row.put("createdAt", toUtcIso(row.get("createdAt")));
+            row.put("resolvedAt", toUtcIso(row.get("resolvedAt")));
         }
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -103,6 +108,17 @@ public class ErrorReportService {
             return principal.userId();
         }
         return null;
+    }
+
+    private static String toUtcIso(Object value) {
+        if (value == null) return null;
+        if (value instanceof LocalDateTime ldt) {
+            return ldt.toInstant(ZoneOffset.UTC).toString();
+        }
+        if (value instanceof Timestamp ts) {
+            return ts.toLocalDateTime().toInstant(ZoneOffset.UTC).toString();
+        }
+        return value.toString();
     }
 
     private static String formatStack(Throwable ex) {
