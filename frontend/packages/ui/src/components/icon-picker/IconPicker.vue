@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
-import { computed, ref } from 'vue'
-import { ChevronDown, RotateCcw, Search } from '@lucide/vue'
+import { computed, ref, shallowRef, watch } from 'vue'
+import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search } from '@lucide/vue'
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { cn } from '../../lib/utils'
-import { findLucideIconOption, ICON_OPTIONS } from './icons'
+import {
+  findLucideIconLabelSync,
+  getCachedLucideIcons,
+  loadAllLucideIcons,
+  normalizeIconName,
+  type LucideIconOption,
+} from './icons'
+import LucideIconByName from './LucideIconByName.vue'
+
+const PAGE_SIZE = 48
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -25,17 +34,52 @@ const emit = defineEmits<{
 
 const open = ref(false)
 const keyword = ref('')
+const loading = ref(false)
+const allIcons = shallowRef<LucideIconOption[]>(getCachedLucideIcons() || [])
+const currentPage = ref(1)
 
-const currentOption = computed(() => findLucideIconOption(props.modelValue))
+async function ensureLoaded() {
+  if (allIcons.value.length > 0 || loading.value) return
+  loading.value = true
+  try {
+    allIcons.value = await loadAllLucideIcons()
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(open, isOpen => {
+  if (isOpen) {
+    void ensureLoaded()
+  }
+})
+
+watch(keyword, () => {
+  currentPage.value = 1
+})
+
+const normalizedValue = computed(() => normalizeIconName(props.modelValue))
+
+const currentLabel = computed(() => {
+  void allIcons.value.length
+  return findLucideIconLabelSync(normalizedValue.value)
+})
 
 const filteredIcons = computed(() => {
   const q = keyword.value.trim().toLowerCase()
-  if (!q) return ICON_OPTIONS
-  return ICON_OPTIONS.filter(item =>
-    item.name.includes(q)
-    || item.label.toLowerCase().includes(q)
-    || item.keywords.toLowerCase().includes(q),
-  )
+  if (!q) return allIcons.value
+  return allIcons.value.filter(item => item.keywords.includes(q) || item.label.toLowerCase().includes(q))
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredIcons.value.length / PAGE_SIZE)))
+
+watch(totalPages, max => {
+  if (currentPage.value > max) currentPage.value = max
+})
+
+const pagedIcons = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filteredIcons.value.slice(start, start + PAGE_SIZE)
 })
 
 function selectIcon(name: string) {
@@ -60,13 +104,13 @@ function selectIcon(name: string) {
       >
         <span class="flex min-w-0 items-center gap-2">
           <span class="flex size-5 shrink-0 items-center justify-center rounded bg-muted/70">
-            <component
-              :is="currentOption.component"
+            <LucideIconByName
+              :name="normalizedValue"
               :size="15"
               :style="previewColor ? { color: previewColor } : undefined"
             />
           </span>
-          <span class="truncate text-left">{{ currentOption.label }}</span>
+          <span class="truncate text-left">{{ currentLabel }}</span>
         </span>
         <ChevronDown :size="14" class="shrink-0 text-muted-foreground" />
       </button>
@@ -76,7 +120,7 @@ function selectIcon(name: string) {
       <PopoverContent
         align="start"
         :side-offset="6"
-        class="z-[95] w-72 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
+        class="z-[95] w-80 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
       >
         <div class="space-y-2.5">
           <div class="relative">
@@ -84,40 +128,71 @@ function selectIcon(name: string) {
             <input
               v-model="keyword"
               type="text"
-              placeholder="搜索图标，如 相册 / 代码 / folder…"
+              placeholder="搜索全部 Lucide 图标（中英文均可）…"
               class="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
             />
           </div>
 
-          <div
-            v-if="filteredIcons.length"
-            class="grid max-h-52 grid-cols-6 gap-1.5 overflow-y-auto pr-0.5"
-          >
+          <div v-if="loading" class="py-10 text-center text-xs text-muted-foreground">
+            正在加载全部 Lucide 图标…
+          </div>
+          <div v-else-if="pagedIcons.length" class="grid grid-cols-6 gap-1.5 min-h-[224px] content-start">
             <button
-              v-for="item in filteredIcons"
+              v-for="item in pagedIcons"
               :key="item.name"
               type="button"
-              :title="`${item.label} (${item.name})`"
+              :title="item.label !== item.name ? `${item.label} (${item.name})` : item.name"
               :aria-label="item.label"
-              class="flex size-9 cursor-pointer items-center justify-center rounded-md border transition-colors"
-              :class="currentOption.name === item.name
+              class="flex size-10 cursor-pointer items-center justify-center rounded-md border transition-colors"
+              :class="normalizedValue === item.name
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-transparent hover:border-border hover:bg-accent'"
               @click="selectIcon(item.name)"
             >
-              <component
-                :is="item.component"
-                :size="17"
-                :style="currentOption.name === item.name && previewColor ? { color: previewColor } : undefined"
-              />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                :style="normalizedValue === item.name && previewColor ? { color: previewColor } : undefined"
+              >
+                <component :is="tag" v-for="([tag, attrs], idx) in item.nodes" :key="idx" v-bind="attrs" />
+              </svg>
             </button>
           </div>
-          <div v-else class="py-6 text-center text-xs text-muted-foreground">
+          <div v-else class="py-10 text-center text-xs text-muted-foreground">
             未找到匹配的 Lucide 图标
           </div>
 
+          <!-- 分页控制栏 -->
+          <div v-if="filteredIcons.length > PAGE_SIZE" class="flex items-center justify-between border-t border-border pt-2 text-xs">
+            <button
+              type="button"
+              class="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded border border-input px-2 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="currentPage <= 1"
+              @click="currentPage--"
+            >
+              <ChevronLeft :size="13" /> 上一页
+            </button>
+            <span class="tabular-nums text-muted-foreground">{{ currentPage }} / {{ totalPages }} 页</span>
+            <button
+              type="button"
+              class="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded border border-input px-2 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              :disabled="currentPage >= totalPages"
+              @click="currentPage++"
+            >
+              下一页 <ChevronRight :size="13" />
+            </button>
+          </div>
+
           <div class="flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted-foreground">
-            <span>Lucide 图标库 · {{ filteredIcons.length }} 个</span>
+            <span>共 {{ filteredIcons.length }} / {{ allIcons.length }} 个图标</span>
             <button
               type="button"
               class="inline-flex cursor-pointer items-center gap-1 text-foreground/80 hover:text-primary"
