@@ -663,7 +663,22 @@ async function submitCreateSpace() {
 
 const thumbUrls = reactive<Record<string, string>>({})
 const thumbLoading = new Set<string>()
-const THUMB_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'mp4', 'webm', 'mov', 'mkv'])
+const THUMB_EXTS = new Set([
+  // 图片
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
+  // 视频
+  'mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v', 'flv', 'ts', 'wmv', 'ogv',
+  // 音频（内嵌专辑封面）
+  'mp3', 'flac', 'm4a', 'ogg', 'opus', 'aac', 'wav',
+  // 文档与表格
+  'pdf', 'docx', 'pptx', 'xlsx', 'xls', 'csv', 'zip',
+  // 文本与代码
+  'md', 'markdown', 'mdx', 'txt', 'log', 'env',
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'vue',
+  'html', 'htm', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml',
+  'java', 'kt', 'py', 'go', 'rs', 'c', 'cpp', 'h', 'hpp', 'cs',
+  'php', 'rb', 'sql', 'sh', 'bash', 'ps1', 'toml', 'ini', 'conf', 'properties',
+])
 
 function canShowThumb(node: DriveNode): boolean {
   if (node.nodeType !== 'FILE') return false
@@ -672,18 +687,33 @@ function canShowThumb(node: DriveNode): boolean {
 }
 
 async function ensureThumbnails() {
-  for (const node of nodes.value) {
-    if (!canShowThumb(node)) continue
+  const pending = nodes.value.filter(node => {
+    if (!canShowThumb(node)) return false
     const key = `${node.id}:${node.currentVersionId || ''}`
-    if (thumbUrls[key] || thumbLoading.has(key)) continue
-    thumbLoading.add(key)
-    getOrFetchThumbnail(`${key}:320`, () => drive.thumbnail(node, 320, node.currentVersionId || undefined))
-      .then(blob => {
+    return !thumbUrls[key] && !thumbLoading.has(key)
+  })
+  if (!pending.length) return
+
+  // 限制并发数，避免大目录同时触发过多后端缩略图生成任务
+  const concurrency = 4
+  let cursor = 0
+  async function worker() {
+    while (cursor < pending.length) {
+      const node = pending[cursor++]!
+      const key = `${node.id}:${node.currentVersionId || ''}`
+      if (thumbUrls[key] || thumbLoading.has(key)) continue
+      thumbLoading.add(key)
+      try {
+        const blob = await getOrFetchThumbnail(`${key}:320`, () => drive.thumbnail(node, 320, node.currentVersionId || undefined))
         if (blob && blob.size > 0) thumbUrls[key] = URL.createObjectURL(blob)
-      })
-      .catch(() => {})
-      .finally(() => { thumbLoading.delete(key) })
+      } catch {
+        // 404（如无专辑封面的音频）静默回退默认文件图标
+      } finally {
+        thumbLoading.delete(key)
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, () => worker()))
 }
 
 watch([() => view.value, () => nodes.value], () => { void ensureThumbnails() })
