@@ -76,13 +76,25 @@ public class ShareLinkController {
             @RequestParam(required = false) Long nodeId,
             @RequestParam(defaultValue = "true") boolean download) {
         DriveModels.Content c = service.publicContent(token, passwordHeader != null ? passwordHeader : password, nodeId, download);
-        return ResponseEntity.ok()
+        MediaType mediaType = resolveMediaType(c.mimeType(), c.name());
+        var builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         (download ? ContentDisposition.attachment() : ContentDisposition.inline()).filename(c.name(), StandardCharsets.UTF_8).build().toString())
                 .header("X-Content-Type-Options", "nosniff")
-                .header("Content-Security-Policy", "sandbox; default-src 'none'")
                 .cacheControl(CacheControl.noStore())
-                .contentType(MediaType.parseMediaType(c.mimeType()))
-                .body(new FileSystemResource(c.path()));
+                .contentType(mediaType);
+        if (!download && "text".equalsIgnoreCase(mediaType.getType()) && "html".equalsIgnoreCase(mediaType.getSubtype())) {
+            builder.header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' *; img-src * data: blob:; script-src 'unsafe-inline' *;");
+        }
+        return builder.body(new FileSystemResource(c.path()));
+    }
+
+    private static MediaType resolveMediaType(String rawMime, String filename) {
+        if (rawMime != null && !rawMime.isBlank()) {
+            try {
+                return MediaType.parseMediaType(rawMime.strip());
+            } catch (InvalidMediaTypeException ignored) { /* fallback by filename */ }
+        }
+        return MediaTypeFactory.getMediaType(filename).orElse(MediaType.APPLICATION_OCTET_STREAM);
     }
 }

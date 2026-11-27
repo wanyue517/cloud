@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Cloud, Download, Eye, File, Folder, Lock } from '@lucide/vue'
+import { Cloud, Code2, Download, Eye, File, Folder, Lock } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@repo/ui/dialog'
 import { Input } from '@repo/ui/input'
@@ -43,14 +43,15 @@ function contentUrl(nodeId?: string, download = false) {
   return `/api/v1/public/shares/${encodeURIComponent(token.value)}/content?${params.toString()}`
 }
 
-function detectPreviewType(name: string, mime: string): 'image' | 'pdf' | 'video' | 'audio' | 'text' | 'none' {
+function detectPreviewType(name: string, mime: string): 'image' | 'pdf' | 'video' | 'audio' | 'html' | 'text' | 'none' {
   const m = (mime || '').toLowerCase()
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : ''
   if (m.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image'
   if (m === 'application/pdf' || ext === 'pdf') return 'pdf'
   if (m.startsWith('video/') || ['mp4', 'webm', 'mov'].includes(ext)) return 'video'
   if (m.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'flac', 'm4a'].includes(ext)) return 'audio'
-  if (m.startsWith('text/') || ['txt', 'md', 'json', 'xml', 'yml', 'yaml', 'csv', 'log', 'js', 'ts', 'vue', 'java', 'py', 'css', 'html', 'sql'].includes(ext)) return 'text'
+  if (m === 'text/html' || ext === 'html' || ext === 'htm' || ext === 'xhtml') return 'html'
+  if (m.startsWith('text/') || ['txt', 'md', 'json', 'xml', 'yml', 'yaml', 'csv', 'log', 'js', 'ts', 'vue', 'java', 'py', 'css', 'sql'].includes(ext)) return 'text'
   return 'none'
 }
 
@@ -61,16 +62,25 @@ const singleFilePreviewType = computed(() =>
 )
 const singleFileText = ref('')
 const singleFileTextLoading = ref(false)
+const singleHtmlMode = ref<'render' | 'source'>('render')
+const modalHtmlMode = ref<'render' | 'source'>('render')
 
 async function loadTextContent(url: string, targetRef: typeof singleFileText, loadingRef: typeof singleFileTextLoading) {
   loadingRef.value = true
   try {
     const resp = await fetch(url)
-    if (!resp.ok) throw new Error('读取内容失败')
+    if (!resp.ok) {
+      let msg = `读取内容失败 (HTTP ${resp.status})`
+      try {
+        const body = await resp.json() as { msg?: string }
+        if (body?.msg) msg = body.msg
+      } catch { /* non-json error */ }
+      throw new Error(msg)
+    }
     const raw = await resp.text()
     targetRef.value = raw.length > 200_000 ? `${raw.slice(0, 200_000)}\n\n…（文件较大，仅展示前 200,000 字符）` : raw
-  } catch {
-    targetRef.value = '暂时无法读取文本预览内容'
+  } catch (e) {
+    targetRef.value = e instanceof Error ? e.message : '暂时无法读取文本预览内容'
   } finally {
     loadingRef.value = false
   }
@@ -79,7 +89,9 @@ async function loadTextContent(url: string, targetRef: typeof singleFileText, lo
 async function openPreview(node: PublicNode) {
   previewTarget.value = { nodeId: node.id, name: node.name, mimeType: node.mimeType, size: node.size }
   previewText.value = ''
-  if (detectPreviewType(node.name, node.mimeType) === 'text') {
+  modalHtmlMode.value = 'render'
+  const ptype = detectPreviewType(node.name, node.mimeType)
+  if (ptype === 'text' || ptype === 'html') {
     await loadTextContent(contentUrl(node.id, false), previewText, previewTextLoading)
   }
 }
@@ -92,7 +104,8 @@ async function loadMeta() {
     if (meta.value.unlocked && meta.value.nodeType === 'FOLDER') {
       trail.value = [{ id: meta.value.nodeId, name: meta.value.nodeName }]
       await loadFolder(meta.value.nodeId)
-    } else if (meta.value.unlocked && meta.value.nodeType === 'FILE' && singleFilePreviewType.value === 'text') {
+    } else if (meta.value.unlocked && meta.value.nodeType === 'FILE' && (singleFilePreviewType.value === 'text' || singleFilePreviewType.value === 'html')) {
+      singleHtmlMode.value = 'render'
       void loadTextContent(contentUrl(undefined, false), singleFileText, singleFileTextLoading)
     }
   } catch (e) {
@@ -248,6 +261,28 @@ onMounted(() => { void loadMeta() })
           <div v-else-if="singleFilePreviewType === 'audio'" class="py-8">
             <audio :src="contentUrl(undefined, false)" controls :controlsList="meta.allowDownload ? undefined : 'nodownload'" class="mx-auto w-full max-w-md" />
           </div>
+          <div v-else-if="singleFilePreviewType === 'html'" class="space-y-3">
+            <div class="flex justify-end">
+              <div class="inline-flex rounded-md border border-input p-0.5" role="tablist" aria-label="HTML 预览模式">
+                <Button type="button" size="sm" class="h-7 px-2.5 text-xs" :variant="singleHtmlMode === 'render' ? 'default' : 'ghost'" @click="singleHtmlMode = 'render'">
+                  <Eye :size="13" /> 效果预览
+                </Button>
+                <Button type="button" size="sm" class="h-7 px-2.5 text-xs" :variant="singleHtmlMode === 'source' ? 'default' : 'ghost'" @click="singleHtmlMode = 'source'">
+                  <Code2 :size="13" /> 源码模式
+                </Button>
+              </div>
+            </div>
+            <p v-if="singleFileTextLoading" class="py-8 text-center text-xs text-muted-foreground">正在加载 HTML 预览…</p>
+            <iframe
+              v-else-if="singleHtmlMode === 'render'"
+              :srcdoc="singleFileText"
+              sandbox="allow-scripts allow-forms allow-popups"
+              referrerpolicy="no-referrer"
+              title="HTML 渲染预览"
+              class="h-[68vh] w-full rounded-lg border border-border bg-white"
+            />
+            <pre v-else class="max-h-[65vh] overflow-auto rounded-lg border border-border bg-muted/30 p-4 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{{ singleFileText }}</pre>
+          </div>
           <div v-else-if="singleFilePreviewType === 'text'" class="max-h-[65vh] overflow-auto rounded-lg border border-border bg-muted/30 p-4">
             <p v-if="singleFileTextLoading" class="text-center text-xs text-muted-foreground">正在加载文本预览…</p>
             <pre v-else class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">{{ singleFileText }}</pre>
@@ -294,6 +329,28 @@ onMounted(() => { void loadMeta() })
               :controlsList="meta?.allowDownload ? undefined : 'nodownload'"
               class="mx-auto my-6 w-full max-w-md"
             />
+            <div v-else-if="detectPreviewType(previewTarget.name, previewTarget.mimeType) === 'html'" class="space-y-3">
+              <div class="flex justify-end">
+                <div class="inline-flex rounded-md border border-input p-0.5" role="tablist" aria-label="HTML 预览模式">
+                  <Button type="button" size="sm" class="h-7 px-2.5 text-xs" :variant="modalHtmlMode === 'render' ? 'default' : 'ghost'" @click="modalHtmlMode = 'render'">
+                    <Eye :size="13" /> 效果预览
+                  </Button>
+                  <Button type="button" size="sm" class="h-7 px-2.5 text-xs" :variant="modalHtmlMode === 'source' ? 'default' : 'ghost'" @click="modalHtmlMode = 'source'">
+                    <Code2 :size="13" /> 源码模式
+                  </Button>
+                </div>
+              </div>
+              <p v-if="previewTextLoading" class="py-8 text-center text-xs text-muted-foreground">正在加载…</p>
+              <iframe
+                v-else-if="modalHtmlMode === 'render'"
+                :srcdoc="previewText"
+                sandbox="allow-scripts allow-forms allow-popups"
+                referrerpolicy="no-referrer"
+                title="HTML 渲染预览"
+                class="h-[62vh] w-full rounded-lg border border-border bg-white"
+              />
+              <pre v-else class="whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-4 font-mono text-xs leading-relaxed">{{ previewText }}</pre>
+            </div>
             <pre
               v-else-if="detectPreviewType(previewTarget.name, previewTarget.mimeType) === 'text'"
               class="whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-4 font-mono text-xs leading-relaxed"

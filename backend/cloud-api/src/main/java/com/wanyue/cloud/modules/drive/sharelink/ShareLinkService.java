@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.wanyue.cloud.common.exception.BizException;
 import com.wanyue.cloud.modules.drive.DriveModels;
 import com.wanyue.cloud.modules.drive.DriveService;
-import com.wanyue.cloud.modules.drive.LocalStorage;
 import com.wanyue.cloud.modules.drive.sharelink.ShareLinkModels.*;
+import com.wanyue.cloud.modules.drive.storage.StorageRouterService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -29,12 +29,12 @@ public class ShareLinkService {
 
     private final JdbcTemplate db;
     private final DriveService drive;
-    private final LocalStorage storage;
+    private final StorageRouterService storageRouter;
 
-    public ShareLinkService(JdbcTemplate db, DriveService drive, LocalStorage storage) {
+    public ShareLinkService(JdbcTemplate db, DriveService drive, StorageRouterService storageRouter) {
         this.db = db;
         this.drive = drive;
-        this.storage = storage;
+        this.storageRouter = storageRouter;
     }
 
     public static String sha256Hex(String raw) {
@@ -242,10 +242,14 @@ public class ShareLinkService {
             throw BizException.notFound("文件不存在或超出分享范围");
         }
         var rows = db.query(
-                "SELECT n.name, n.node_type, n.hidden, b.storage_key, b.size_bytes, v.mime_type "
+                "SELECT n.name, n.node_type, n.hidden, b.storage_key, b.storage_profile_id, b.size_bytes, v.mime_type "
                         + "FROM file_node n JOIN file_version v ON v.id=n.current_version_id JOIN blob_object b ON b.id=v.blob_id "
                         + "WHERE n.space_id=? AND n.id=? AND n.deleted_at IS NULL AND n.hidden=FALSE",
-                (r, i) -> new DriveModels.Content(storage.resolve(r.getString("storage_key")), r.getLong("size_bytes"), r.getString("name"), r.getString("mime_type")),
+                (r, i) -> {
+                    long profileId = r.getObject("storage_profile_id") == null ? 1L : r.getLong("storage_profile_id");
+                    Path path = storageRouter.resolveReadablePath(profileId, r.getString("storage_key"));
+                    return new DriveModels.Content(path, r.getLong("size_bytes"), r.getString("name"), r.getString("mime_type"));
+                },
                 spaceId, targetFileId);
         if (rows.isEmpty() || !Files.isRegularFile(rows.get(0).path())) {
             throw BizException.notFound("文件内容不存在");
