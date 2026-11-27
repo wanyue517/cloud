@@ -876,8 +876,9 @@
 }
 .file-collection {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 6px;
   overflow: hidden;
   min-height: 300px;
 }
@@ -887,7 +888,7 @@
   grid-template-columns: minmax(220px, 1fr) 96px 175px 76px 40px;
   align-items: center;
   gap: 12px;
-  padding: var(--app-row-padding) var(--app-space-4);
+  padding: var(--app-row-padding) var(--app-space-3);
 }
 .file-item {
   position: relative;
@@ -915,26 +916,46 @@
   font-size: var(--app-font-sm);
 }
 .file-columns {
-  background: var(--muted);
+  background: transparent;
   color: var(--muted-foreground);
   font-size: var(--app-font-xs);
-  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  padding-top: 6px;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
 }
-.file-item {
-  border-bottom: 1px solid var(--border);
+.list .file-item {
+  border-radius: var(--radius-md);
   cursor: default;
   min-height: var(--app-row-height);
+  margin: 1px 0;
+  transition: background var(--app-duration-fast) ease, box-shadow var(--app-duration-fast) ease;
 }
-.file-item:hover {
-  background: var(--app-hover);
+.list .file-item:hover {
+  background: color-mix(in oklab, var(--muted) 68%, transparent);
 }
-.file-item.selected {
-  background: var(--app-selected);
+.list .file-item.selected {
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 30%, transparent);
+}
+.list .file-item.selected:hover {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+.list .item-more-wrap {
+  opacity: 0.35;
+  transition: opacity var(--app-duration-fast) ease;
+}
+.list .file-item:hover .item-more-wrap,
+.list .file-item.selected .item-more-wrap,
+.list .file-item:focus-within .item-more-wrap {
+  opacity: 1;
 }
 .file-name {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   min-width: 0;
 }
 .file-icon {
@@ -942,16 +963,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in oklab, var(--muted) 65%, transparent);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 55%, transparent);
   overflow: hidden;
   flex-shrink: 0;
 }
 .file-icon.folder {
   color: var(--file-folder);
-  background: color-mix(in oklab, var(--file-folder) 12%, transparent);
+  background: color-mix(in oklab, var(--file-folder) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--file-folder) 22%, transparent);
 }
 .file-thumb-img {
   width: 100%;
@@ -960,6 +983,9 @@
   display: block;
 }
 .filename {
+  font-size: var(--app-font-sm);
+  font-weight: 500;
+  color: var(--foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -969,11 +995,13 @@
 .file-item small {
   color: var(--muted-foreground);
   font-size: var(--app-font-xs);
+  font-variant-numeric: tabular-nums;
 }
 .file-collection.grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(186px, 1fr));
   gap: 14px;
+  padding: 2px 0;
   background: none;
   border: 0;
   overflow: visible;
@@ -983,22 +1011,27 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  border-radius: var(--radius-lg);
   background: var(--card);
   padding: 0;
   gap: 0;
   position: relative;
   overflow: hidden;
-  transition: border-color var(--app-duration-fast) ease, box-shadow var(--app-duration-fast) ease, background var(--app-duration-fast) ease;
+  transition: transform var(--app-duration-fast) ease, border-color var(--app-duration-fast) ease, box-shadow var(--app-duration-fast) ease, background var(--app-duration-fast) ease;
 }
 .grid .file-item:hover {
-  border-color: color-mix(in oklab, var(--primary) 40%, var(--border));
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--primary) 42%, var(--border));
+  box-shadow: 0 6px 18px rgb(15 23 42 / 7%);
+}
+.dark .grid .file-item:hover {
+  box-shadow: 0 8px 22px rgb(0 0 0 / 32%);
 }
 .grid .file-item.selected {
-  background: var(--app-selected);
-  border-color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 8%, var(--card));
+  border-color: color-mix(in oklab, var(--primary) 65%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 28%, transparent);
 }
 .grid .file-thumb-stage {
   position: relative;
@@ -1007,18 +1040,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  background: color-mix(in oklab, var(--muted) 42%, transparent);
   overflow: hidden;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
 }
 .grid .file-thumb-stage .file-icon {
   width: 100%;
   height: 100%;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
 }
 .grid .file-thumb-stage .file-icon.folder {
-  background: color-mix(in oklab, var(--file-folder) 10%, transparent);
+  background: color-mix(in oklab, var(--file-folder) 8%, transparent);
+  box-shadow: none;
 }
 .grid .file-card-check {
   position: absolute;
@@ -1078,19 +1113,20 @@
   display: none;
 }
 .drive-empty {
-  min-height: 380px;
+  min-height: 360px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 16px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
+  gap: 14px;
+  border: 1px dashed color-mix(in oklab, var(--border) 85%, transparent);
+  border-radius: var(--radius-lg);
   color: var(--muted-foreground);
-  background: var(--card);
+  background: color-mix(in oklab, var(--muted) 28%, transparent);
 }
 .drive-empty h2 {
-  font-size: var(--app-font-xl);
+  font-size: var(--app-font-lg);
+  font-weight: 600;
   color: var(--foreground);
   margin: 0;
 }
@@ -1102,9 +1138,11 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: var(--app-space-4);
+  gap: var(--app-space-3);
   color: var(--muted-foreground);
-  padding-top: 22px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 65%, transparent);
   font-size: var(--app-font-xs);
 }
 .selection-toolbar {
@@ -1470,7 +1508,14 @@
 
 :root[data-layout="islands"] .drive-topbar {
   background: var(--island-surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+}
+
+:root[data-layout="islands"] .file-collection.list {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
 }
 
 :root[data-layout="islands"] .drive-details {
