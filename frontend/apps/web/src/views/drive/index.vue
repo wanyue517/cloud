@@ -1598,12 +1598,14 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             </ContextMenuContent>
           </ContextMenu>
         </div>
-        <footer class="drive-pagination">
-          <Button variant="outline" :disabled="page <= 1" @click="page--">上一页</Button>
-          <span>第 {{ page }} 页 · 共 {{ Math.max(1, Math.ceil(total / 100)) }} 页</span>
-          <Button variant="outline" :disabled="page * 100 >= total" @click="page++">下一页</Button>
-        </footer>
       </section>
+
+      <footer v-if="mode === 'files' || mode === 'favorites'" class="drive-pagination">
+        <span class="mr-auto text-xs text-muted-foreground tabular-nums">共 {{ total }} 项</span>
+        <Button variant="outline" size="sm" :disabled="page <= 1" @click="page--">上一页</Button>
+        <span class="tabular-nums">第 {{ page }} / {{ Math.max(1, Math.ceil(total / 100)) }} 页</span>
+        <Button variant="outline" size="sm" :disabled="page * 100 >= total" @click="page++">下一页</Button>
+      </footer>
     </main>
 
     <input ref="fileInput" type="file" multiple hidden @change="selectFiles" />

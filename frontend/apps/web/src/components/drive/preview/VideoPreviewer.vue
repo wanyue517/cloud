@@ -157,11 +157,11 @@ onBeforeUnmount(() => {
     <div class="relative flex min-h-0 flex-1 items-center justify-center">
       <p v-if="loading" role="status" class="text-sm text-white/80">正在探测并加载视频…</p>
       <div v-else-if="error || transcodeAsset?.status === 'FAILED'" class="flex max-w-md flex-col items-center gap-3 rounded-xl bg-zinc-900 p-6 text-center text-zinc-100">
-        <AlertCircle :size="32" class="text-red-400" />
-        <p class="text-sm font-medium">视频转码或加载失败</p>
+        <AlertCircle :size="32" :class="error.includes('256 MB') ? 'text-amber-400' : 'text-red-400'" />
+        <p class="text-sm font-medium">{{ error.includes('256 MB') ? '文件较大，建议下载观看' : '视频转码或加载失败' }}</p>
         <p class="text-xs text-zinc-400">{{ error || transcodeAsset?.errorMessage }}</p>
         <div class="flex gap-2">
-          <Button v-if="probe?.strategy !== 'DIRECT_PLAY'" variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
+          <Button v-if="!error.includes('256 MB') && probe?.strategy !== 'DIRECT_PLAY'" variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
             <RefreshCw :size="14" /> 重试转码
           </Button>
           <Button size="sm" @click="emit('download')"><Download :size="14" /> 下载原件</Button>
