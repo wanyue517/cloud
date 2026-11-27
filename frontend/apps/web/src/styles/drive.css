@@ -1258,7 +1258,7 @@
   font-size: var(--app-font-sm);
   line-height: 1.7;
 }
-.preview-dialog video {
+.preview-dialog > video {
   height: calc(100% - 80px);
   background: var(--app-media-bg);
 }

@@ -16,6 +16,8 @@ const probe = ref<VideoProbe | null>(null)
 const transcodeAsset = ref<PreviewAsset | null>(null)
 const retrying = ref(false)
 const streamUrl = ref('')
+const playbackRate = ref(1)
+const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
 let player: Player | null = null
 let pollTimer: number | null = null
@@ -35,6 +37,13 @@ function clearPoll() {
   }
 }
 
+function setPlaybackRate(rate: number) {
+  playbackRate.value = rate
+  if (player) {
+    player.playbackRate = rate
+  }
+}
+
 async function mountPlayer(url: string) {
   streamUrl.value = url
   loading.value = false
@@ -47,10 +56,15 @@ async function mountPlayer(url: string) {
     fluid: false,
     width: '100%',
     height: '100%',
-    playbackRate: [0.5, 0.75, 1, 1.25, 1.5, 2],
-    defaultPlaybackRate: 1,
+    playbackRate: playbackRates,
+    defaultPlaybackRate: playbackRate.value,
     pip: true,
     lang: 'zh-cn',
+  })
+  player.on('ratechange', () => {
+    if (player && Number.isFinite(player.playbackRate)) {
+      playbackRate.value = player.playbackRate
+    }
   })
 }
 
@@ -137,7 +151,21 @@ onBeforeUnmount(() => {
         编码：{{ probe.videoCodec || '未知' }} / {{ probe.audioCodec || '无音轨' }}
         <template v-if="probe.width && probe.height"> · {{ probe.width }}×{{ probe.height }}</template>
       </span>
-      <span class="rounded bg-white/10 px-2 py-0.5">{{ probe.strategy }} · {{ probe.reason }}</span>
+      <div class="flex flex-wrap items-center gap-2">
+        <div v-if="streamUrl" class="flex items-center gap-1" role="group" aria-label="播放倍速">
+          <button
+            v-for="r in playbackRates"
+            :key="r"
+            type="button"
+            class="rounded px-1.5 py-0.5 text-[11px] transition-colors"
+            :class="playbackRate === r ? 'bg-primary text-primary-foreground font-medium' : 'bg-white/10 text-zinc-300 hover:bg-white/20'"
+            @click="setPlaybackRate(r)"
+          >
+            {{ r }}x
+          </button>
+        </div>
+        <span class="rounded bg-white/10 px-2 py-0.5">{{ probe.strategy }} · {{ probe.reason }}</span>
+      </div>
     </div>
 
     <div class="relative flex min-h-0 flex-1 items-center justify-center">
