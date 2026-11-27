@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
+import { ColorPicker } from '@repo/ui/color-picker'
+import { IconPicker, LucideIconByName } from '@repo/ui/icon-picker'
 import { Input } from '@repo/ui/input'
 import { Select } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
@@ -389,7 +391,7 @@ let generation = 0, searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const dialog = ref<{ title: string; label: string; value: string; submit: (value: string) => Promise<unknown> }>()
 const dialogBusy = ref(false)
-const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceSortOrder = ref(0), spaceDeleteConfirm = ref('')
+const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceIcon = ref('folder'), spaceSortOrder = ref(0), spaceDeleteConfirm = ref('')
 
 async function submitDialog() {
   if (!dialog.value || dialogBusy.value) return
@@ -402,6 +404,7 @@ function openSpaceSettings() {
   spaceName.value = currentSpace.value.name
   spaceDescription.value = currentSpace.value.description || ''
   spaceColor.value = currentSpace.value.color || '#6366f1'
+  spaceIcon.value = currentSpace.value.icon || 'folder'
   spaceSortOrder.value = currentSpace.value.sortOrder || 0
   spaceDeleteConfirm.value = ''
   error.value = ''
@@ -411,7 +414,11 @@ async function saveSpaceSettings() {
   if (spaceSaving.value || !spaceId.value) return
   spaceSaving.value = true; error.value = ''
   try {
-    await drive.updateSpace(spaceId.value, spaceName.value, Number(spaceSortOrder.value) || 0, { description: spaceDescription.value, color: spaceColor.value })
+    await drive.updateSpace(spaceId.value, spaceName.value, Number(spaceSortOrder.value) || 0, {
+      description: spaceDescription.value,
+      color: spaceColor.value,
+      icon: spaceIcon.value,
+    })
     await loadSpaces()
     spaceDialogOpen.value = false
     notice.value = '空间设置已保存'
@@ -612,6 +619,8 @@ const createSpaceOpen = ref(false)
 const createSpaceName = ref('')
 const createSpaceKind = ref<'PERSONAL' | 'SHARED'>('PERSONAL')
 const createSpaceDesc = ref('')
+const createSpaceIcon = ref('folder')
+const createSpaceColor = ref('#6366f1')
 const createSpaceBusy = ref(false)
 const createSpaceError = ref('')
 
@@ -619,6 +628,8 @@ function newSpace() {
   createSpaceName.value = ''
   createSpaceKind.value = 'PERSONAL'
   createSpaceDesc.value = ''
+  createSpaceIcon.value = 'folder'
+  createSpaceColor.value = '#6366f1'
   createSpaceError.value = ''
   createSpaceOpen.value = true
 }
@@ -635,6 +646,8 @@ async function submitCreateSpace() {
     const id = await drive.createSpace(createSpaceName.value.trim(), {
       kind: createSpaceKind.value,
       description: createSpaceDesc.value.trim(),
+      icon: createSpaceIcon.value,
+      color: createSpaceColor.value,
     })
     createSpaceOpen.value = false
     await loadSpaces()
@@ -864,7 +877,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           :title="space.name"
           @click="navigate('0', space.id)"
         >
-          <Folder :size="17" class="shrink-0" :style="{ color: space.color }" />
+          <LucideIconByName :name="space.icon" :size="17" class="shrink-0" :style="{ color: space.color || '#6366f1' }" />
           <span class="sidebar-item-label flex-1 text-left">{{ space.name }}</span>
           <small class="space-kind-badge">{{ space.kind === 'SHARED' ? `共享 · ${roleLabel(space.role || 'OWNER')}` : '个人' }}</small>
         </Button>
@@ -934,7 +947,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       <header class="tree-pane-header">
         <div class="tree-pane-title">
           <Settings v-if="mode === 'settings'" :size="16" />
-          <Folder v-else :size="16" :style="currentSpace?.color ? { color: currentSpace.color } : undefined" />
+          <LucideIconByName v-else :name="currentSpace?.icon" :size="16" class="shrink-0" :style="currentSpace?.color ? { color: currentSpace.color } : undefined" />
           <span>{{ mode === 'settings' ? '个人中心' : currentSpace?.name || '目录树' }}</span>
         </div>
         <Button variant="ghost" size="icon-xs" :aria-label="viewportTier === 'desktop' ? '折叠目录树' : '关闭目录树'" @click="toggleTree"><X :size="15" /></Button>
@@ -1609,8 +1622,27 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <span>空间简介（可选）</span>
             <Input v-model="createSpaceDesc" placeholder="简短描述此空间用途" :disabled="createSpaceBusy" />
           </label>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5 text-sm">
+              <span>空间图标</span>
+              <IconPicker
+                v-model="createSpaceIcon"
+                :preview-color="createSpaceColor"
+                :disabled="createSpaceBusy"
+                aria-label="选择空间图标"
+              />
+            </div>
+            <div class="space-y-1.5 text-sm">
+              <span>标记颜色</span>
+              <ColorPicker
+                v-model="createSpaceColor"
+                :disabled="createSpaceBusy"
+                aria-label="选择空间标记颜色"
+              />
+            </div>
+          </div>
           <p v-if="createSpaceError" role="alert" class="text-destructive text-sm">{{ createSpaceError }}</p>
-          <DialogFooter>
+          <DialogFooter class="pt-2">
             <Button variant="outline" type="button" :disabled="createSpaceBusy" @click="createSpaceOpen = false">取消</Button>
             <Button type="submit" :disabled="createSpaceBusy">{{ createSpaceBusy ? '正在创建…' : '创建空间' }}</Button>
           </DialogFooter>
@@ -1694,32 +1726,32 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
 
     <Dialog :open="spaceDialogOpen" @update:open="value => { if (!value && !spaceSaving) spaceDialogOpen = false }">
       <DialogContent>
-        <DialogHeader><DialogTitle>空间设置</DialogTitle><DialogDescription>配置当前空间的名称、描述、颜色与排序，或安全删除空间。</DialogDescription></DialogHeader>
-        <form class="space-y-3 mt-2" @submit.prevent="saveSpaceSettings">
-          <label class="block space-y-1 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
-          <label class="block space-y-1 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
+        <DialogHeader><DialogTitle>空间设置</DialogTitle><DialogDescription>配置当前空间的名称、图标、标记颜色与排序，或安全删除空间。</DialogDescription></DialogHeader>
+        <form class="space-y-4 pt-2" @submit.prevent="saveSpaceSettings">
+          <label class="block space-y-1.5 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
+          <label class="block space-y-1.5 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-1.5 text-sm">
-              <span>标记颜色</span>
-              <div class="flex flex-wrap items-center gap-2 pt-1">
-                <button
-                  v-for="c in ['#6366f1', '#2563eb', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6']"
-                  :key="c"
-                  type="button"
-                  class="size-6 cursor-pointer rounded-full border-2 transition-transform hover:scale-110"
-                  :class="spaceColor.toLowerCase() === c ? 'border-foreground scale-110' : 'border-transparent'"
-                  :style="{ backgroundColor: c }"
-                  :aria-label="`选择颜色 ${c}`"
-                  :disabled="spaceSaving"
-                  @click="spaceColor = c"
-                />
-                <input v-model="spaceColor" type="color" aria-label="自定义颜色" class="size-6 cursor-pointer rounded border border-input bg-transparent p-0" :disabled="spaceSaving" />
-              </div>
+              <span>空间图标</span>
+              <IconPicker
+                v-model="spaceIcon"
+                :preview-color="spaceColor"
+                :disabled="spaceSaving"
+                aria-label="空间图标"
+              />
             </div>
-            <label class="block space-y-1 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
+            <div class="space-y-1.5 text-sm">
+              <span>标记颜色</span>
+              <ColorPicker
+                v-model="spaceColor"
+                :disabled="spaceSaving"
+                aria-label="空间标记颜色"
+              />
+            </div>
           </div>
+          <label class="block space-y-1.5 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
           <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>
-          <DialogFooter><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
+          <DialogFooter class="pt-2"><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
         </form>
         <div v-if="spaces.length > 1" class="mt-4 pt-4 border-t border-border space-y-2">
           <p class="text-xs text-destructive">危险操作：输入空间名称「{{ currentSpace?.name }}」以确认删除该空间。</p>

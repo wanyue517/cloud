@@ -7,6 +7,7 @@ import {
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
 import { confirm } from '@repo/ui/confirm-dialog'
+import { LucideIconByName } from '@repo/ui/icon-picker'
 import { Input } from '@repo/ui/input'
 import { Select } from '@repo/ui/select'
 import { Separator } from '@repo/ui/separator'
@@ -977,7 +978,7 @@ onMounted(() => {
             <div v-else class="divide-y divide-border rounded-lg border border-border">
               <div v-for="s in privateSpaces" :key="s.id" class="flex items-center justify-between gap-3 px-4 py-3">
                 <div class="flex min-w-0 items-center gap-2.5">
-                  <Folder :size="16" class="shrink-0" :style="{ color: s.color || '#6366f1' }" />
+                  <LucideIconByName :name="s.icon || spaces.find(sp => sp.id === s.id)?.icon" :size="16" class="shrink-0" :style="{ color: s.color || '#6366f1' }" />
                   <span class="truncate text-sm font-medium">{{ s.name }}</span>
                   <span
                     class="shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"

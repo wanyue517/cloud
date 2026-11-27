@@ -47,10 +47,10 @@
   flex-shrink: 0;
   background: var(--card);
   border-right: 1px solid var(--border);
-  padding: var(--app-space-6) var(--app-space-4);
+  padding: 16px 14px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   height: 100vh;
   max-height: 100vh;
   overflow: auto;
@@ -126,10 +126,10 @@
 }
 .drive-brand-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--app-space-1);
-  margin: 0 4px 24px 8px;
+  gap: var(--app-space-2);
+  margin: 0 2px 16px 4px;
 }
 .drive-brand {
   font-size: var(--app-font-xl);
@@ -177,7 +177,7 @@
   font-size: var(--app-font-xs);
   letter-spacing: 1px;
   color: var(--muted-foreground);
-  padding: 10px 10px;
+  padding: 12px 10px 6px;
 }
 .drive-sidebar .space-button,
 .drive-sidebar .nav-button {
@@ -244,6 +244,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 4px;
   padding: var(--app-space-3) var(--app-space-2);
 }
 .folder-tree-viewport {
@@ -297,8 +298,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 .category-bar .is-active-tab {
   background: var(--app-selected);
@@ -529,10 +530,10 @@
   white-space: normal;
 }
 .user-center {
-  max-width: 780px;
+  max-width: 880px;
   display: flex;
   flex-direction: column;
-  gap: var(--app-space-4);
+  gap: 20px;
 }
 .settings-card {
   background: var(--card);
@@ -541,7 +542,7 @@
   padding: var(--app-space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--app-space-4);
+  gap: 20px;
 }
 .settings-card-header {
   display: flex;
@@ -792,15 +793,15 @@
   font: inherit;
 }
 .drive-content {
-  padding: 12px 20px 20px;
+  padding: 20px 24px 28px;
 }
 .drive-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-bottom: 10px;
+  gap: 12px 16px;
+  margin-bottom: 14px;
 }
 .drive-heading h1 {
   font-size: var(--app-font-lg);
@@ -831,10 +832,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   height: 40px;
   min-height: 40px;
-  margin: 6px 0 10px;
+  margin: 8px 0 14px;
   color: var(--muted-foreground);
 }
 .drive-toolbar .toolbar-leading {

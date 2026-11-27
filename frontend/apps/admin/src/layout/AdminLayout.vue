@@ -138,9 +138,9 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </Button>
       </div>
 
-      <nav class="flex-1 overflow-y-auto p-3 space-y-5" aria-label="后台功能菜单">
+      <nav class="flex-1 overflow-y-auto px-3 py-4 space-y-5" aria-label="后台功能菜单">
         <section v-for="section in groupedNav" :key="section.group" class="space-y-1">
-          <p class="px-2.5 text-xs font-medium text-muted-foreground tracking-wide">{{ section.group }}</p>
+          <p class="px-2.5 pb-1 text-xs font-medium text-muted-foreground tracking-wide">{{ section.group }}</p>
           <RouterLink
             v-for="item in section.items"
             :key="item.name"
@@ -158,7 +158,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         </section>
       </nav>
 
-      <div class="p-3 border-t border-sidebar-border text-xs text-muted-foreground shrink-0">
+      <div class="px-4 py-3 border-t border-sidebar-border text-xs text-muted-foreground shrink-0">
         {{ siteName }} 管理控制台
       </div>
     </aside>
@@ -179,10 +179,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <span class="hidden sm:inline text-sm text-muted-foreground truncate">{{ currentItem.label }}</span>
         </div>
 
-        <div class="flex items-center gap-2 md:gap-3 shrink-0">
-          <div class="w-28 sm:w-32">
-            <ThemeSettings :show-compact-option="false" />
-          </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <ThemeSettings :show-compact-option="false" trigger-class="shrink-0" />
           <Button as-child variant="outline" size="sm">
             <a href="/app">返回网盘</a>
           </Button>

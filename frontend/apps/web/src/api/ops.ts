@@ -83,6 +83,7 @@ export interface PrivateSpaceItem {
   name: string
   kind: 'PERSONAL' | 'PRIVATE'
   color: string
+  icon?: string
   privateEnabled: boolean
 }
 
