@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Shield, Trash2, UserMinus, UserPlus, Users } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
@@ -11,7 +11,7 @@ import { toast } from '@repo/ui/toast'
 import type { Space } from '@/api/drive'
 import { roleLabel, shareApi, type SpaceMembersOverview } from '@/api/share'
 
-const props = defineProps<{ space: Space }>()
+const props = withDefaults(defineProps<{ space: Space; embedded?: boolean }>(), { embedded: false })
 const emit = defineEmits<{ close: []; updated: [] }>()
 
 const loading = ref(true)
@@ -161,13 +161,18 @@ async function cancelInvite(invId: string) {
   }
 }
 
+watch(() => props.space.id, () => { void load() })
 onMounted(() => { void load() })
 </script>
 
 <template>
-  <Dialog :open="true" @update:open="v => { if (!v) emit('close') }">
-    <DialogContent class="!max-w-2xl">
-      <DialogHeader>
+  <component
+    :is="embedded ? 'div' : Dialog"
+    v-bind="embedded ? {} : { open: true }"
+    @update:open="(v: boolean) => { if (!embedded && !v) emit('close') }"
+  >
+    <component :is="embedded ? 'div' : DialogContent" :class="embedded ? 'space-y-4' : '!max-w-2xl'">
+      <DialogHeader v-if="!embedded">
         <DialogTitle class="flex items-center gap-2">
           <Users :size="18" /> {{ space.name }} · 共享与成员管理
         </DialogTitle>
@@ -274,6 +279,6 @@ onMounted(() => { void load() })
           </label>
         </div>
       </div>
-    </DialogContent>
-  </Dialog>
+    </component>
+  </component>
 </template>

@@ -193,7 +193,7 @@ const replacing = ref<DriveNode>(), uploadTasks = ref<UploadQueueItem[]>([])
 const uploadPanelVisible = ref(false)
 const activeUploadCount = computed(() => uploadTasks.value.filter(t => t.status === 'uploading' || t.status === 'queued').length)
 const movingNodes = ref<DriveNode[]>([])
-const membersDialogOpen = ref(false)
+const spaceSettingsTab = ref<'general' | 'members'>('general')
 const sharingNode = ref<DriveNode>()
 const shareLinkNode = ref<DriveNode>()
 const detailNode = ref<DriveNode>()
@@ -399,7 +399,7 @@ async function submitDialog() {
   try { await dialog.value.submit(dialog.value.value); dialog.value = undefined; await refresh(); treeRevision.value++ }
   catch (e) { fail(e) } finally { dialogBusy.value = false }
 }
-function openSpaceSettings() {
+function openSpaceSettings(tab: 'general' | 'members' = 'general') {
   if (!currentSpace.value) return
   spaceName.value = currentSpace.value.name
   spaceDescription.value = currentSpace.value.description || ''
@@ -408,6 +408,7 @@ function openSpaceSettings() {
   spaceSortOrder.value = currentSpace.value.sortOrder || 0
   spaceDeleteConfirm.value = ''
   error.value = ''
+  spaceSettingsTab.value = tab
   spaceDialogOpen.value = true
 }
 async function saveSpaceSettings() {
@@ -1170,10 +1171,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             >
               锁定私密空间
             </Button>
-            <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="共享与成员" title="共享与成员" @click="membersDialogOpen = true">
-              <Users :size="16" />
-            </Button>
-            <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="空间设置" title="空间设置" @click="openSpaceSettings">
+            <Button v-if="currentSpace" variant="ghost" size="icon-sm" aria-label="空间设置与成员" title="空间设置与成员" @click="openSpaceSettings('general')">
               <Settings :size="16" />
             </Button>
             <Button variant="outline" size="sm" @click="newFolder"><FolderPlus :size="15" /> 新建文件夹</Button>
@@ -1541,7 +1539,6 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     </Dialog>
 
     <MoveDialog v-if="movingNodes.length" :nodes="movingNodes" @close="movingNodes = []" @moved="selected = new Set(); refresh(); treeRevision++" />
-    <SpaceMembersDialog v-if="membersDialogOpen && currentSpace" :space="currentSpace" @close="membersDialogOpen = false" @updated="reloadSpaces" />
     <FolderShareDialog v-if="sharingNode" :node="sharingNode" @close="sharingNode = undefined" @shared="notice = '文件夹共享授权已生效'" />
     <ShareLinkDialog v-if="shareLinkNode" :node="shareLinkNode" @close="shareLinkNode = undefined" />
     <BatchRenameDialog
@@ -1725,40 +1722,78 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     </Dialog>
 
     <Dialog :open="spaceDialogOpen" @update:open="value => { if (!value && !spaceSaving) spaceDialogOpen = false }">
-      <DialogContent>
-        <DialogHeader><DialogTitle>空间设置</DialogTitle><DialogDescription>配置当前空间的名称、图标、标记颜色与排序，或安全删除空间。</DialogDescription></DialogHeader>
-        <form class="space-y-4 pt-2" @submit.prevent="saveSpaceSettings">
-          <label class="block space-y-1.5 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
-          <label class="block space-y-1.5 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5 text-sm">
-              <span>空间图标</span>
-              <IconPicker
-                v-model="spaceIcon"
-                :preview-color="spaceColor"
-                :disabled="spaceSaving"
-                aria-label="空间图标"
-              />
+      <DialogContent class="!max-w-2xl">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <LucideIconByName :name="currentSpace?.icon" :size="18" :style="currentSpace?.color ? { color: currentSpace.color } : undefined" />
+            <span>{{ currentSpace?.name || '空间' }} · 空间设置</span>
+          </DialogTitle>
+          <DialogDescription>统一管理空间的基本信息、图标颜色、共享协作与成员权限。</DialogDescription>
+        </DialogHeader>
+
+        <div class="inline-flex w-fit rounded-lg border border-border bg-muted/40 p-1" role="tablist" aria-label="空间设置分页">
+          <Button
+            type="button"
+            size="sm"
+            class="h-8 px-3 text-xs"
+            :variant="spaceSettingsTab === 'general' ? 'default' : 'ghost'"
+            role="tab"
+            :aria-selected="spaceSettingsTab === 'general'"
+            @click="spaceSettingsTab = 'general'"
+          >
+            <Settings :size="14" /> 基本设置
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            class="h-8 px-3 text-xs"
+            :variant="spaceSettingsTab === 'members' ? 'default' : 'ghost'"
+            role="tab"
+            :aria-selected="spaceSettingsTab === 'members'"
+            @click="spaceSettingsTab = 'members'"
+          >
+            <Users :size="14" /> 成员与共享
+          </Button>
+        </div>
+
+        <template v-if="spaceSettingsTab === 'general'">
+          <form class="space-y-4 pt-1" @submit.prevent="saveSpaceSettings">
+            <label class="block space-y-1.5 text-sm"><span>空间名称</span><Input v-model="spaceName" aria-label="空间名称" :disabled="spaceSaving" /></label>
+            <label class="block space-y-1.5 text-sm"><span>空间描述</span><Input v-model="spaceDescription" aria-label="空间描述" placeholder="简短描述空间用途" :disabled="spaceSaving" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="space-y-1.5 text-sm">
+                <span>空间图标</span>
+                <IconPicker
+                  v-model="spaceIcon"
+                  :preview-color="spaceColor"
+                  :disabled="spaceSaving"
+                  aria-label="空间图标"
+                />
+              </div>
+              <div class="space-y-1.5 text-sm">
+                <span>标记颜色</span>
+                <ColorPicker
+                  v-model="spaceColor"
+                  :disabled="spaceSaving"
+                  aria-label="空间标记颜色"
+                />
+              </div>
             </div>
-            <div class="space-y-1.5 text-sm">
-              <span>标记颜色</span>
-              <ColorPicker
-                v-model="spaceColor"
-                :disabled="spaceSaving"
-                aria-label="空间标记颜色"
-              />
+            <label class="block space-y-1.5 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
+            <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>
+            <DialogFooter class="pt-2"><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
+          </form>
+          <div v-if="spaces.length > 1" class="mt-4 pt-4 border-t border-border space-y-2">
+            <p class="text-xs text-destructive">危险操作：输入空间名称「{{ currentSpace?.name }}」以确认删除该空间。</p>
+            <div class="flex items-center gap-2">
+              <Input v-model="spaceDeleteConfirm" aria-label="确认删除空间名称" :placeholder="currentSpace?.name" :disabled="spaceSaving" />
+              <Button variant="outline" class="text-destructive shrink-0" :disabled="spaceSaving || spaceDeleteConfirm !== currentSpace?.name" @click="confirmDeleteSpace">删除空间</Button>
             </div>
           </div>
-          <label class="block space-y-1.5 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
-          <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>
-          <DialogFooter class="pt-2"><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
-        </form>
-        <div v-if="spaces.length > 1" class="mt-4 pt-4 border-t border-border space-y-2">
-          <p class="text-xs text-destructive">危险操作：输入空间名称「{{ currentSpace?.name }}」以确认删除该空间。</p>
-          <div class="flex items-center gap-2">
-            <Input v-model="spaceDeleteConfirm" aria-label="确认删除空间名称" :placeholder="currentSpace?.name" :disabled="spaceSaving" />
-            <Button variant="outline" class="text-destructive shrink-0" :disabled="spaceSaving || spaceDeleteConfirm !== currentSpace?.name" @click="confirmDeleteSpace">删除空间</Button>
-          </div>
+        </template>
+
+        <div v-else-if="currentSpace" class="pt-1">
+          <SpaceMembersDialog embedded :space="currentSpace" @updated="reloadSpaces" />
         </div>
       </DialogContent>
     </Dialog>
