@@ -215,9 +215,6 @@ onMounted(() => {
         <span class="truncate text-sm sm:text-base">{{ siteName }}</span>
         <span class="hidden sm:inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">公开分享</span>
       </div>
-      <Button as-child variant="outline" size="sm">
-        <a href="/auth/login">登录工作台</a>
-      </Button>
     </header>
 
     <main class="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-6 sm:px-6">
