@@ -45,6 +45,7 @@
     "./form/FormMessage.vue": "./src/components/form/FormMessage.vue",
     "./icon-picker/IconPicker.vue": "./src/components/icon-picker/IconPicker.vue",
     "./icon-picker/LucideIconByName.vue": "./src/components/icon-picker/LucideIconByName.vue",
+    "./icon-picker/lucide-catalog.json": "./src/components/icon-picker/lucide-catalog.json",
     "./input/Input.vue": "./src/components/input/Input.vue",
     "./label/Label.vue": "./src/components/label/Label.vue",
     "./select/Select.vue": "./src/components/select/Select.vue",

@@ -1,4 +1,4 @@
-import catalogUrl from './lucide-catalog.json?url'
+const catalogUrl = new URL('./lucide-catalog.json', import.meta.url).href
 
 export type LucideSvgNode = [tag: string, attrs: Record<string, string | number>]
 
