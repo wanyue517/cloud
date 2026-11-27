@@ -206,7 +206,10 @@ function commitHexInput() {
       <PopoverContent
         align="start"
         :side-offset="6"
-        class="z-[95] w-64 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
+        :avoid-collisions="true"
+        :collision-padding="12"
+        sticky="always"
+        class="z-[95] w-64 max-w-[calc(100vw-24px)] max-h-[min(var(--reka-popover-content-available-height),calc(100vh-24px))] overflow-y-auto rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
       >
         <div class="space-y-3">
           <!-- 2D 饱和度 / 明度拾色面板 -->

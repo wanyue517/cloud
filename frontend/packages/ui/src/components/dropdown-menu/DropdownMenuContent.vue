@@ -17,6 +17,8 @@ const props = withDefaults(
   defineProps<DropdownMenuContentProps & { class?: HTMLAttributes["class"] }>(),
   {
     sideOffset: 4,
+    avoidCollisions: true,
+    collisionPadding: 12,
   },
 )
 const emits = defineEmits<DropdownMenuContentEmits>()

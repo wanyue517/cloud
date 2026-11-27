@@ -73,9 +73,11 @@ const normalizedOptions = computed(() =>
       <SelectContent
         position="popper"
         :side-offset="4"
-        class="z-[90] max-h-72 min-w-[var(--reka-select-trigger-width)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+        :avoid-collisions="true"
+        :collision-padding="12"
+        class="z-[90] flex max-h-[min(18rem,var(--reka-select-content-available-height))] min-w-[var(--reka-select-trigger-width)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       >
-        <SelectViewport class="p-1">
+        <SelectViewport class="overflow-y-auto p-1">
           <SelectItem
             v-for="opt in normalizedOptions"
             :key="opt.internalValue"

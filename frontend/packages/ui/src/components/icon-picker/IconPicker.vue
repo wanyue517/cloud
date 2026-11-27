@@ -13,7 +13,7 @@ import {
 } from './icons'
 import LucideIconByName from './LucideIconByName.vue'
 
-const PAGE_SIZE = 48
+const PAGE_SIZE = 36
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -120,10 +120,13 @@ function selectIcon(name: string) {
       <PopoverContent
         align="start"
         :side-offset="6"
-        class="z-[95] w-80 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
+        :avoid-collisions="true"
+        :collision-padding="12"
+        sticky="always"
+        class="z-[95] flex w-80 max-w-[calc(100vw-24px)] max-h-[min(var(--reka-popover-content-available-height),calc(100vh-24px))] flex-col overflow-hidden rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none"
       >
-        <div class="space-y-2.5">
-          <div class="relative">
+        <div class="flex min-h-0 flex-1 flex-col gap-2.5">
+          <div class="relative shrink-0">
             <Search :size="14" class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               v-model="keyword"
@@ -136,42 +139,44 @@ function selectIcon(name: string) {
           <div v-if="loading" class="py-10 text-center text-xs text-muted-foreground">
             正在加载全部 Lucide 图标…
           </div>
-          <div v-else-if="pagedIcons.length" class="grid grid-cols-6 gap-1.5 min-h-[224px] content-start">
-            <button
-              v-for="item in pagedIcons"
-              :key="item.name"
-              type="button"
-              :title="item.label !== item.name ? `${item.label} (${item.name})` : item.name"
-              :aria-label="item.label"
-              class="flex size-10 cursor-pointer items-center justify-center rounded-md border transition-colors"
-              :class="normalizedValue === item.name
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-transparent hover:border-border hover:bg-accent'"
-              @click="selectIcon(item.name)"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                :style="normalizedValue === item.name && previewColor ? { color: previewColor } : undefined"
+          <div v-else-if="pagedIcons.length" class="min-h-0 flex-1 overflow-y-auto pr-0.5">
+            <div class="grid grid-cols-6 gap-1.5 content-start">
+              <button
+                v-for="item in pagedIcons"
+                :key="item.name"
+                type="button"
+                :title="item.label !== item.name ? `${item.label} (${item.name})` : item.name"
+                :aria-label="item.label"
+                class="flex size-10 cursor-pointer items-center justify-center rounded-md border transition-colors"
+                :class="normalizedValue === item.name
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-transparent hover:border-border hover:bg-accent'"
+                @click="selectIcon(item.name)"
               >
-                <component :is="tag" v-for="([tag, attrs], idx) in item.nodes" :key="idx" v-bind="attrs" />
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                  :style="normalizedValue === item.name && previewColor ? { color: previewColor } : undefined"
+                >
+                  <component :is="tag" v-for="([tag, attrs], idx) in item.nodes" :key="idx" v-bind="attrs" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div v-else class="py-10 text-center text-xs text-muted-foreground">
             未找到匹配的 Lucide 图标
           </div>
 
           <!-- 分页控制栏 -->
-          <div v-if="filteredIcons.length > PAGE_SIZE" class="flex items-center justify-between border-t border-border pt-2 text-xs">
+          <div v-if="filteredIcons.length > PAGE_SIZE" class="flex shrink-0 items-center justify-between border-t border-border pt-2 text-xs">
             <button
               type="button"
               class="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded border border-input px-2 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
@@ -191,7 +196,7 @@ function selectIcon(name: string) {
             </button>
           </div>
 
-          <div class="flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted-foreground">
+          <div class="flex shrink-0 items-center justify-between border-t border-border pt-2 text-[11px] text-muted-foreground">
             <span>共 {{ filteredIcons.length }} / {{ allIcons.length }} 个图标</span>
             <button
               type="button"
