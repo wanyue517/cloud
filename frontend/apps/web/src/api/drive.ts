@@ -76,6 +76,18 @@ export const drive = {
   restoreVersion: (node: DriveNode, version: string) => request.post(`/v1/spaces/${node.spaceId}/nodes/${node.id}/versions/${version}/restore`, undefined, { params: { revision: node.revision } }),
   favorite: (node: DriveNode, enabled: boolean) => request.put(`/v1/spaces/${node.spaceId}/nodes/${node.id}/favorite`, undefined, { params: { enabled } }),
   replace: (node: DriveNode, file: File) => request.upload(`/v1/spaces/${node.spaceId}/files`, file, { extraData: { parentId: node.parentId, replaceId: node.id, revision: node.revision } }),
+  getProgress: (node: DriveNode) =>
+    request.get<{ nodeId: string; progressType: 'VIDEO' | 'PDF' | 'AUDIO'; positionValue: number; updatedAt: string } | null>(
+      `/v1/spaces/${node.spaceId}/nodes/${node.id}/progress`,
+      undefined,
+      { silent: true },
+    ),
+  saveProgress: (node: DriveNode, progressType: 'VIDEO' | 'PDF' | 'AUDIO', positionValue: number) =>
+    request.put<{ nodeId: string; progressType: 'VIDEO' | 'PDF' | 'AUDIO'; positionValue: number; updatedAt: string }>(
+      `/v1/spaces/${node.spaceId}/nodes/${node.id}/progress`,
+      { progressType, positionValue },
+      { silent: true },
+    ),
 }
 
 export async function uploadFile(spaceId: string, parentId: string, file: File, progress: (percent: number) => void, signal?: AbortSignal): Promise<string> {

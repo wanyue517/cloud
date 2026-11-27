@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@lucide/vue": "^1.77.0",
+    "@repo/drive-core": "workspace:*",
     "@repo/session": "workspace:*",
     "@repo/ui": "workspace:*",
     "@vee-validate/zod": "^4.15.1",
@@ -26,6 +27,7 @@
     "markdown-it": "^15.0.3",
     "mermaid": "^12.3.0",
     "pdfjs-dist": "^6.5.438",
+    "qrcode": "^1.5.4",
     "reka-ui": "^2.11.0",
     "vee-validate": "^4.15.1",
     "viewerjs": "^1.15.2",
@@ -40,6 +42,7 @@
     "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.19.2",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/tsconfig": "^0.9.1",
     "tailwindcss": "^4.3.5",

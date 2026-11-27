@@ -38,8 +38,17 @@ public final class DriveModels {
     }
     public record UploadInput(@Positive long spaceId, @PositiveOrZero long parentId,
                               @NotBlank @Size(max=255) String name, @PositiveOrZero @Max(10737418240L) long size,
-                              @Size(max=255) String mimeType) {}
-    public record Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId) {}
+                              @Size(max=255) String mimeType,
+                              @Pattern(regexp="^[0-9a-fA-F]{64}$") String expectedSha256) {
+        public UploadInput(long spaceId, long parentId, String name, long size, String mimeType) {
+            this(spaceId, parentId, name, size, mimeType, null);
+        }
+    }
+    public record Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId, boolean instantHit) {
+        public Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId) {
+            this(id, chunkSize, chunkCount, received, missing, status, fileId, false);
+        }
+    }
     public record Content(java.nio.file.Path path, long size, String name, String mimeType, String etag) {
         public Content(java.nio.file.Path path, long size, String name, String mimeType) {
             this(path, size, name, mimeType, "");

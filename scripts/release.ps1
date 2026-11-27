@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet("all", "backend", "web", "admin")]
+    [ValidateSet("all", "backend", "web", "admin", "mobile", "android-apk")]
     [string]$Module = "all",
     [string]$DistDir = "release-dist"
 )
@@ -39,6 +39,46 @@ if ($Module -eq "all" -or $Module -eq "admin") {
         & .\node_modules\.bin\vite build --configLoader native --outDir $adminOut
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } finally {
+        Pop-Location
+    }
+}
+
+if ($Module -eq "all" -or $Module -eq "mobile") {
+    Write-Host "==> 构建移动端前端 (@cloud/mobile)..."
+    Push-Location frontend/apps/mobile
+    try {
+        & .\node_modules\.bin\vue-tsc -p tsconfig.app.json --noEmit --incremental false
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $mobileOut = (Resolve-Path (Join-Path "..\..\..\" $DistDir)).Path + "\mobile"
+        & .\node_modules\.bin\vite build --configLoader native --outDir $mobileOut
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } finally {
+        Pop-Location
+    }
+}
+
+if ($Module -eq "android-apk") {
+    Write-Host "==> 构建移动端原生 Android APK (@cloud/mobile + Capacitor)..."
+    Push-Location frontend/apps/mobile
+    try {
+        $env:CAPACITOR_BUILD = "1"
+        & .\node_modules\.bin\vue-tsc -p tsconfig.app.json --noEmit --incremental false --skipLibCheck
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & .\node_modules\.bin\vite build --configLoader native
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & .\node_modules\.bin\cap sync android
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Push-Location android
+        try {
+            & .\gradlew.bat assembleRelease
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } finally {
+            Pop-Location
+        }
+        $apkOut = (Resolve-Path (Join-Path "..\..\..\" $DistDir)).Path
+        Copy-Item -Force android\app\build\outputs\apk\release\*.apk $apkOut -ErrorAction SilentlyContinue
+    } finally {
+        Remove-Item Env:\CAPACITOR_BUILD -ErrorAction SilentlyContinue
         Pop-Location
     }
 }

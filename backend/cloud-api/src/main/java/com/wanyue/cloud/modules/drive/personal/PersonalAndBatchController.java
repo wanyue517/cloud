@@ -101,4 +101,18 @@ public class PersonalAndBatchController {
     public R<List<RecentAccessItem>> listRecent(Authentication auth) {
         return R.ok(service.listRecent(user(auth)));
     }
+
+    @GetMapping("/spaces/{space}/nodes/{id}/progress")
+    public R<FileProgressView> getFileProgress(Authentication auth, @PathVariable long space, @PathVariable long id) {
+        return R.ok(service.getFileProgress(user(auth), space, id));
+    }
+
+    @PutMapping("/spaces/{space}/nodes/{id}/progress")
+    public R<FileProgressView> saveFileProgress(
+            Authentication auth,
+            @PathVariable long space,
+            @PathVariable long id,
+            @Valid @RequestBody FileProgressInput input) {
+        return R.ok(service.saveFileProgress(user(auth), space, id, input));
+    }
 }

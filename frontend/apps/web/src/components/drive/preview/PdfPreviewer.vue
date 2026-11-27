@@ -4,6 +4,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import { ChevronLeft, ChevronRight, ListTree, Maximize, Search, ZoomIn, ZoomOut } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
+import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
 import { drive, type DriveNode, type Version } from '@/api/drive'
 import { getOrFetchPreviewBlob } from '@/lib/thumb-cache'
 
@@ -42,6 +43,11 @@ const searchQuery = ref('')
 const searching = ref(false)
 const searchHits = ref<SearchHit[]>([])
 const activeHitIndex = ref(0)
+const resumePromptPage = ref<number | null>(null)
+const progressReporter = createProgressReporter(
+  (page) => drive.saveProgress(props.node, 'PDF', page),
+  { intervalMs: 10_000 },
+)
 
 let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null
 let activeLoadingTask: pdfjsLib.PDFDocumentLoadingTask | null = null
@@ -49,6 +55,9 @@ let activeRenderTask: { cancel: () => void; promise: Promise<unknown> } | null =
 let loadSeq = 0
 
 async function releasePdf() {
+  progressReporter.flush()
+  progressReporter.reset()
+  resumePromptPage.value = null
   if (activeRenderTask) {
     try { activeRenderTask.cancel() } catch { /* ignore */ }
     activeRenderTask = null
@@ -127,6 +136,8 @@ async function renderPage(num: number) {
   currentPage.value = safePage
   pageInput.value = String(safePage)
   saveCurrentPage(safePage)
+  progressReporter.report(safePage)
+  if (resumePromptPage.value === safePage) resumePromptPage.value = null
   if (activeRenderTask) {
     try { activeRenderTask.cancel() } catch { /* ignore */ }
     activeRenderTask = null
@@ -197,6 +208,13 @@ async function loadPdf() {
     await nextTick()
     scale.value = await computeFitWidthScale(initialPage)
     await renderPage(initialPage)
+    void drive.getProgress(props.node).then((saved) => {
+      if (seq !== loadSeq || !saved || saved.progressType !== 'PDF') return
+      const target = Math.round(saved.positionValue)
+      if (target !== currentPage.value && shouldPromptResume('PDF', target, doc.numPages)) {
+        resumePromptPage.value = target
+      }
+    }).catch(() => undefined)
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e instanceof Error ? e.message : 'PDF 加载失败'
@@ -297,6 +315,17 @@ onBeforeUnmount(() => {
           <Button type="button" variant="outline" size="icon-sm" aria-label="下一处匹配" @click="goHit(1)"><ChevronRight :size="14" /></Button>
         </template>
       </form>
+    </div>
+
+    <div
+      v-if="resumePromptPage !== null"
+      class="flex items-center justify-between gap-3 border-b border-primary/20 bg-primary/10 px-4 py-1.5 text-xs text-foreground"
+    >
+      <span>{{ formatResumePrompt('PDF', resumePromptPage) }}</span>
+      <div class="flex items-center gap-2 shrink-0">
+        <Button size="sm" class="h-6 px-2.5 text-xs" @click="const p = resumePromptPage; resumePromptPage = null; void renderPage(p)">跳转</Button>
+        <button type="button" class="text-muted-foreground hover:text-foreground" @click="resumePromptPage = null">忽略</button>
+      </div>
     </div>
 
     <div class="flex min-h-0 flex-1 overflow-hidden">

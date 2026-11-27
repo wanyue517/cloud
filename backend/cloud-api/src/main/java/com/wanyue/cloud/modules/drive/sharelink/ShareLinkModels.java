@@ -54,4 +54,10 @@ public final class ShareLinkModels {
     public record PublicNode(String id, String parentId, String name, String nodeType, long size, String mimeType, String updatedAt) {}
 
     public record PublicNodeList(List<PublicNode> items) {}
+
+    public record SavePublicShareInput(
+            @NotNull Long targetSpaceId,
+            @Min(0) long targetParentId,
+            Long nodeId,
+            @Size(max = 32) String password) {}
 }

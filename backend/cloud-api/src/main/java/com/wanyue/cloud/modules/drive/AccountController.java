@@ -50,12 +50,26 @@ public class AccountController {
 
     @PostMapping("/auth/refresh")
     public R<Map<String, Object>> refresh(
-            @CookieValue(name = "cloudlane.refresh", required = false) String token,
+            @CookieValue(name = "cloudlane.refresh", required = false) String cookieToken,
+            @RequestHeader(name = "X-Refresh-Token", required = false) String headerToken,
+            @RequestHeader(name = "X-Client-Type", required = false) String clientType,
             @RequestHeader(name = "X-Requested-With", required = false) String requestedWith,
+            @RequestBody(required = false) Map<String, Object> body,
             HttpServletRequest request,
             HttpServletResponse response) {
         if (!"Cloudlane".equals(requestedWith)) throw new BizException(HttpStatus.FORBIDDEN, 403, "请求来源无效");
-        var refreshed = sessions.refresh(token);
+        boolean mobileApp = WebSessionService.isMobileAppClient(clientType);
+        String bodyToken = body != null && body.get("refreshToken") instanceof String s ? s : null;
+        String effectiveToken = mobileApp
+                ? firstNonBlank(headerToken, bodyToken, cookieToken)
+                : firstNonBlank(cookieToken, headerToken, bodyToken);
+        var refreshed = sessions.refresh(effectiveToken);
+        if (mobileApp) {
+            return R.ok(Map.of(
+                    "accessToken", refreshed.accessToken(),
+                    "expiresIn", refreshed.expiresIn(),
+                    "refreshToken", refreshed.refreshToken()));
+        }
         cookie(response, refreshed.refreshToken(), request.isSecure());
         return R.ok(Map.of("accessToken", refreshed.accessToken(), "expiresIn", refreshed.expiresIn()));
     }
@@ -70,8 +84,17 @@ public class AccountController {
     @GetMapping("/auth/sessions")
     public R<List<WebSessionService.DeviceSession>> listSessions(
             Authentication auth,
-            @CookieValue(name = "cloudlane.refresh", required = false) String token) {
-        return R.ok(sessions.listActive(DriveController.user(auth), token));
+            @CookieValue(name = "cloudlane.refresh", required = false) String cookieToken,
+            @RequestHeader(name = "X-Refresh-Token", required = false) String headerToken) {
+        String effectiveToken = firstNonBlank(cookieToken, headerToken);
+        return R.ok(sessions.listActive(DriveController.user(auth), effectiveToken));
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) return candidate.trim();
+        }
+        return null;
     }
 
     @DeleteMapping("/auth/sessions/{id}")

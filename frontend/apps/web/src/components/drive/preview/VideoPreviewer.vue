@@ -4,6 +4,7 @@ import Player from 'xgplayer'
 import 'xgplayer/dist/index.min.css'
 import { AlertCircle, Download, Loader2, RefreshCw } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
 import { drive, type DriveNode, type PreviewAsset, type Version, type VideoProbe } from '@/api/drive'
 
 const props = defineProps<{ node: DriveNode; version?: Version }>()
@@ -18,12 +19,20 @@ const retrying = ref(false)
 const streamUrl = ref('')
 const playbackRate = ref(1)
 const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const resumePromptSec = ref<number | null>(null)
+const progressReporter = createProgressReporter(
+  (sec) => drive.saveProgress(props.node, 'VIDEO', sec),
+  { intervalMs: 10_000 },
+)
 
 let player: Player | null = null
 let pollTimer: number | null = null
 let seq = 0
 
 function destroyPlayer() {
+  progressReporter.flush()
+  progressReporter.reset()
+  resumePromptSec.value = null
   if (player) {
     try { player.destroy() } catch { /* ignore */ }
     player = null
@@ -66,6 +75,27 @@ async function mountPlayer(url: string) {
       playbackRate.value = player.playbackRate
     }
   })
+  player.on('timeupdate', () => {
+    if (!player) return
+    const sec = Number(player.currentTime)
+    if (Number.isFinite(sec) && sec >= 1) progressReporter.report(sec)
+  })
+  player.on('pause', () => { progressReporter.flush() })
+  const currentSeq = seq
+  void drive.getProgress(props.node).then((saved) => {
+    if (currentSeq !== seq || !saved || saved.progressType !== 'VIDEO') return
+    const dur = Number(player?.duration || 0)
+    if (shouldPromptResume('VIDEO', saved.positionValue, dur > 0 ? dur : undefined)) {
+      resumePromptSec.value = saved.positionValue
+    }
+  }).catch(() => undefined)
+}
+
+function resumeVideoFromSaved() {
+  if (!player || resumePromptSec.value === null) return
+  player.currentTime = resumePromptSec.value
+  resumePromptSec.value = null
+  void player.play()
 }
 
 async function pollTranscode(currentSeq: number) {
@@ -146,6 +176,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex h-full min-h-0 flex-1 flex-col bg-black/95">
+    <div v-if="resumePromptSec !== null" class="flex items-center justify-between gap-3 border-b border-white/10 bg-primary/20 px-4 py-1.5 text-xs text-white">
+      <span>{{ formatResumePrompt('VIDEO', resumePromptSec) }}</span>
+      <div class="flex items-center gap-2">
+        <Button size="sm" class="h-6 px-2.5 text-xs" @click="resumeVideoFromSaved">跳转播放</Button>
+        <button type="button" class="text-white/70 hover:text-white" @click="resumePromptSec = null">忽略</button>
+      </div>
+    </div>
     <div v-if="probe" class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-zinc-900/90 px-4 py-1.5 text-xs text-zinc-300">
       <span>
         编码：{{ probe.videoCodec || '未知' }} / {{ probe.audioCodec || '无音轨' }}

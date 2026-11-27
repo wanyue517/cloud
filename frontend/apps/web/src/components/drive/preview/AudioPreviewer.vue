@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Music, Pause, Play, Repeat, Repeat1, Volume2, VolumeX } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
 import { drive, type DriveNode, type Version } from '@/api/drive'
 
 const props = defineProps<{ node: DriveNode; version?: Version }>()
@@ -17,6 +18,11 @@ const currentTime = ref(0)
 const duration = ref(0)
 const playbackRate = ref(1)
 const rates = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const resumePromptSec = ref<number | null>(null)
+const progressReporter = createProgressReporter(
+  (sec) => drive.saveProgress(props.node, 'AUDIO', sec),
+  { intervalMs: 10_000 },
+)
 let loadSeq = 0
 
 function formatTime(sec: number): string {
@@ -27,6 +33,9 @@ function formatTime(sec: number): string {
 }
 
 async function loadAudio() {
+  progressReporter.flush()
+  progressReporter.reset()
+  resumePromptSec.value = null
   const seq = ++loadSeq
   loading.value = true
   error.value = ''
@@ -38,6 +47,12 @@ async function loadAudio() {
     const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'ORIGINAL' })
     if (seq !== loadSeq) return
     streamUrl.value = ticket.streamUrl
+    void drive.getProgress(props.node).then((saved) => {
+      if (seq !== loadSeq || !saved || saved.progressType !== 'AUDIO') return
+      if (shouldPromptResume('AUDIO', saved.positionValue, duration.value > 0 ? duration.value : undefined)) {
+        resumePromptSec.value = saved.positionValue
+      }
+    }).catch(() => undefined)
   } catch (e) {
     if (seq !== loadSeq) return
     error.value = e instanceof Error ? e.message : '音频加载失败'
@@ -76,9 +91,25 @@ function setRate(rate: number) {
   if (audioRef.value) audioRef.value.playbackRate = rate
 }
 
+function resumeAudioFromSaved() {
+  const el = audioRef.value
+  if (!el || resumePromptSec.value === null) return
+  el.currentTime = resumePromptSec.value
+  currentTime.value = resumePromptSec.value
+  resumePromptSec.value = null
+  void el.play()
+}
+
+function handleAudioTimeUpdate() {
+  const sec = audioRef.value?.currentTime || 0
+  currentTime.value = sec
+  if (sec >= 1) progressReporter.report(sec)
+}
+
 watch(() => [props.node.id, props.version?.id], () => { void loadAudio() })
 onMounted(() => { void loadAudio() })
 onBeforeUnmount(() => {
+  progressReporter.flush()
   loadSeq++
   streamUrl.value = ''
 })
@@ -105,11 +136,19 @@ onBeforeUnmount(() => {
         :loop="loopMode === 'one'"
         preload="metadata"
         @play="playing = true"
-        @pause="playing = false"
-        @ended="playing = false"
+        @pause="playing = false; progressReporter.flush()"
+        @ended="playing = false; progressReporter.flush()"
         @loadedmetadata="duration = audioRef?.duration || 0; if (audioRef) audioRef.playbackRate = playbackRate"
-        @timeupdate="currentTime = audioRef?.currentTime || 0"
+        @timeupdate="handleAudioTimeUpdate"
       />
+
+      <div v-if="resumePromptSec !== null" class="flex items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs">
+        <span>{{ formatResumePrompt('AUDIO', resumePromptSec) }}</span>
+        <div class="flex items-center gap-2 shrink-0">
+          <Button size="sm" class="h-6 px-2.5 text-xs" @click="resumeAudioFromSaved">跳转播放</Button>
+          <button type="button" class="text-muted-foreground hover:text-foreground" @click="resumePromptSec = null">忽略</button>
+        </div>
+      </div>
 
       <div class="space-y-2">
         <input

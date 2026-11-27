@@ -101,6 +101,11 @@ export function setupRequest(config: RequestHooks) {
     })
 }
 
+/** 运行时切换 API 基地址（如 Capacitor 原生 App 指向用户自托管域名） */
+export function setApiBaseUrl(baseURL: string) {
+    client.defaults.baseURL = baseURL.replace(/\/+$/, '') || '/api'
+}
+
 const client = axios.create({
     // Both applications use the same origin for session cookies and API traffic.
     baseURL: '/api',

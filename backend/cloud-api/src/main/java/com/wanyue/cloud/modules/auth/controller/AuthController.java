@@ -35,10 +35,23 @@ public class AuthController {
     @PreAuthorize("permitAll()")
     @PostMapping("/login/email")
     public R<UserLoginRespVO> login(@Valid @RequestBody EmailLoginReqVO request,
-            HttpServletRequest servletRequest,jakarta.servlet.http.HttpServletResponse response) {
-        UserLoginRespVO result=authService.loginWithEmail(request);
-        String refresh=webSessions.start(result.getUser().getId());
-        com.wanyue.cloud.modules.drive.AccountController.cookie(response,refresh,servletRequest.isSecure());
+            @RequestHeader(name = "X-Client-Type", required = false) String clientType,
+            @RequestHeader(name = "X-Device-Name", required = false) String deviceName,
+            HttpServletRequest servletRequest, jakarta.servlet.http.HttpServletResponse response) {
+        UserLoginRespVO result = authService.loginWithEmail(request);
+        String normalizedClient = com.wanyue.cloud.modules.auth.service.WebSessionService.normalizeClientType(clientType);
+        String refresh = webSessions.start(
+                result.getUser().getId(),
+                servletRequest.getHeader("User-Agent"),
+                servletRequest.getRemoteAddr(),
+                normalizedClient,
+                deviceName);
+        if (com.wanyue.cloud.modules.auth.service.WebSessionService.isMobileAppClient(normalizedClient)) {
+            result.setRefreshToken(refresh);
+        } else {
+            result.setRefreshToken(null);
+            com.wanyue.cloud.modules.drive.AccountController.cookie(response, refresh, servletRequest.isSecure());
+        }
         return R.ok(result);
     }
 

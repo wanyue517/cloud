@@ -12,11 +12,15 @@ export default defineConfig(({ mode }) => {
     strictPort: true,
     proxy: {
       '^/admin(?:/|$)': { target: 'http://127.0.0.1:3001', ws: true },
+      '^/m(?:/|$)': { target: 'http://127.0.0.1:3002', ws: true },
       '/api': {
         target: env.API_PROXY_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: false,
       },
     },
+  },
+  optimizeDeps: {
+    exclude: ['@repo/drive-core', '@repo/ui', '@repo/session'],
   },
   resolve:{
     alias:{

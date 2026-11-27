@@ -259,4 +259,30 @@ public class ShareLinkService {
         }
         return rows.get(0);
     }
+
+    @Transactional
+    public DriveModels.Node saveToMyDrive(long user, String token, String passwordHeader, SavePublicShareInput input) {
+        var link = loadActiveLink(token);
+        String effectivePassword = (passwordHeader != null && !passwordHeader.isBlank())
+                ? passwordHeader
+                : input.password();
+        checkPasswordIfNeeded(link, effectivePassword);
+
+        long sourceSpaceId = ((Number) link.get("space_id")).longValue();
+        long rootNodeId = ((Number) link.get("node_id")).longValue();
+        long targetSourceId = input.nodeId() == null ? rootNodeId : input.nodeId();
+
+        Integer inside = db.queryForObject(
+                "SELECT COUNT(*) FROM file_node_closure WHERE space_id=? AND ancestor_id=? AND descendant_id=?",
+                Integer.class, sourceSpaceId, rootNodeId, targetSourceId);
+        if (inside == null || inside == 0) {
+            throw BizException.notFound("文件不存在或超出分享范围");
+        }
+        return drive.copySubtreeFromPublicShare(
+                user,
+                sourceSpaceId,
+                targetSourceId,
+                input.targetSpaceId(),
+                input.targetParentId());
+    }
 }

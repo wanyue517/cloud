@@ -89,6 +89,24 @@ public class UploadService {
         long profileId = storageRouter.resolveProfileIdForUsage(StorageRouterService.USAGE_USER_FILES);
         long id = IdWorker.getId();
         int count = (int) Math.max(1, (input.size() + chunkSize - 1) / chunkSize);
+
+        // M039: 用户作用域 SHA-256 秒传去重（仅复用当前用户自身可读物理对象）
+        if (input.expectedSha256() != null && !input.expectedSha256().isBlank()) {
+            var existingBlob = drive.findUserReadableBlobBySha256(user, input.expectedSha256(), input.size());
+            if (existingBlob.isPresent()) {
+                Node instantNode = drive.instantCreateFromBlob(
+                        user, input.spaceId(), input.parentId(), input.name(), existingBlob.get(), input.size());
+                db.update(
+                        "INSERT INTO upload_session(id,user_id,space_id,storage_profile_id,parent_id,name,size_bytes,chunk_size,chunk_count,mime_type,status,file_id,expires_at) "
+                                + "VALUES (?,?,?,?,?,?,?,?,?,?,'COMPLETED',?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? HOUR))",
+                        id, user, input.spaceId(), profileId, input.parentId(), input.name(), input.size(), chunkSize, count,
+                        DriveService.safeMime(input.name()), Long.parseLong(instantNode.id()), ttlHours);
+                List<Integer> allParts = new ArrayList<>(count);
+                for (int i = 0; i < count; i++) allParts.add(i);
+                return new Upload(String.valueOf(id), chunkSize, count, allParts, List.of(), "COMPLETED", instantNode.id(), true);
+            }
+        }
+
         db.update(
                 "INSERT INTO upload_session(id,user_id,space_id,storage_profile_id,parent_id,name,size_bytes,chunk_size,chunk_count,mime_type,expires_at) "
                         + "VALUES (?,?,?,?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? HOUR))",

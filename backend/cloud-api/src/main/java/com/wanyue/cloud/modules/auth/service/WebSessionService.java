@@ -54,22 +54,41 @@ public class WebSessionService {
         }
     }
 
+    private static final Set<String> ALLOWED_CLIENT_TYPES = Set.of("WEB", "MOBILE_H5", "IOS", "ANDROID");
+
+    public static String normalizeClientType(String raw) {
+        if (raw == null || raw.isBlank()) return "WEB";
+        String upper = raw.trim().toUpperCase(Locale.ROOT);
+        return ALLOWED_CLIENT_TYPES.contains(upper) ? upper : "WEB";
+    }
+
+    public static boolean isMobileAppClient(String clientType) {
+        String normalized = normalizeClientType(clientType);
+        return "IOS".equals(normalized) || "ANDROID".equals(normalized);
+    }
+
     @Transactional
     public String start(long user) {
-        return start(user, null, null);
+        return start(user, null, null, "WEB", null);
     }
 
     @Transactional
     public String start(long user, String userAgent, String ipAddress) {
+        return start(user, userAgent, ipAddress, "WEB", null);
+    }
+
+    @Transactional
+    public String start(long user, String userAgent, String ipAddress, String clientType, String explicitDeviceName) {
         String refresh = random();
         int version = db.queryForObject("SELECT session_version FROM auth_user_security WHERE user_id=? AND deleted=0", Integer.class, user);
         String ua = userAgent == null ? null : userAgent.substring(0, Math.min(userAgent.length(), 512));
         String ip = ipAddress == null ? null : ipAddress.substring(0, Math.min(ipAddress.length(), 45));
-        String deviceName = deriveDeviceName(ua);
+        String normalizedClient = normalizeClientType(clientType);
+        String deviceName = resolveDeviceName(explicitDeviceName, ua, normalizedClient);
         db.update(
                 "INSERT INTO auth_session(id,user_id,refresh_token_hash,refresh_expires_at,device_name,client_type,user_agent,ip_address,last_used_at,session_version) "
-                        + "VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 DAY),?,'WEB',?,?,UTC_TIMESTAMP(3),?)",
-                IdWorker.getId(), user, hash(refresh), deviceName, ua, ip, version);
+                        + "VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 30 DAY),?,?,?,?,UTC_TIMESTAMP(3),?)",
+                IdWorker.getId(), user, hash(refresh), deviceName, normalizedClient, ua, ip, version);
         return refresh;
     }
 
@@ -107,10 +126,13 @@ public class WebSessionService {
         List<DeviceSession> result = new ArrayList<>(rows.size());
         for (var row : rows) {
             boolean isCurrent = currentHash != null && currentHash.equals(row.get("tokenHash"));
+            String clientType = normalizeClientType(row.get("clientType") == null ? null : String.valueOf(row.get("clientType")));
             result.add(new DeviceSession(
                     String.valueOf(row.get("id")),
-                    row.get("deviceName") == null || String.valueOf(row.get("deviceName")).isBlank() ? "Web 浏览器" : String.valueOf(row.get("deviceName")),
-                    row.get("clientType") == null ? "WEB" : String.valueOf(row.get("clientType")),
+                    row.get("deviceName") == null || String.valueOf(row.get("deviceName")).isBlank()
+                            ? defaultDeviceName(clientType)
+                            : String.valueOf(row.get("deviceName")),
+                    clientType,
                     row.get("ipAddress") == null ? "" : String.valueOf(row.get("ipAddress")),
                     formatTime(row.get("createdAt")),
                     formatTime(row.get("lastUsedAt")),
@@ -136,6 +158,28 @@ public class WebSessionService {
     public void logout(long user) {
         db.update("UPDATE auth_user_security SET session_version=session_version+1 WHERE user_id=? AND deleted=0", user);
         db.update("UPDATE auth_session SET revoked_at=UTC_TIMESTAMP(3),revoke_reason='LOGOUT' WHERE user_id=? AND revoked_at IS NULL", user);
+    }
+
+    private static String resolveDeviceName(String explicitDeviceName, String ua, String clientType) {
+        if (explicitDeviceName != null && !explicitDeviceName.isBlank()) {
+            String clean = explicitDeviceName.replaceAll("[\\r\\n\\t]", " ").trim();
+            if (!clean.isEmpty()) {
+                return clean.substring(0, Math.min(clean.length(), 120));
+            }
+        }
+        if (ua != null && !ua.isBlank()) {
+            return deriveDeviceName(ua);
+        }
+        return defaultDeviceName(clientType);
+    }
+
+    private static String defaultDeviceName(String clientType) {
+        return switch (normalizeClientType(clientType)) {
+            case "IOS" -> "Cloudlane iOS";
+            case "ANDROID" -> "Cloudlane Android";
+            case "MOBILE_H5" -> "移动端浏览器";
+            default -> "Web 浏览器";
+        };
     }
 
     private static String deriveDeviceName(String ua) {

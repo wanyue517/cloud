@@ -488,6 +488,78 @@ public class DriveService {
         long copiedRootId = copySubtree(user, sourceSpace, targetSpace, id, targetParent);
         return getNode(targetSpace, copiedRootId, false);
     }
+
+    /**
+     * 公开分享一键转存：将来源空间内已校验在分享范围内的可见子树深拷贝到目标用户的指定空间与目录，
+     * 严格校验目标写权限、目录深度、名称唯一性与目标用户存储配额，且过滤所有隐藏节点。
+     */
+    @Transactional
+    public Node copySubtreeFromPublicShare(
+            long targetUser,
+            long sourceSpace,
+            long sourceRootId,
+            long targetSpace,
+            long targetParentId) {
+        resolveNodeAccess(targetUser, targetSpace, targetParentId, true, true);
+        parent(targetSpace, targetParentId);
+        Node source = getNode(sourceSpace, sourceRootId, false);
+        if (source.hidden()) {
+            throw BizException.notFound("分享内容不存在或不可转存");
+        }
+        List<Node> targetAncestors = ancestors(targetSpace, targetParentId);
+        int depth = subtreeDepth(sourceSpace, sourceRootId);
+        if (targetAncestors.size() + depth > policy.maxDirectoryDepth()) {
+            throw BizException.conflict("目标目录层级超过系统深度限制");
+        }
+        Long totalBytes = db.queryForObject(
+                "SELECT COALESCE(SUM(b.size_bytes), 0) "
+                        + "FROM file_node_closure c "
+                        + "JOIN file_node n ON n.id=c.descendant_id "
+                        + "LEFT JOIN file_version v ON v.id=n.current_version_id "
+                        + "LEFT JOIN blob_object b ON b.id=v.blob_id "
+                        + "WHERE c.space_id=? AND c.ancestor_id=? AND n.deleted_at IS NULL AND n.hidden=FALSE",
+                Long.class, sourceSpace, sourceRootId);
+        checkQuota(targetUser, totalBytes == null ? 0L : totalBytes);
+        unique(targetSpace, targetParentId, source.name(), 0);
+
+        var subtreeRows = db.queryForList(
+                "SELECT n.id, n.parent_id, n.node_type, n.name, n.current_version_id, c.depth "
+                        + "FROM file_node_closure c JOIN file_node n ON n.id=c.descendant_id "
+                        + "WHERE c.space_id=? AND c.ancestor_id=? AND n.deleted_at IS NULL AND n.hidden=FALSE "
+                        + "ORDER BY c.depth ASC, n.id ASC",
+                sourceSpace, sourceRootId);
+        Map<Long, Long> idMap = new HashMap<>();
+        for (var row : subtreeRows) {
+            long oldId = ((Number) row.get("id")).longValue();
+            long oldParent = ((Number) row.get("parent_id")).longValue();
+            Long mappedParent = oldId == sourceRootId ? targetParentId : idMap.get(oldParent);
+            if (mappedParent == null) {
+                // 父级为隐藏目录时，跳过其子项，严禁泄露隐藏子树
+                continue;
+            }
+            long newId = IdWorker.getId();
+            idMap.put(oldId, newId);
+
+            String nodeType = String.valueOf(row.get("node_type"));
+            String name = String.valueOf(row.get("name"));
+            Long newVersionId = null;
+
+            if ("FILE".equals(nodeType) && row.get("current_version_id") != null) {
+                long oldVerId = ((Number) row.get("current_version_id")).longValue();
+                var ver = db.queryForMap("SELECT blob_id, mime_type FROM file_version WHERE id=?", oldVerId);
+                newVersionId = IdWorker.getId();
+                db.update(
+                        "INSERT INTO file_version(id,file_id,blob_id,version_number,mime_type,created_by) VALUES (?,?,?,1,?,?)",
+                        newVersionId, newId, ver.get("blob_id"), ver.get("mime_type"), targetUser);
+            }
+            db.update(
+                    "INSERT INTO file_node(id,space_id,parent_id,node_type,name,current_version_id,hidden,created_by) VALUES (?,?,?,?,?,?,FALSE,?)",
+                    newId, targetSpace, mappedParent, nodeType, name, newVersionId, targetUser);
+            insertClosure(targetSpace, newId, mappedParent);
+            enqueueSearchEvent("UPSERT", targetSpace, newId, null);
+        }
+        return getNode(targetSpace, idMap.get(sourceRootId), false);
+    }
     private long copySubtree(long user, long sourceSpace, long targetSpace, long sourceId, long targetParentId) {
         var subtreeRows = db.queryForList(
                 "SELECT n.id, n.parent_id, n.node_type, n.name, n.hidden, n.current_version_id, c.depth "
@@ -626,6 +698,58 @@ public class DriveService {
         pruneVersionsForFile(user, id, version);
         enqueueSearchEvent("UPSERT", space, id, version);
         return getNode(space,id,false);
+    }
+
+    /**
+     * 用户作用域 SHA-256 秒传查找：严格限定在当前用户已有可读权限的未删除节点范围内，
+     * 严禁跨用户匹配，杜绝通过哈希碰撞探测他人文件存在性的隐私泄露。
+     */
+    public Optional<Long> findUserReadableBlobBySha256(long user, String expectedSha256, long expectedSize) {
+        if (expectedSha256 == null || expectedSha256.isBlank() || expectedSize < 0) return Optional.empty();
+        String normalized = expectedSha256.strip().toLowerCase(Locale.ROOT);
+        var candidates = db.queryForList(
+                "SELECT b.id blob_id, n.space_id, n.id node_id "
+                        + "FROM blob_object b "
+                        + "JOIN file_version v ON v.blob_id=b.id "
+                        + "JOIN file_node n ON n.current_version_id=v.id AND n.deleted_at IS NULL "
+                        + "JOIN space s ON s.id=n.space_id AND s.deleted=0 AND s.status='ACTIVE' "
+                        + "LEFT JOIN space_member sm ON sm.space_id=s.id AND sm.user_id=? AND sm.deleted=0 AND (sm.expires_at IS NULL OR sm.expires_at>UTC_TIMESTAMP(3)) "
+                        + "WHERE b.sha256=? AND b.size_bytes=? "
+                        + "AND (s.owner_user_id=? OR sm.id IS NOT NULL) "
+                        + "LIMIT 10",
+                user, normalized, expectedSize, user);
+        for (var row : candidates) {
+            long sid = ((Number) row.get("space_id")).longValue();
+            long nid = ((Number) row.get("node_id")).longValue();
+            try {
+                resolveNodeAccess(user, sid, nid, false, false);
+                return Optional.of(((Number) row.get("blob_id")).longValue());
+            } catch (BizException ignored) {
+                // 无权或未解锁私密空间则跳过
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** 命中用户级秒传后，直接复用已有物理 blob 创建新文件节点与版本，跳过分片传输。 */
+    @Transactional
+    public Node instantCreateFromBlob(long user, long space, long parent, String name, long blobId, long length) {
+        resolveNodeAccess(user, space, parent, true, true);
+        parent(space, parent);
+        validName(name);
+        checkUploadPolicy(name, length);
+        checkQuota(user, length);
+        unique(space, parent, name, 0);
+
+        long id = IdWorker.getId();
+        long version = IdWorker.getId();
+        db.update("INSERT INTO file_version(id,file_id,blob_id,version_number,mime_type,created_by) VALUES (?,?,?,1,?,?)",
+                version, id, blobId, safeMime(name), user);
+        db.update("INSERT INTO file_node(id,space_id,parent_id,node_type,name,current_version_id,created_by) VALUES (?,?,?,'FILE',?,?,?)",
+                id, space, parent, name, version, user);
+        insertClosure(space, id, parent);
+        enqueueSearchEvent("UPSERT", space, id, version);
+        return getNode(space, id, false);
     }
     public int getSystemMaxVersions() {
         var rows = db.queryForList("SELECT policy_value FROM sys_policy WHERE policy_key='max_file_versions'");

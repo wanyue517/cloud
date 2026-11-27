@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { Cloud, Eye, EyeOff } from '@lucide/vue'
+import { CheckCircle2, Cloud, Eye, EyeOff, QrCode, RefreshCw } from '@lucide/vue'
+import QRCode from 'qrcode'
 import { toTypedSchema } from '@vee-validate/zod'
 import { useForm } from 'vee-validate'
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@repo/ui/form'
+import { saveAccessToken } from '@/lib/auth'
+import { request } from '@repo/session/request'
 import { loginSchema } from './schema'
 import { useLogin } from './useLogin'
 import { useSiteConfig } from '@/composables/useSiteConfig'
@@ -20,6 +23,78 @@ const form = useForm({
   initialValues: { email: '', password: '' },
 })
 const showPassword = ref(false)
+const loginTab = ref<'password' | 'qr'>('password')
+
+// M034 QR Login state
+const qrId = ref('')
+const qrDataUrl = ref('')
+const qrStatus = ref<'IDLE' | 'PENDING' | 'SCANNED' | 'CONFIRMED' | 'EXPIRED'>('IDLE')
+const qrError = ref('')
+let qrPollTimer: ReturnType<typeof setInterval> | null = null
+
+function stopQrPolling() {
+  if (qrPollTimer) {
+    clearInterval(qrPollTimer)
+    qrPollTimer = null
+  }
+}
+
+async function initQrLogin() {
+  stopQrPolling()
+  qrError.value = ''
+  qrStatus.value = 'PENDING'
+  qrDataUrl.value = ''
+  qrId.value = ''
+  try {
+    const res = await request.post<{ qrId: string; expiresInSeconds: number; expiresAt: string }>(
+      '/admin/auth/qr/create',
+      undefined,
+      { skipAuth: true, skipRefresh: true },
+    )
+    qrId.value = res.qrId
+    const mobileConfirmUrl = `${window.location.origin}/m/qr-confirm?qrId=${encodeURIComponent(res.qrId)}`
+    qrDataUrl.value = await QRCode.toDataURL(mobileConfirmUrl, { width: 200, margin: 2 })
+    qrPollTimer = setInterval(async () => {
+      if (!qrId.value || loginTab.value !== 'qr') return
+      try {
+        const st = await request.get<{
+          status: 'PENDING' | 'SCANNED' | 'CONFIRMED' | 'EXPIRED'
+          accessToken?: string | null
+          expiresInSeconds?: number | null
+        }>(`/admin/auth/qr/${encodeURIComponent(qrId.value)}/status`, undefined, {
+          skipAuth: true,
+          skipRefresh: true,
+          silent: true,
+        })
+        qrStatus.value = st.status
+        if (st.status === 'EXPIRED') {
+          stopQrPolling()
+        } else if (st.status === 'CONFIRMED' && st.accessToken) {
+          stopQrPolling()
+          saveAccessToken(st.accessToken)
+          const destination = safeReturnPath(route.query.returnTo)
+          if (isAdminPath(destination)) window.location.assign(destination)
+          else await router.replace(destination)
+        }
+      } catch {
+        // transient poll error; keep polling until expired
+      }
+    }, 2000)
+  } catch (err) {
+    qrError.value = err instanceof Error ? err.message : '生成二维码失败'
+    qrStatus.value = 'EXPIRED'
+  }
+}
+
+function switchTab(tab: 'password' | 'qr') {
+  loginTab.value = tab
+  if (tab === 'qr') {
+    void initQrLogin()
+  } else {
+    stopQrPolling()
+  }
+}
+
 const { submitting, error, login } = useLogin()
 const onSubmit = form.handleSubmit(async (values) => {
   if (await login(values)) {
@@ -30,6 +105,7 @@ const onSubmit = form.handleSubmit(async (values) => {
   }
 })
 onMounted(() => { void loadSiteConfig() })
+onBeforeUnmount(() => { stopQrPolling() })
 </script>
 
 <template>
@@ -50,7 +126,65 @@ onMounted(() => { void loadSiteConfig() })
         </p>
       </header>
 
-      <form class="space-y-5" novalidate @submit="onSubmit">
+      <!-- 登录方式切换 Tab -->
+      <div class="mb-6 grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 text-sm">
+        <button
+          type="button"
+          class="rounded-md py-1.5 font-medium transition-colors"
+          :class="loginTab === 'password' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
+          @click="switchTab('password')"
+        >
+          密码登录
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center justify-center gap-1.5 rounded-md py-1.5 font-medium transition-colors"
+          :class="loginTab === 'qr' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
+          @click="switchTab('qr')"
+        >
+          <QrCode :size="15" />
+          <span>扫码登录</span>
+        </button>
+      </div>
+
+      <!-- 扫码登录面板 -->
+      <div v-if="loginTab === 'qr'" class="flex flex-col items-center rounded-xl border border-border bg-card p-6 text-center space-y-4">
+        <div class="relative flex size-48 items-center justify-center rounded-xl bg-white p-2 border border-border">
+          <img v-if="qrDataUrl" :src="qrDataUrl" alt="手机扫码登录二维码" class="size-full" />
+          <span v-else class="text-xs text-muted-foreground">正在生成二维码…</span>
+
+          <div
+            v-if="qrStatus === 'EXPIRED'"
+            class="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-background/90 backdrop-blur-xs"
+          >
+            <p class="text-xs font-medium text-foreground">二维码已过期</p>
+            <Button size="sm" @click="initQrLogin">
+              <RefreshCw :size="14" class="mr-1" />
+              刷新二维码
+            </Button>
+          </div>
+          <div
+            v-else-if="qrStatus === 'SCANNED'"
+            class="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-xl bg-background/90 backdrop-blur-xs"
+          >
+            <CheckCircle2 :size="28" class="text-primary" />
+            <p class="text-xs font-medium text-foreground">已扫码，请在手机端确认</p>
+          </div>
+        </div>
+
+        <p class="text-xs text-muted-foreground">
+          打开手机端 Cloudlane「我的 → 扫一扫」扫描上方二维码
+        </p>
+
+        <div v-if="qrId && qrStatus !== 'EXPIRED'" class="w-full rounded-lg bg-muted/60 px-3 py-2 text-xs">
+          <span class="text-muted-foreground">确认码：</span>
+          <code class="font-mono font-semibold text-foreground select-all">{{ qrId }}</code>
+        </div>
+
+        <p v-if="qrError" class="text-xs text-destructive">{{ qrError }}</p>
+      </div>
+
+      <form v-else class="space-y-5" novalidate @submit="onSubmit">
         <fieldset :disabled="submitting || form.isSubmitting.value" class="contents">
           <FormField v-slot="{ componentField }" name="email">
             <FormItem>

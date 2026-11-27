@@ -91,6 +91,16 @@ public class PersonalAndBatchService {
             String mimeType,
             String accessedAt) {}
 
+    public record FileProgressInput(
+            @NotBlank @Pattern(regexp = "VIDEO|PDF|AUDIO") String progressType,
+            @DecimalMin("0.0") double positionValue) {}
+
+    public record FileProgressView(
+            String nodeId,
+            String progressType,
+            double positionValue,
+            String updatedAt) {}
+
     @Transactional
     public UnlockPrivateResult unlockPrivateSpace(long user, long spaceId, UnlockPrivateInput input) {
         var spaceRows = db.queryForList(
@@ -364,6 +374,33 @@ public class PersonalAndBatchService {
                     String.valueOf(r.get("mime_type")), ts));
         }
         return out;
+    }
+
+    public FileProgressView getFileProgress(long user, long spaceId, long nodeId) {
+        drive.resolveNodeAccess(user, spaceId, nodeId, false, false);
+        var rows = db.queryForList(
+                "SELECT progress_type, position_value, updated_at FROM user_file_progress WHERE user_id=? AND node_id=?",
+                user, nodeId);
+        if (rows.isEmpty()) return null;
+        var row = rows.get(0);
+        String ts = row.get("updated_at") instanceof LocalDateTime ldt ? ldt.toInstant(ZoneOffset.UTC).toString() : "";
+        return new FileProgressView(
+                String.valueOf(nodeId),
+                String.valueOf(row.get("progress_type")),
+                ((Number) row.get("position_value")).doubleValue(),
+                ts);
+    }
+
+    @Transactional
+    public FileProgressView saveFileProgress(long user, long spaceId, long nodeId, FileProgressInput input) {
+        drive.resolveNodeAccess(user, spaceId, nodeId, false, false);
+        double pos = Double.isFinite(input.positionValue()) && input.positionValue() >= 0 ? input.positionValue() : 0.0;
+        db.update(
+                "INSERT INTO user_file_progress(id, user_id, node_id, progress_type, position_value, updated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(3)) "
+                        + "ON DUPLICATE KEY UPDATE progress_type=VALUES(progress_type), position_value=VALUES(position_value), updated_at=UTC_TIMESTAMP(3)",
+                IdWorker.getId(), user, nodeId, input.progressType(), pos);
+        return getFileProgress(user, spaceId, nodeId);
     }
 
     private static String uniqueZipName(String name, Set<String> used) {

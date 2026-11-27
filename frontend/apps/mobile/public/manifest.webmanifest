@@ -1,0 +1,19 @@
+{
+  "name": "Cloudlane 个人云盘",
+  "short_name": "Cloudlane",
+  "description": "自托管个人与团队云端网盘移动端",
+  "start_url": "/m/home",
+  "scope": "/m/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/m/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

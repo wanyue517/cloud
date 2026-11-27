@@ -1,0 +1,39 @@
+/* Bridge Vant 4 CSS variables to Cloudlane @repo/ui Design Tokens */
+:root,
+:root.van-theme-dark {
+  --van-primary-color: var(--primary);
+  --van-danger-color: var(--destructive);
+  --van-background: var(--background);
+  --van-background-2: var(--card);
+  --van-background-3: var(--muted);
+  --van-text-color: var(--foreground);
+  --van-text-color-2: var(--muted-foreground);
+  --van-text-color-3: var(--muted-foreground);
+  --van-border-color: var(--border);
+  --van-active-color: var(--accent);
+  --van-popup-background: var(--card);
+  --van-action-sheet-item-background: var(--card);
+  --van-action-sheet-cancel-padding-color: var(--muted);
+  --van-tabbar-background: var(--background);
+  --van-tabbar-item-active-color: var(--primary);
+  --van-tabbar-item-active-background: transparent;
+  --van-tabbar-item-text-color: var(--muted-foreground);
+  --van-nav-bar-background: var(--background);
+  --van-nav-bar-title-text-color: var(--foreground);
+  --van-nav-bar-icon-color: var(--foreground);
+  --van-cell-background: var(--card);
+  --van-cell-text-color: var(--foreground);
+  --van-cell-value-color: var(--muted-foreground);
+  --van-cell-border-color: var(--border);
+  --van-field-input-text-color: var(--foreground);
+  --van-field-placeholder-text-color: var(--muted-foreground);
+  --van-radius-sm: calc(var(--radius) * 0.5);
+  --van-radius-md: calc(var(--radius) * 0.75);
+  --van-radius-lg: var(--radius);
+}
+
+.van-hairline--top-bottom::after,
+.van-hairline--bottom::after,
+.van-hairline--top::after {
+  border-color: var(--border) !important;
+}

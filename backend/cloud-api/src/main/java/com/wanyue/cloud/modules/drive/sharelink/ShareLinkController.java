@@ -1,5 +1,6 @@
 package com.wanyue.cloud.modules.drive.sharelink;
 
+import com.wanyue.cloud.common.exception.BizException;
 import com.wanyue.cloud.common.result.R;
 import com.wanyue.cloud.common.security.UserIdPrincipal;
 import com.wanyue.cloud.modules.drive.DriveModels;
@@ -94,6 +95,18 @@ public class ShareLinkController {
             builder.header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline' *; img-src * data: blob:; script-src 'unsafe-inline' *;");
         }
         return builder.body(new FileSystemResource(c.path()));
+    }
+
+    @PostMapping("/public/shares/{token}/save")
+    public R<DriveModels.Node> saveToMyDrive(
+            Authentication auth,
+            @PathVariable String token,
+            @RequestHeader(value = "X-Share-Password", required = false) String passwordHeader,
+            @Valid @RequestBody SavePublicShareInput input) {
+        if (auth == null || !(auth.getPrincipal() instanceof UserIdPrincipal principal)) {
+            throw new BizException(HttpStatus.UNAUTHORIZED, 401, "请先登录后再转存到网盘");
+        }
+        return R.ok(service.saveToMyDrive(principal.userId(), token, passwordHeader, input));
     }
 
     private static MediaType resolveMediaType(String rawMime, String filename) {

@@ -1,0 +1,24 @@
+{
+  "name": "@repo/drive-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./upload-queue": "./src/upload-queue.ts",
+    "./preview-registry": "./src/preview-registry.ts",
+    "./path": "./src/path.ts",
+    "./format": "./src/format.ts",
+    "./categories": "./src/categories.ts",
+    "./errors": "./src/errors.ts",
+    "./client-mode": "./src/client-mode.ts",
+    "./progress": "./src/progress.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --experimental-test-isolation=none tests/*.test.cjs"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}

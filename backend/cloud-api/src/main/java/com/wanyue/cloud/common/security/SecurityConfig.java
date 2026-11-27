@@ -26,7 +26,9 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(properties.getAllowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "Accept", "Range", "X-CSRF-TOKEN", "X-XSRF-TOKEN", "X-Requested-With"));
+                "Authorization", "Content-Type", "Accept", "Range",
+                "X-CSRF-TOKEN", "X-XSRF-TOKEN", "X-Requested-With",
+                "X-Client-Type", "X-Device-Name", "X-Refresh-Token", "X-Private-Token"));
         configuration.setExposedHeaders(List.of("Accept-Ranges", "Content-Range", "Content-Length"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
@@ -48,7 +50,8 @@ public class SecurityConfig {
                 "/api/admin/auth/email",
                 "/api/admin/auth/register/send-email-code",
                 "/api/admin/auth/password/send-code",
-                "/api/admin/auth/password/reset"
+                "/api/admin/auth/password/reset",
+                "/api/admin/auth/qr/create"
         };
 
         http
@@ -73,6 +76,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/media/stream").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/api/v1/media/stream").permitAll()
                         .requestMatchers(HttpMethod.POST, registerPaths).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/admin/auth/qr/*/status").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/refresh").permitAll()
                         .anyRequest().authenticated()
                 )

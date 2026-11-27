@@ -146,4 +146,70 @@ class ShareLinkAndMessageTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.unreadCount").value(0));
     }
+
+    @Test
+    void publicShareSaveEnforcesAuthBoundsAndCopiesSubtree() throws Exception {
+        long bobSpace = Long.parseLong(drive.createSpace(bob, new DriveModels.SpaceInput("Bob网盘", "", "#2563eb", 0L)));
+        var sharedDir = drive.folder(alice, aliceSpace, new DriveModels.NodeInput("SharedKit", 0L));
+        var outsideDir = drive.folder(alice, aliceSpace, new DriveModels.NodeInput("OutsideDir", 0L));
+
+        var fileA = new MockMultipartFile("file", "notes.txt", "text/plain", "hello-save".getBytes(StandardCharsets.UTF_8));
+        mvc.perform(multipart("/api/v1/spaces/" + aliceSpace + "/files")
+                        .file(fileA).param("parentId", sharedDir.id()).header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk());
+
+        var outsideFile = new MockMultipartFile("file", "secret.txt", "text/plain", "nope".getBytes(StandardCharsets.UTF_8));
+        String outsideJson = mvc.perform(multipart("/api/v1/spaces/" + aliceSpace + "/files")
+                        .file(outsideFile).param("parentId", outsideDir.id()).header("Authorization", "Bearer " + aliceToken))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String outsideFileId = new tools.jackson.databind.json.JsonMapper().readTree(outsideJson).get("data").get("id").asString();
+
+        String created = mvc.perform(post("/api/v1/spaces/" + aliceSpace + "/nodes/" + sharedDir.id() + "/share-links")
+                        .header("Authorization", "Bearer " + aliceToken)
+                        .contentType("application/json")
+                        .content("{\"password\":\"4321\",\"expireDays\":7,\"allowDownload\":true}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String rawToken = new tools.jackson.databind.json.JsonMapper().readTree(created).get("data").get("token").asString();
+
+        // 1. Unauthenticated save -> 401
+        mvc.perform(post("/api/v1/public/shares/" + rawToken + "/save")
+                        .contentType("application/json")
+                        .content("{\"targetSpaceId\":" + bobSpace + ",\"targetParentId\":0,\"password\":\"4321\"}"))
+                .andExpect(status().isUnauthorized());
+
+        // 2. Wrong extract code -> 403
+        mvc.perform(post("/api/v1/public/shares/" + rawToken + "/save")
+                        .header("Authorization", "Bearer " + bobToken)
+                        .contentType("application/json")
+                        .content("{\"targetSpaceId\":" + bobSpace + ",\"targetParentId\":0,\"password\":\"0000\"}"))
+                .andExpect(status().isForbidden());
+
+        // 3. Out-of-scope nodeId -> 404
+        mvc.perform(post("/api/v1/public/shares/" + rawToken + "/save")
+                        .header("Authorization", "Bearer " + bobToken)
+                        .header("X-Share-Password", "4321")
+                        .contentType("application/json")
+                        .content("{\"targetSpaceId\":" + bobSpace + ",\"targetParentId\":0,\"nodeId\":" + outsideFileId + "}"))
+                .andExpect(status().isNotFound());
+
+        // 4. Valid save deep-copies shared folder + child file into Bob's space
+        String savedJson = mvc.perform(post("/api/v1/public/shares/" + rawToken + "/save")
+                        .header("Authorization", "Bearer " + bobToken)
+                        .header("X-Share-Password", "4321")
+                        .contentType("application/json")
+                        .content("{\"targetSpaceId\":" + bobSpace + ",\"targetParentId\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("SharedKit"))
+                .andExpect(jsonPath("$.data.nodeType").value("FOLDER"))
+                .andReturn().getResponse().getContentAsString();
+        String copiedDirId = new tools.jackson.databind.json.JsonMapper().readTree(savedJson).get("data").get("id").asString();
+
+        // Verify child file was deep-copied inside Bob's copied directory
+        mvc.perform(get("/api/v1/spaces/" + bobSpace + "/nodes")
+                        .param("parentId", copiedDirId)
+                        .header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].name").value("notes.txt"));
+    }
 }

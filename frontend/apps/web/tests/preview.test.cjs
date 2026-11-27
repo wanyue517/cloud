@@ -12,13 +12,19 @@ const ts = dependency('typescript')
 function loadTs(relative) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8')
   const module = { exports: {} }
+  const localRequire = id => {
+    if (id.startsWith('@repo/drive-core/')) {
+      return loadTs(`packages/drive-core/src/${id.slice('@repo/drive-core/'.length)}.ts`)
+    }
+    return dependency(id)
+  }
   vm.runInNewContext(ts.transpileModule(source, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.CommonJS,
       esModuleInterop: true,
     },
-  }).outputText, { module, exports: module.exports, Error, console })
+  }).outputText, { module, exports: module.exports, require: localRequire, Error, console })
   return module.exports
 }
 
