@@ -250,10 +250,15 @@ onBeforeUnmount(() => {
 
           <div
             v-else-if="item.kind === 'error'"
-            class="tree-row"
-            :style="{ paddingLeft: `${item.depth * 14 + 8}px`, height: `${ROW_HEIGHT}px` }"
+            class="py-1 pr-2"
+            :style="{ paddingLeft: `${item.depth * 14 + 8}px`, minHeight: `${ROW_HEIGHT}px` }"
           >
-            <Button variant="ghost" size="sm" class="text-destructive text-xs" @click="loadParent(item.parentId, 1)">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-auto w-full justify-start whitespace-normal break-words px-2 py-1.5 text-left text-xs leading-relaxed text-destructive hover:bg-destructive/10 hover:text-destructive"
+              @click="loadParent(item.parentId, 1)"
+            >
               {{ item.message }}，点击重试
             </Button>
           </div>
