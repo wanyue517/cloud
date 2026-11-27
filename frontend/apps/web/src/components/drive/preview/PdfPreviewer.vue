@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, ListTree, Maximize, Search, ZoomIn, ZoomOut 
 import { Button } from '@repo/ui/button'
 import { Input } from '@repo/ui/input'
 import { drive, type DriveNode, type Version } from '@/api/drive'
+import { getOrFetchPreviewBlob } from '@/lib/thumb-cache'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
@@ -170,7 +171,11 @@ async function loadPdf() {
       error.value = 'PDF 超过 64 MB，请下载后查看'
       return
     }
-    const blob = props.customLoader ? await props.customLoader() : await drive.content(props.node, props.version?.id)
+    const cacheKey = `pdf:${props.node.id}:${props.version?.id || props.node.currentVersionId || ''}:${props.customLoader ? 'converted' : 'raw'}`
+    const blob = await getOrFetchPreviewBlob(
+      cacheKey,
+      () => (props.customLoader ? props.customLoader() : drive.content(props.node, props.version?.id)),
+    )
     if (seq !== loadSeq) return
     const data = new Uint8Array(await blob.arrayBuffer())
     const task = pdfjsLib.getDocument({ data })

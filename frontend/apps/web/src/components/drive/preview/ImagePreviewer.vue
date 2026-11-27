@@ -5,6 +5,7 @@ import 'viewerjs/dist/viewer.css'
 import { ChevronLeft, ChevronRight, FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, ZoomIn, ZoomOut, Maximize } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { drive, type DriveNode, type Version } from '@/api/drive'
+import { getOrFetchPreviewBlob, matchPreviewBlob } from '@/lib/thumb-cache'
 
 const props = defineProps<{
   node: DriveNode
@@ -72,18 +73,27 @@ async function initViewer() {
 
 async function loadImage() {
   const seq = ++loadSeq
-  loading.value = true
   error.value = ''
   destroyViewer()
   revokeUrl()
   try {
     const size = props.version?.size ?? props.node.size
     if (size > 64 * 1024 * 1024) {
+      loading.value = false
       error.value = '图片超过 64 MB，请下载后查看'
       return
     }
-    const blob = await drive.content(props.node, props.version?.id)
+    const cacheKey = `img:${props.node.id}:${props.version?.id || props.node.currentVersionId || ''}`
+    const cached = await matchPreviewBlob(cacheKey)
     if (seq !== loadSeq) return
+    let blob: Blob
+    if (cached) {
+      blob = cached
+    } else {
+      loading.value = true
+      blob = await getOrFetchPreviewBlob(cacheKey, () => drive.content(props.node, props.version?.id))
+      if (seq !== loadSeq) return
+    }
     objectUrl.value = URL.createObjectURL(blob)
     loading.value = false
     await initViewer()
