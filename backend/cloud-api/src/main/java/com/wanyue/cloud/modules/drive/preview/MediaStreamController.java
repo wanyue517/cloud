@@ -145,10 +145,11 @@ public class MediaStreamController {
     private StreamingResponseBody body(Path path, DriveModels.MediaSource source, long start, long length) throws IOException {
         if (path != null) return out -> streamRange(path, start, length, out);
         if (length == 0) return out -> {};
-        // Open upstream before committing HTTP headers, then forward with a bounded buffer.
-        var input = storage.openMediaRange(source, start, start + length - 1);
         return out -> {
-            try (input) {
+            // Open R2 inside the async response callback. Opening it here would block the
+            // servlet request before headers are sent and makes the browser cancel/retry
+            // when the upstream takes a moment to establish the Range response.
+            try (var input = storage.openMediaRange(source, start, start + length - 1)) {
                 byte[] buffer = new byte[IO_BUFFER_SIZE];
                 long remaining = length;
                 while (remaining > 0) {
