@@ -670,6 +670,14 @@ public class DriveService {
             Node current=getNode(space,id,false);
             if(!current.nodeType().equals("FILE") || expectedRevision==null || current.revision()!=expectedRevision) throw BizException.conflict("文件版本已变更");
         }
+        var prepared = prepareUpload(input, length, expectedSha256, targetProfileId);
+        return commitPreparedUpload(user, space, parent, name, mime, replace, expectedRevision, prepared);
+    }
+
+    public record PreparedUpload(long profileId, com.wanyue.cloud.modules.drive.storage.StorageProvider.StoredObject blob) {}
+
+    /** File I/O deliberately has no transaction; callers commit metadata separately. */
+    public PreparedUpload prepareUpload(InputStream input, long length, String expectedSha256, Long targetProfileId) throws IOException {
         long profileId = targetProfileId != null ? targetProfileId : storageRouter.resolveProfileIdForUsage(
                 com.wanyue.cloud.modules.drive.storage.StorageRouterService.USAGE_USER_FILES);
         long maxBytes = Math.min(length, policy.uploadMaxFileBytes());
@@ -679,12 +687,33 @@ public class DriveService {
             storageRouter.delete(profileId, blob.key());
             throw BizException.conflict("文件 SHA-256 校验失败，内容可能已损坏");
         }
+        return new PreparedUpload(profileId, blob);
+    }
+
+    public void discardPreparedUpload(PreparedUpload prepared) throws IOException {
+        storageRouter.delete(prepared.profileId(), prepared.blob().key());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Node commitPreparedUpload(long user, long space, long parent, String name, String mime,
+                                    Long replace, Long expectedRevision, PreparedUpload prepared) {
+        long profileId = prepared.profileId();
+        var blob = prepared.blob();
         final long committedProfileId = profileId;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCompletion(int status) {
                 if(status!=STATUS_COMMITTED) try { storageRouter.delete(committedProfileId, blob.key()); } catch(IOException e) { /* Orphan scan can retry. */ }
             }
         });
+        // Revalidate permissions, name, revision and quota after potentially slow storage I/O.
+        resolveNodeAccess(user, space, parent, true, true); parent(space,parent); validName(name);
+        checkUploadPolicy(name, blob.size()); checkQuota(user, blob.size());
+        long id=replace==null?IdWorker.getId():replace;
+        if(replace==null) unique(space,parent,name,0);
+        else {
+            Node current=getNode(space,id,false);
+            if(!current.nodeType().equals("FILE") || expectedRevision==null || current.revision()!=expectedRevision) throw BizException.conflict("文件版本已变更");
+        }
         long blobId=IdWorker.getId(),version=IdWorker.getId();
         db.update("INSERT INTO blob_object(id,storage_profile_id,storage_key,size_bytes,sha256) VALUES (?,?,?,?,?)",blobId,profileId,blob.key(),blob.size(),blob.sha256());
         int number=db.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM file_version WHERE file_id=?",Integer.class,id);

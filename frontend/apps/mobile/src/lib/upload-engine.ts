@@ -31,6 +31,7 @@ export interface ChunkedUploadDeps {
     signal?: AbortSignal,
   ) => Promise<void>
   completeSession: (uploadId: string, signal?: AbortSignal) => Promise<string>
+  cancelSession?: (uploadId: string) => Promise<void>
   storage?: ChunkedUploadStorage | null
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
   maxRetries?: number
@@ -43,7 +44,7 @@ export interface ChunkedUploadParams {
   file: Pick<File, 'name' | 'size' | 'type' | 'lastModified' | 'slice'>
   name?: string
   expectedSha256?: string
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number, message?: string) => void
   signal?: AbortSignal
 }
 
@@ -122,82 +123,93 @@ export async function executeChunkedUpload(
   const key = uploadResumeKey(spaceId, parentId, file, effectiveName)
 
   let session: UploadSessionLike | undefined
-  const previousId = storage?.getItem(key)
-  if (previousId) {
+  try {
+    const previousId = storage?.getItem(key)
+    if (previousId) {
+      try {
+        session = await deps.getSession(previousId, signal)
+      } catch (err) {
+        const status = (err as { httpStatus?: number })?.httpStatus
+        if (signal?.aborted || (status !== 404 && status !== 410)) throw err
+        storage?.removeItem(key)
+      }
+    }
+
+    if (!session || session.status === 'CANCELLED') {
+      const sha =
+        params.expectedSha256 ??
+        (file instanceof Blob ? await computeFileSha256(file) : undefined)
+      session = await deps.createSession(
+        {
+          spaceId,
+          parentId,
+          name: effectiveName,
+          size: file.size,
+          mimeType: file.type || 'application/octet-stream',
+          ...(sha ? { expectedSha256: sha } : {}),
+        },
+        signal,
+      )
+      try {
+        storage?.setItem(key, session.id)
+      } catch {
+        // ignore storage quota errors
+      }
+    }
+
+    let fileId = session.fileId || ''
+    if (session.status === 'COMPLETED') {
+      onProgress?.(100)
+    } else {
+      const received = new Set(session.received ?? [])
+      const totalChunks = Math.max(1, session.chunkCount)
+      for (let index = 0; !['QUEUED', 'PROCESSING'].includes(session.status) && index < totalChunks; index++) {
+        if (signal?.aborted) throw new Error('上传已暂停')
+        if (!received.has(index)) {
+          const start = index * session.chunkSize
+          const end = Math.min(file.size, (index + 1) * session.chunkSize)
+          const chunkBlob = file.slice(start, end)
+          await withExponentialBackoff(
+            () =>
+              deps.uploadChunk(
+                session!.id,
+                index,
+                chunkBlob,
+                effectiveName,
+                (loaded, total) => {
+                  const denom = total || chunkBlob.size || 1
+                  const fraction = Math.min(1, loaded / denom)
+                  onProgress?.(Math.min(99, Math.round(((index + fraction) / totalChunks) * 100)))
+                },
+                signal,
+              ),
+            {
+              maxRetries: deps.maxRetries ?? 3,
+              baseDelayMs: deps.baseDelayMs ?? 300,
+              signal,
+              sleep: deps.sleep,
+            },
+          )
+        }
+        onProgress?.(Math.min(99, Math.round(((index + 1) / totalChunks) * 100)))
+      }
+
+      onProgress?.(99, '正在合并与校验')
+      fileId = await deps.completeSession(session.id, signal)
+      onProgress?.(100, '')
+    }
+
     try {
-      session = await deps.getSession(previousId, signal)
-    } catch (err) {
-      if (signal?.aborted) throw err
+      storage?.removeItem(key)
+    } catch {
+      // ignore storage errors
+    }
+    return fileId
+  } catch (error) {
+    if (signal?.aborted && signal.reason === 'cancelled' && session && deps.cancelSession) {
+      await deps.cancelSession(session.id)
       storage?.removeItem(key)
     }
+    throw error
   }
-
-  if (!session || session.status === 'CANCELLED') {
-    const sha =
-      params.expectedSha256 ??
-      (file instanceof Blob ? await computeFileSha256(file) : undefined)
-    session = await deps.createSession(
-      {
-        spaceId,
-        parentId,
-        name: effectiveName,
-        size: file.size,
-        mimeType: file.type || 'application/octet-stream',
-        ...(sha ? { expectedSha256: sha } : {}),
-      },
-      signal,
-    )
-    try {
-      storage?.setItem(key, session.id)
-    } catch {
-      // ignore storage quota errors
-    }
-  }
-
-  let fileId = session.fileId || ''
-  if (session.status === 'COMPLETED') {
-    onProgress?.(100)
-  } else {
-    const received = new Set(session.received ?? [])
-    const totalChunks = Math.max(1, session.chunkCount)
-    for (let index = 0; index < totalChunks; index++) {
-      if (signal?.aborted) throw new Error('上传已暂停')
-      if (!received.has(index)) {
-        const start = index * session.chunkSize
-        const end = Math.min(file.size, (index + 1) * session.chunkSize)
-        const chunkBlob = file.slice(start, end)
-        await withExponentialBackoff(
-          () =>
-            deps.uploadChunk(
-              session!.id,
-              index,
-              chunkBlob,
-              effectiveName,
-              (loaded, total) => {
-                const denom = total || chunkBlob.size || 1
-                const fraction = Math.min(1, loaded / denom)
-                onProgress?.(Math.min(99, Math.round(((index + fraction) / totalChunks) * 100)))
-              },
-              signal,
-            ),
-          {
-            maxRetries: deps.maxRetries ?? 3,
-            baseDelayMs: deps.baseDelayMs ?? 300,
-            signal,
-            sleep: deps.sleep,
-          },
-        )
-      }
-      onProgress?.(Math.round(((index + 1) / totalChunks) * 100))
-    }
-
-    fileId = await deps.completeSession(session.id, signal)
-  }
-
-  try {
-    storage?.removeItem(key)
-  } catch {
-    // ignore storage errors
-  }
-  return fileId
 }

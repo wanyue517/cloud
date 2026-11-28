@@ -25,5 +25,8 @@ public class UploadController {
     @PostMapping("/{id}/complete") public R<String> complete(Authentication a,@PathVariable long id,@RequestParam(required=false) String expectedSha256) throws IOException {
         return R.ok(uploads.complete(DriveController.user(a),id,expectedSha256));
     }
+    @PostMapping("/{id}/finalize") public R<Upload> finalizeUpload(Authentication a,@PathVariable long id,@RequestParam(required=false) String expectedSha256) throws IOException {
+        return R.ok(uploads.requestCompletion(DriveController.user(a),id,expectedSha256));
+    }
     @DeleteMapping("/{id}") public R<Void> cancel(Authentication a,@PathVariable long id) { uploads.cancel(DriveController.user(a),id);return R.ok(); }
 }

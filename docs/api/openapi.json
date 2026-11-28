@@ -10477,6 +10477,57 @@
         }
       }
     },
+    "/api/v1/uploads/{id}/finalize" : {
+      "post" : {
+        "tags" : [ "Upload" ],
+        "operationId" : "UploadController_finalizeUpload_post",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "description" : "64-bit identifier transmitted as string"
+          }
+        }, {
+          "name" : "expectedSha256",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/DriveModels_Upload"
+                    },
+                    "traceId" : {
+                      "type" : "string",
+                      "nullable" : true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/uploads/{id}/presign" : {
       "get" : {
         "tags" : [ "Upload" ],
@@ -11053,6 +11104,10 @@
           },
           "fileId" : {
             "type" : "string"
+          },
+          "errorMessage" : {
+            "type" : "string",
+            "nullable" : true
           }
         },
         "required" : [ "chunkSize", "chunkCount" ]

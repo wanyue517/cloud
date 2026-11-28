@@ -79,7 +79,7 @@ public class UploadService {
         drive.checkQuota(user, input.size());
         int maxConcurrent = policy.uploadMaxConcurrentSessions();
         long active = db.queryForObject(
-                "SELECT COUNT(*) FROM upload_session WHERE user_id=? AND status='UPLOADING' AND expires_at>UTC_TIMESTAMP(3)",
+                "SELECT COUNT(*) FROM upload_session WHERE user_id=? AND status IN ('UPLOADING','QUEUED','PROCESSING') AND (expires_at>UTC_TIMESTAMP(3) OR status IN ('QUEUED','PROCESSING'))",
                 Long.class, user);
         if (active >= maxConcurrent) {
             throw new BizException(HttpStatus.TOO_MANY_REQUESTS, 429, "同时上传任务不能超过 " + maxConcurrent + " 个");
@@ -117,7 +117,7 @@ public class UploadService {
 
     private Map<String, Object> session(long user, long id, boolean lock) {
         var rows = db.queryForList(
-                "SELECT * FROM upload_session WHERE id=? AND user_id=? AND expires_at>UTC_TIMESTAMP(3)" + (lock ? " FOR UPDATE" : ""),
+                "SELECT * FROM upload_session WHERE id=? AND user_id=? AND (expires_at>UTC_TIMESTAMP(3) OR status IN ('QUEUED','PROCESSING'))" + (lock ? " FOR UPDATE" : ""),
                 id, user);
         if (rows.isEmpty()) throw BizException.notFound("上传任务不存在或已过期");
         var s = rows.get(0);
@@ -136,15 +136,89 @@ public class UploadService {
         List<Integer> received = new ArrayList<>();
         List<Integer> missing = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            if (Files.isRegularFile(part(id, i))) received.add(i);
+            if (Set.of("COMPLETED", "QUEUED", "PROCESSING").contains(s.get("status")) || Files.isRegularFile(part(id, i))) received.add(i);
             else missing.add(i);
         }
         return new Upload(String.valueOf(id), chunkSize, count, received, missing,
-                (String) s.get("status"), s.get("file_id") == null ? null : s.get("file_id").toString());
+                (String) s.get("status"), s.get("file_id") == null ? null : s.get("file_id").toString(), false,
+                (String) s.get("completion_error"));
     }
 
     private Path part(long id, int index) {
         return temp.resolve(id + "-" + index);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Upload requestCompletion(long user, long id, String expectedSha256) throws IOException {
+        var s = session(user, id, true);
+        String state = (String) s.get("status");
+        if (Set.of("COMPLETED", "QUEUED", "PROCESSING").contains(state)) return status(user, id, false);
+        if (!Set.of("UPLOADING", "FAILED").contains(state)) throw BizException.conflict("上传已取消");
+        if (expectedSha256 != null && !expectedSha256.matches("[0-9a-fA-F]{64}")) {
+            throw new BizException(HttpStatus.BAD_REQUEST, 400, "文件 SHA-256 格式无效");
+        }
+        int count = (int) number(s, "chunk_count");
+        for (int i = 0; i < count; i++) if (!Files.isRegularFile(part(id, i))) throw BizException.conflict("仍有分片未上传");
+        drive.resolveNodeAccess(user, number(s, "space_id"), number(s, "parent_id"), true, true);
+        drive.checkQuota(user, number(s, "size_bytes"));
+        String token = com.wanyue.cloud.modules.drive.personal.PrivateTokenFilter.currentToken();
+        db.update("UPDATE upload_session SET status='QUEUED',completion_requested_at=UTC_TIMESTAMP(3),completion_sha256=?,completion_error=NULL,completion_private_token=? WHERE id=?",
+                expectedSha256, cipher.encrypt(token), id);
+        return status(user, id, false);
+    }
+
+    @Transactional
+    public Map<String, Object> beginCompletion(long user, long id) {
+        var s = session(user, id, true);
+        if (!Set.of("QUEUED", "PROCESSING").contains(s.get("status"))) return null;
+        drive.resolveNodeAccess(user, number(s, "space_id"), number(s, "parent_id"), true, false);
+        db.update("UPDATE upload_session SET status='PROCESSING' WHERE id=?", id);
+        return s;
+    }
+
+    public DriveService.PreparedUpload prepareCompletion(long id, Map<String, Object> s) throws IOException {
+        int count = (int) number(s, "chunk_count");
+        drive.checkUploadPolicy((String) s.get("name"), number(s, "size_bytes"));
+        drive.checkQuota(number(s, "user_id"), number(s, "size_bytes"));
+        long profile = s.get("storage_profile_id") == null ? 1L : number(s, "storage_profile_id");
+        try (InputStream input = combinedStream(id, count)) {
+            return drive.prepareUpload(input, number(s, "size_bytes"), (String) s.get("completion_sha256"), profile);
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void finishCompletion(long user, long id, DriveService.PreparedUpload prepared) {
+        var s = session(user, id, true);
+        if (!"PROCESSING".equals(s.get("status"))) throw BizException.conflict("上传处理状态已变更");
+        Node node = drive.commitPreparedUpload(user, number(s, "space_id"), number(s, "parent_id"),
+                (String) s.get("name"), (String) s.get("mime_type"), null, null, prepared);
+        db.update("UPDATE upload_session SET status='COMPLETED',file_id=?,completion_private_token=NULL,expires_at=DATE_ADD(UTC_TIMESTAMP(3), INTERVAL ? HOUR) WHERE id=?",
+                Long.parseLong(node.id()), policy.uploadSessionTtlHours(), id);
+    }
+
+    public boolean cleanupCompletion(long id, int count) { return cleanup(id, count); }
+
+    private InputStream combinedStream(long id, int count) {
+        return new InputStream() {
+            private int index;
+            private InputStream current;
+            @Override public int read() throws IOException {
+                byte[] one = new byte[1];
+                return read(one, 0, 1) == -1 ? -1 : one[0] & 255;
+            }
+            @Override public int read(byte[] buffer, int offset, int length) throws IOException {
+                if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("上传处理已中断");
+                if (length == 0) return 0;
+                while (index < count) {
+                    if (current == null) current = Files.newInputStream(part(id, index));
+                    int read = current.read(buffer, offset, length);
+                    if (read != -1) return read;
+                    current.close(); current = null; index++;
+                }
+                return -1;
+            }
+            @Override public void close() throws IOException { if (current != null) current.close(); }
+        };
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -157,7 +231,7 @@ public class UploadService {
         var s = session(user, id, true);
         int count = (int) number(s, "chunk_count");
         long sessionChunkSize = number(s, "chunk_size");
-        if (!s.get("status").equals("UPLOADING")) throw BizException.conflict("上传已结束");
+        if (!Set.of("UPLOADING", "FAILED").contains(s.get("status"))) throw BizException.conflict("上传已结束");
         if (index < 0 || index >= count) throw new BizException(HttpStatus.BAD_REQUEST, 400, "分片编号无效");
         long expected = index == count - 1 ? number(s, "size_bytes") - (long) index * sessionChunkSize : sessionChunkSize;
         if (size != expected) throw new BizException(HttpStatus.BAD_REQUEST, 400, "分片大小不正确");
@@ -183,6 +257,9 @@ public class UploadService {
                 }
             }
             Files.move(staging, part(id, index), StandardCopyOption.REPLACE_EXISTING);
+            if ("FAILED".equals(s.get("status"))) {
+                db.update("UPDATE upload_session SET status='UPLOADING',completion_error=NULL WHERE id=?", id);
+            }
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         } finally {
@@ -204,27 +281,7 @@ public class UploadService {
         for (int i = 0; i < count; i++) if (!Files.isRegularFile(part(id, i))) throw BizException.conflict("仍有分片未上传");
         long lockedProfileId = s.get("storage_profile_id") == null ? 1L : number(s, "storage_profile_id");
         Node node;
-        try (var combined = new InputStream() {
-            private int index;
-            private InputStream current;
-            @Override public int read() throws IOException {
-                byte[] one = new byte[1];
-                return read(one, 0, 1) == -1 ? -1 : one[0] & 255;
-            }
-            @Override public int read(byte[] buffer, int offset, int length) throws IOException {
-                if (length == 0) return 0;
-                while (index < count) {
-                    if (current == null) current = Files.newInputStream(part(id, index));
-                    int read = current.read(buffer, offset, length);
-                    if (read != -1) return read;
-                    current.close();
-                    current = null;
-                    index++;
-                }
-                return -1;
-            }
-            @Override public void close() throws IOException { if (current != null) current.close(); }
-        }) {
+        try (var combined = combinedStream(id, count)) {
             node = drive.upload(user, number(s, "space_id"), number(s, "parent_id"), (String) s.get("name"),
                     (String) s.get("mime_type"), combined, number(s, "size_bytes"), null, null, expectedSha256, lockedProfileId);
         }
@@ -239,7 +296,7 @@ public class UploadService {
     public void cancel(long user, long id) {
         var s = session(user, id, true);
         if (s.get("status").equals("COMPLETED")) throw BizException.conflict("上传已完成");
-        db.update("UPDATE upload_session SET status='CANCELLED' WHERE id=?", id);
+        db.update("UPDATE upload_session SET status='CANCELLED',completion_private_token=NULL WHERE id=?", id);
         cleanup(id, (int) number(s, "chunk_count"));
     }
 
@@ -283,7 +340,7 @@ public class UploadService {
 
     @Transactional
     public int cleanExpiredAndCount() {
-        var expired = db.queryForList("SELECT id,chunk_count FROM upload_session WHERE expires_at<UTC_TIMESTAMP(3) AND status<>'EXPIRED' LIMIT 100 FOR UPDATE SKIP LOCKED");
+        var expired = db.queryForList("SELECT id,chunk_count FROM upload_session WHERE expires_at<UTC_TIMESTAMP(3) AND status NOT IN ('EXPIRED','QUEUED','PROCESSING') LIMIT 100 FOR UPDATE SKIP LOCKED");
         int cleaned = 0;
         for (var session : expired) {
             long id = number(session, "id");

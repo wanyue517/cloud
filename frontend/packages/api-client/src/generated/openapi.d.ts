@@ -166,6 +166,7 @@ export interface components {
       missing?: Array<number>
       status?: string
       fileId?: string
+      errorMessage?: string | null
     }
     DriveModels_UploadInput: {
       spaceId: string
@@ -4212,6 +4213,24 @@ export interface paths {
         code: number
         msg: string
         data?: string
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/uploads/{id}/finalize": {
+    post: {
+      parameters: {
+        path: {
+          id: string
+        }
+        query?: {
+          expectedSha256?: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["DriveModels_Upload"]
         traceId?: string | null
       }
     }
