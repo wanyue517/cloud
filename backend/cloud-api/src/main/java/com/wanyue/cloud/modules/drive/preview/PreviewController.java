@@ -224,14 +224,20 @@ public class PreviewController {
             @RequestParam(defaultValue = "320") int width,
             WebRequest webRequest) {
         long uid = user(auth);
-        DriveModels.Content content = drive.content(uid, space, id, versionId);
+        var source = drive.mediaSource(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
         String etag = "\"thumb-" + resolvedVersion + "-" + width + "\"";
         CacheControl cc = CacheControl.maxAge(Duration.ofHours(24)).cachePrivate();
         if (webRequest.checkNotModified(etag)) {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cc).build();
         }
-        var thumb = thumbnailService.getOrGenerate(resolvedVersion, content, width);
+        java.util.Optional<java.nio.file.Path> thumb;
+        if (storage.isRemote(source.profileId()) && isVideo(source)) {
+            String input = storage.signedReadUrl(source.profileId(), source.storageKey(), 300, false);
+            thumb = thumbnailService.getOrGenerateVideo(resolvedVersion, source.name(), input, width);
+        } else {
+            thumb = thumbnailService.getOrGenerate(resolvedVersion, drive.materializeMediaSource(source), width);
+        }
         if (thumb.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -241,5 +247,10 @@ public class PreviewController {
                 .cacheControl(cc)
                 .contentType(MediaType.IMAGE_JPEG)
                 .body(new FileSystemResource(thumb.get()));
+    }
+
+    private static boolean isVideo(DriveModels.MediaSource source) {
+        return (source.mimeType() != null && source.mimeType().startsWith("video/"))
+                || source.name().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mp4|m4v|mov|mkv|avi|webm|ogv|flv|wmv)$");
     }
 }

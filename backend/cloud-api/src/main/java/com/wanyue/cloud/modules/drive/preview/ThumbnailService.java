@@ -87,6 +87,14 @@ public class ThumbnailService {
     }
 
     public Optional<Path> getOrGenerate(long versionId, DriveModels.Content source, int requestedWidth) {
+        return getOrGenerate(versionId, source.name(), source.path(), source.path().toAbsolutePath().toString(), requestedWidth);
+    }
+
+    public Optional<Path> getOrGenerateVideo(long versionId, String fileName, String input, int requestedWidth) {
+        return getOrGenerate(versionId, fileName, null, input, requestedWidth);
+    }
+
+    private Optional<Path> getOrGenerate(long versionId, String fileName, Path localPath, String input, int requestedWidth) {
         int width = requestedWidth <= 240 ? 240 : (requestedWidth <= 480 ? 480 : 640);
         Path cached = thumbDir.resolve(versionId + "_" + width + ".jpg").normalize();
         if (Files.isRegularFile(cached)) {
@@ -102,7 +110,7 @@ public class ThumbnailService {
             if (!acquired) throw busy();
             // Another generation may have completed between the first cache check and admission.
             Optional<Path> result = Files.isRegularFile(cached)
-                    ? Optional.of(cached) : generate(source, cached, width);
+                    ? Optional.of(cached) : generate(fileName, localPath, input, cached, width);
             task.complete(result);
             return result;
         } catch (InterruptedException e) {
@@ -129,37 +137,37 @@ public class ThumbnailService {
         return new BizException(HttpStatus.SERVICE_UNAVAILABLE, 503, "缩略图生成繁忙，请稍后重试");
     }
 
-    private Optional<Path> generate(DriveModels.Content source, Path cached, int width) {
-        String ext = extensionOf(source.name());
+    private Optional<Path> generate(String fileName, Path localPath, String input, Path cached, int width) {
+        String ext = extensionOf(fileName);
         if (IMAGE_EXTS.contains(ext)) {
-            return generateImageThumb(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generateImageThumb(localPath, cached, width);
         }
         if (VIDEO_EXTS.contains(ext)) {
-            return generateVideoPoster(source.path(), cached, width);
+            return generateVideoPoster(input, cached, width);
         }
         if (AUDIO_EXTS.contains(ext)) {
-            return generateAudioCover(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generateAudioCover(localPath, cached, width);
         }
         if ("pdf".equals(ext)) {
-            return generatePdfThumb(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generatePdfThumb(localPath, cached, width);
         }
         if ("pptx".equals(ext)) {
-            return generatePptxThumb(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generatePptxThumb(localPath, cached, width);
         }
         if ("docx".equals(ext)) {
-            return generateDocxThumb(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generateDocxThumb(localPath, cached, width);
         }
         if (SHEET_EXTS.contains(ext)) {
-            return generateSheetThumb(source.path(), ext, cached, width);
+            return localPath == null ? Optional.empty() : generateSheetThumb(localPath, ext, cached, width);
         }
         if ("zip".equals(ext)) {
-            return generateZipThumb(source.path(), cached, width);
+            return localPath == null ? Optional.empty() : generateZipThumb(localPath, cached, width);
         }
         if (CODE_EXTS.contains(ext)) {
-            return generateTextCardThumb(source.path(), ext.toUpperCase(Locale.ROOT), cached, width, true);
+            return localPath == null ? Optional.empty() : generateTextCardThumb(localPath, ext.toUpperCase(Locale.ROOT), cached, width, true);
         }
         if (TEXT_EXTS.contains(ext)) {
-            return generateTextCardThumb(source.path(), ext.toUpperCase(Locale.ROOT), cached, width, false);
+            return localPath == null ? Optional.empty() : generateTextCardThumb(localPath, ext.toUpperCase(Locale.ROOT), cached, width, false);
         }
         return Optional.empty();
     }
@@ -204,13 +212,17 @@ public class ThumbnailService {
     }
 
     private Optional<Path> generateVideoPoster(Path src, Path target, int maxWidth) {
+        return generateVideoPoster(src.toAbsolutePath().toString(), target, maxWidth);
+    }
+
+    private Optional<Path> generateVideoPoster(String input, Path target, int maxWidth) {
         // 先用快速前置 -ss 00:00:01 跳过黑帧，不足 1 秒的短视频再回退到 0 秒抽帧
-        Optional<Path> at1s = runFfmpegFrame(src, target, List.of(
-                ffmpegBin, "-loglevel", "error", "-y", "-ss", "00:00:01", "-i", src.toAbsolutePath().toString(),
+        Optional<Path> at1s = runFfmpegFrame(input, target, List.of(
+                ffmpegBin, "-loglevel", "error", "-y", "-ss", "00:00:01", "-i", input,
                 "-vframes", "1", "-vf", "scale='min(" + maxWidth + ",iw)':-2"));
         if (at1s.isPresent()) return at1s;
-        return runFfmpegFrame(src, target, List.of(
-                ffmpegBin, "-loglevel", "error", "-y", "-i", src.toAbsolutePath().toString(),
+        return runFfmpegFrame(input, target, List.of(
+                ffmpegBin, "-loglevel", "error", "-y", "-i", input,
                 "-vframes", "1", "-vf", "scale='min(" + maxWidth + ",iw)':-2"));
     }
 
@@ -221,10 +233,20 @@ public class ThumbnailService {
     }
 
     private Optional<Path> runFfmpegFrame(Path src, Path target, List<String> baseCmd) {
+        return runFfmpegFrame(src.toAbsolutePath().toString(), target, baseCmd);
+    }
+
+    private Optional<Path> runFfmpegFrame(String input, Path target, List<String> baseCmd) {
         try {
             Path tmp = Files.createTempFile(thumbDir, "ff-", ".tmp.jpg");
             try {
                 List<String> cmd = new ArrayList<>(baseCmd);
+                if (input.startsWith("http://") || input.startsWith("https://")) {
+                    int inputIndex = cmd.indexOf("-i");
+                    if (inputIndex >= 0) {
+                        cmd.addAll(inputIndex, List.of("-protocol_whitelist", "http,https,tcp,tls", "-rw_timeout", "15000000"));
+                    }
+                }
                 cmd.add(tmp.toAbsolutePath().toString());
                 // 必须丢弃/消费子进程输出，否则 Windows/Linux 管道缓冲区写满会导致 FFmpeg 死锁超时
                 Process proc = new ProcessBuilder(cmd)
