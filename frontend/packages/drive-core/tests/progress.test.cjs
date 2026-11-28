@@ -23,6 +23,19 @@ test('M035: formatResumePrompt and shouldPromptResume handle VIDEO, AUDIO, and P
   assert.equal(shouldPromptResume('VIDEO', 117, 120), false)
 })
 
+test('short videos and unknown durations never show resume prompts; longer videos retain existing boundaries', async () => {
+  const { shouldPromptResume } = await import(pathToFileURL(path.join(pkgRoot, 'src/progress.ts')).href)
+  for (const duration of [undefined, 0, -1, NaN, Infinity, 6, 10, 19.9, 20]) {
+    assert.equal(shouldPromptResume('VIDEO', 6, duration), false, `duration=${duration}`)
+  }
+  assert.equal(shouldPromptResume('VIDEO', 6, 20.1), true)
+  assert.equal(shouldPromptResume('VIDEO', 4, 120), false)
+  assert.equal(shouldPromptResume('VIDEO', 60, 120), true)
+  assert.equal(shouldPromptResume('VIDEO', 115, 120), false)
+  assert.equal(shouldPromptResume('AUDIO', 6, 20), true)
+  assert.equal(shouldPromptResume('PDF', 2, 20), true)
+})
+
 test('M035: createProgressReporter throttles calls to 10s interval and flushes pending position on demand', async () => {
   const { createProgressReporter } = await import(
     pathToFileURL(path.join(pkgRoot, 'src/progress.ts')).href

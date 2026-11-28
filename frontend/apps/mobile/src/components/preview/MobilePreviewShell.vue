@@ -127,15 +127,15 @@ async function handleDownload() {
         class="fixed inset-0 z-50 flex flex-col"
         :class="isDarkBackdrop ? 'bg-black text-white' : 'bg-background text-foreground'"
       >
-        <!-- 顶部工具栏（图片/视频采用绝对定位悬浮，避免显隐时挤压画布导致画面抖动） -->
+        <!-- 图片工具栏悬浮；视频工具栏参与布局，避免遮挡画面和播放器控件。 -->
         <Transition name="m-slide-down">
           <header
             v-show="chromeVisible"
             class="z-20 flex items-center gap-2 px-2.5 py-2 safe-top border-b shrink-0"
             :class="
-              isDarkBackdrop
+              previewKind === 'image'
                 ? 'absolute inset-x-0 top-0 bg-black/75 border-white/10 text-white backdrop-blur'
-                : 'bg-background/95 border-border text-foreground backdrop-blur'
+                : isDarkBackdrop ? 'bg-black border-white/10 text-white' : 'bg-background/95 border-border text-foreground backdrop-blur'
             "
           >
         <button
@@ -251,9 +251,9 @@ async function handleDownload() {
         v-show="chromeVisible"
         class="z-20 border-t px-2 py-2 safe-bottom shrink-0 grid grid-cols-4 gap-1"
         :class="
-          isDarkBackdrop
+          previewKind === 'image'
             ? 'absolute inset-x-0 bottom-0 bg-black/75 border-white/10 text-white backdrop-blur'
-            : 'bg-card/95 border-border text-foreground backdrop-blur'
+            : isDarkBackdrop ? 'bg-black border-white/10 text-white' : 'bg-card/95 border-border text-foreground backdrop-blur'
         "
       >
         <button

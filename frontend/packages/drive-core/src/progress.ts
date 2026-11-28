@@ -1,5 +1,7 @@
 export type ProgressType = 'VIDEO' | 'PDF' | 'AUDIO'
 
+export const VIDEO_RESUME_MIN_DURATION_SECONDS = 20
+
 export interface FileProgressRecord {
   nodeId: string
   progressType: ProgressType
@@ -31,6 +33,11 @@ export function shouldPromptResume(
   positionValue: number,
   totalOrDuration?: number,
 ): boolean {
+  if (type === 'VIDEO' && (
+    typeof totalOrDuration !== 'number' ||
+    !Number.isFinite(totalOrDuration) ||
+    totalOrDuration <= VIDEO_RESUME_MIN_DURATION_SECONDS
+  )) return false
   if (!Number.isFinite(positionValue) || positionValue <= 0) return false
   if (type === 'PDF') {
     const page = Math.round(positionValue)

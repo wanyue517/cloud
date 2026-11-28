@@ -80,6 +80,17 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
     lang: 'zh-cn',
   })
   const instance = player
+  let savedResumePosition: number | null = null
+  let resumePromptEvaluated = false
+  const updateResumePrompt = () => {
+    if (player !== instance || currentSeq !== seq || savedResumePosition === null || resumePromptEvaluated) return
+    const duration = Number(instance.duration)
+    if (!Number.isFinite(duration) || duration <= 0) return
+    resumePromptEvaluated = true
+    if (shouldPromptResume('VIDEO', savedResumePosition, duration)) resumePromptSec.value = savedResumePosition
+  }
+  player.on('loadedmetadata', updateResumePrompt)
+  player.on('durationchange', updateResumePrompt)
   if (hls) instance.handleSource = false
   player.on('canplay', () => { if (player === instance) playbackSession?.ready() })
   player.on('progress', () => { if (player === instance) playbackSession?.progress() })
@@ -111,11 +122,9 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
   })
   player.on('pause', () => { progressReporter.flush() })
   void drive.getProgress(props.node).then((saved) => {
-    if (currentSeq !== seq || !saved || saved.progressType !== 'VIDEO') return
-    const dur = Number(player?.duration || 0)
-    if (shouldPromptResume('VIDEO', saved.positionValue, dur > 0 ? dur : undefined)) {
-      resumePromptSec.value = saved.positionValue
-    }
+    if (currentSeq !== seq || player !== instance || !saved || saved.progressType !== 'VIDEO') return
+    savedResumePosition = saved.positionValue
+    updateResumePrompt()
   }).catch(() => undefined)
   if (hls) {
     const media = instance.media as HTMLVideoElement

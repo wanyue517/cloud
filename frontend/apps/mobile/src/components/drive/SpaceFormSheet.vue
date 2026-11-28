@@ -25,7 +25,6 @@ const isEdit = computed(() => Boolean(props.space))
 const saving = ref(false)
 const converting = ref(false)
 const deleting = ref(false)
-const deleteConfirmName = ref('')
 
 const form = reactive({
   name: '',
@@ -39,7 +38,6 @@ watch(
   () => [props.open, props.space] as const,
   ([open, sp]) => {
     if (!open) return
-    deleteConfirmName.value = ''
     if (sp) {
       form.name = sp.name
       form.kind = sp.kind === 'SHARED' ? 'SHARED' : 'PERSONAL'
@@ -57,6 +55,7 @@ watch(
 )
 
 async function handleSave() {
+  if (saving.value || converting.value || deleting.value) return
   const trimmed = form.name.trim()
   if (!trimmed) {
     toast.error('空间名称不能为空')
@@ -95,7 +94,7 @@ async function handleSave() {
 }
 
 async function handleToggleShared() {
-  if (!props.space || converting.value) return
+  if (!props.space || converting.value || saving.value || deleting.value) return
   const toShared = props.space.kind !== 'SHARED'
   try {
     await showConfirmDialog({
@@ -127,17 +126,25 @@ async function handleToggleShared() {
 }
 
 async function handleDelete() {
-  if (!props.space || deleting.value) return
-  if (deleteConfirmName.value.trim() !== props.space.name) {
-    toast.error('请输入完整的空间名称以确认删除')
-    return
-  }
+  if (!props.space || !canDeleteSpace(props.space) || deleting.value || saving.value || converting.value) return
+  const targetSpace = props.space
   deleting.value = true
   try {
-    await mobileDriveApi.deleteSpace(props.space.id, deleteConfirmName.value.trim())
+    try {
+      await showConfirmDialog({
+        title: '删除空间',
+        message: `确定删除空间「${targetSpace.name}」吗？删除后该空间将无法访问。`,
+        confirmButtonText: '确认删除',
+        confirmButtonColor: 'var(--destructive)',
+      })
+    } catch {
+      return
+    }
+    if (!props.open || props.space?.id !== targetSpace.id) return
+    await mobileDriveApi.deleteSpace(targetSpace.id, targetSpace.name)
     toast.success('空间已删除')
     emit('update:open', false)
-    emit('deleted', props.space.id)
+    emit('deleted', targetSpace.id)
   } catch (err) {
     toast.error(normalizeErrorMessage(err, '删除空间失败'))
   } finally {
@@ -228,6 +235,7 @@ async function handleDelete() {
         block
         round
         :loading="saving"
+        :disabled="converting || deleting"
         class="!h-11 !text-sm !font-medium"
         @click="handleSave"
       >
@@ -236,14 +244,14 @@ async function handleDelete() {
 
       <!-- 编辑态高级操作（仅 OWNER） -->
       <template v-if="isEdit && canDeleteSpace(space)">
-        <div class="pt-2 border-t border-border space-y-3">
+        <div class="flex items-center justify-between gap-3 pt-2 border-t border-border">
           <VanButton
             plain
             type="primary"
-            block
-            round
+            size="small"
             :loading="converting"
-            class="!h-10 !text-xs"
+            :disabled="saving || deleting"
+            class="!h-9 !border-0 !bg-transparent !px-2 !text-xs"
             @click="handleToggleShared"
           >
             <span class="inline-flex items-center gap-1.5">
@@ -252,33 +260,19 @@ async function handleDelete() {
             </span>
           </VanButton>
 
-          <div class="rounded-xl border border-destructive/30 bg-destructive/5 p-3 space-y-2.5">
-            <p class="text-xs font-medium text-destructive">危险区域：删除空间</p>
-            <p class="text-[11px] text-muted-foreground">
-              请输入空间名称「<strong class="text-foreground">{{ space?.name }}</strong>」确认永久删除该空间：
-            </p>
-            <input
-              v-model="deleteConfirmName"
-              type="text"
-              :placeholder="space?.name"
-              class="w-full h-10 rounded-lg border border-destructive/40 bg-background px-3 text-xs text-foreground outline-none"
-            />
-            <VanButton
-              type="danger"
-              block
-              round
-              size="small"
-              :loading="deleting"
-              :disabled="deleteConfirmName.trim() !== space?.name"
-              class="!h-9"
-              @click="handleDelete"
-            >
-              <span class="inline-flex items-center gap-1">
-                <Trash2 :size="13" />
-                <span>确认删除空间</span>
-              </span>
-            </VanButton>
-          </div>
+          <VanButton
+            plain
+            size="small"
+            :loading="deleting"
+            :disabled="saving || converting"
+            class="!h-9 !border-0 !bg-transparent !px-2 !text-xs !text-muted-foreground active:!text-destructive"
+            @click="handleDelete"
+          >
+            <span class="inline-flex items-center gap-1.5">
+              <Trash2 :size="13" />
+              <span>删除空间</span>
+            </span>
+          </VanButton>
         </div>
       </template>
     </div>
