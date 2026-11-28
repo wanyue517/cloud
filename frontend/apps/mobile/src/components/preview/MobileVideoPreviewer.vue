@@ -50,6 +50,8 @@ let playbackSession: ReturnType<typeof createMediaPlaybackSession> | undefined
 let probeTimer: ReturnType<typeof setTimeout> | undefined
 let probeResult: VideoProbe | null = null
 let playbackFailed = false
+let compatibilityStarted = false
+let activeAsset: 'ORIGINAL' | 'VIDEO_MP4' = 'ORIGINAL'
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let prevRate = 1
 let speedBoosting = false
@@ -179,6 +181,11 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
   player.on('timeupdate', () => {
     if (!player) return
     const sec = Number(player.currentTime)
+    const media = containerRef.value?.querySelector('video')
+    if (activeAsset === 'ORIGINAL' && sec >= 2 && media && media.readyState >= 2 && media.videoWidth === 0) {
+      void beginTranscode(seq)
+      return
+    }
     if (Number.isFinite(sec) && sec >= 1) {
       progressReporter.report(sec)
     }
@@ -200,6 +207,7 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
 
 async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
   playbackSession?.dispose()
+  activeAsset = assetType
   const versionId = props.versionId ?? props.node.currentVersionId ?? undefined
   playbackSession = createMediaPlaybackSession({
     requestAddress: forceProxy => mobileDriveApi.streamTicket(props.node.spaceId, props.node.id, {
@@ -222,6 +230,9 @@ async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
 }
 
 async function beginTranscode(seq: number) {
+  if (seq !== runSeq || compatibilityStarted) return
+  compatibilityStarted = true
+  if (probeTimer) clearTimeout(probeTimer)
   playbackSession?.dispose()
   destroyPlayer()
   errorText.value = ''
@@ -281,6 +292,7 @@ async function startVideoFlow(bypassCellular = false) {
   if (probeTimer) clearTimeout(probeTimer)
   probeResult = null
   playbackFailed = false
+  compatibilityStarted = false
   destroyPlayer()
   errorText.value = ''
   transcodeAsset.value = null
@@ -516,6 +528,9 @@ function onGestureTouchEnd() {
       @touchcancel.passive="onGestureTouchEnd"
     >
       <div ref="containerRef" class="w-full max-h-full" />
+      <button v-if="!transcodeAsset && !locked" type="button"
+        class="absolute right-3 top-3 z-20 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white"
+        @click.stop="beginTranscode(runSeq)">兼容播放</button>
 
       <!-- 亮度调节遮罩 -->
       <div

@@ -32,6 +32,8 @@ let seq = 0
 let playbackSession: ReturnType<typeof createMediaPlaybackSession> | undefined
 let probeTimer: number | null = null
 let playbackFailed = false
+let compatibilityStarted = false
+let activeAsset: 'ORIGINAL' | 'VIDEO_MP4' = 'ORIGINAL'
 
 function destroyPlayer() {
   progressReporter.flush()
@@ -104,6 +106,11 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
     if (!player) return
     const sec = Number(player.currentTime)
     if (Number.isFinite(sec) && sec >= 1) progressReporter.report(sec)
+    const media = containerRef.value?.querySelector('video')
+    // Audio can play without a decodable picture and may never raise an error.
+    if (activeAsset === 'ORIGINAL' && sec >= 2 && media && media.readyState >= 2 && media.videoWidth === 0) {
+      void beginTranscode(currentSeq)
+    }
   })
   player.on('pause', () => { progressReporter.flush() })
   void drive.getProgress(props.node).then((saved) => {
@@ -117,6 +124,7 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
 
 async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', currentSeq: number) {
   playbackSession?.dispose()
+  activeAsset = assetType
   const versionId = props.version?.id ?? props.node.currentVersionId ?? undefined
   playbackSession = createMediaPlaybackSession({
     requestAddress: forceProxy => drive.streamTicket(props.node, { versionId, assetType, forceProxy }),
@@ -137,6 +145,9 @@ async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', currentSeq: nu
 }
 
 async function beginTranscode(currentSeq: number) {
+  if (currentSeq !== seq || compatibilityStarted) return
+  compatibilityStarted = true
+  clearPoll()
   playbackSession?.dispose()
   destroyPlayer()
   streamUrl.value = ''
@@ -147,7 +158,7 @@ async function beginTranscode(currentSeq: number) {
 
 async function pollProbe(currentSeq: number) {
   try {
-    const result = await drive.videoProbe(props.node, props.version?.id)
+    const result = await drive.videoProbe(props.node, props.version?.id ?? props.node.currentVersionId ?? undefined)
     if (currentSeq !== seq) return
     probe.value = result
     if (result.status === 'PENDING' || result.status === 'PROCESSING') {
@@ -169,7 +180,7 @@ function resumeVideoFromSaved() {
 
 async function pollTranscode(currentSeq: number) {
   try {
-    const asset = await drive.previewAsset(props.node, 'VIDEO_MP4', props.version?.id)
+    const asset = await drive.previewAsset(props.node, 'VIDEO_MP4', props.version?.id ?? props.node.currentVersionId ?? undefined)
     if (currentSeq !== seq) return
     transcodeAsset.value = asset
     if (asset.status === 'READY') {
@@ -198,7 +209,8 @@ async function retryTranscode() {
   clearPoll()
   const currentSeq = ++seq
   try {
-    transcodeAsset.value = await drive.retryPreviewAsset(props.node, 'VIDEO_MP4', props.version?.id)
+    compatibilityStarted = true
+    transcodeAsset.value = await drive.retryPreviewAsset(props.node, 'VIDEO_MP4', props.version?.id ?? props.node.currentVersionId ?? undefined)
     pollTimer = window.setTimeout(() => { void pollTranscode(currentSeq) }, 1500)
   } catch (e) {
     error.value = e instanceof Error ? e.message : '重试转码失败'
@@ -210,6 +222,7 @@ async function retryTranscode() {
 async function loadVideo() {
   playbackSession?.dispose()
   playbackFailed = false
+  compatibilityStarted = false
   clearPoll()
   destroyPlayer()
   streamUrl.value = ''
@@ -270,6 +283,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div v-if="streamUrl && !transcodeAsset && !error" class="flex justify-end border-b border-white/10 bg-zinc-900 px-4 py-1.5">
+      <Button size="sm" variant="outline" :disabled="retrying" @click="beginTranscode(seq)">
+        无画面？兼容播放
+      </Button>
+    </div>
     <div class="relative flex min-h-0 flex-1 items-center justify-center">
       <p v-if="loading" role="status" class="text-sm text-white/80">正在探测并加载视频…</p>
       <div v-else-if="error || transcodeAsset?.status === 'FAILED'" class="flex max-w-md flex-col items-center gap-3 rounded-xl bg-zinc-900 p-6 text-center text-zinc-100">
@@ -277,7 +295,7 @@ onBeforeUnmount(() => {
         <p class="text-sm font-medium">视频转码或加载失败</p>
         <p class="text-xs text-zinc-400">{{ error || transcodeAsset?.errorMessage }}</p>
         <div class="flex gap-2">
-          <Button v-if="probe?.strategy !== 'DIRECT_PLAY'" variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
+          <Button variant="outline" size="sm" :disabled="retrying" @click="retryTranscode">
             <RefreshCw :size="14" /> 重试转码
           </Button>
           <Button size="sm" @click="emit('download')"><Download :size="14" /> 下载原件</Button>

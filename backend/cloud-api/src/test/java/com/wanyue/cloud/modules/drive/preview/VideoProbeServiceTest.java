@@ -42,6 +42,7 @@ class VideoProbeServiceTest {
             assertEquals("FAILED", result.status());
             assertEquals("UNKNOWN", result.strategy());
             assertEquals("", result.videoCodec());
+            assertTrue(result.reason().contains("FFprobe 未安装"));
         } finally { service.shutdown(); }
     }
 }

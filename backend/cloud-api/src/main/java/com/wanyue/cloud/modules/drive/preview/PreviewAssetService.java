@@ -36,6 +36,12 @@ public class PreviewAssetService {
     private final String ffprobeBin;
     private final int timeoutSeconds;
     private final long maxSourceBytes;
+    @Value("${cloud.preview.video-probe-timeout-seconds:60}")
+    private int videoProbeTimeoutSeconds = 60;
+    @Value("${cloud.preview.video-transcode-timeout-seconds:1800}")
+    private int videoTranscodeTimeoutSeconds = 1800;
+    @Value("${cloud.preview.video-max-source-bytes:2147483648}")
+    private long videoMaxSourceBytes = 2147483648L;
     private final Semaphore concurrencyGuard;
     private final ExecutorService executor;
     private final HttpClient httpClient;
@@ -81,7 +87,7 @@ public class PreviewAssetService {
     public PreviewAsset getOrTriggerAsset(long fileId, long versionId, String assetType, long sourceSize,
                                           java.util.function.Supplier<DriveModels.Content> source) {
         String normalizedType = normalizeAssetType(assetType);
-        if (sourceSize > maxSourceBytes) {
+        if (sourceSize > ("VIDEO_MP4".equals(normalizedType) ? videoMaxSourceBytes : maxSourceBytes)) {
             throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件体积超出在线转换上限，请下载后查看");
         }
         Optional<PreviewAsset> existing = findAsset(versionId, normalizedType);
@@ -112,7 +118,7 @@ public class PreviewAssetService {
             return getOrTriggerAsset(fileId, versionId, normalizedType, sourceSize, source);
         }
         PreviewAsset asset = existing.get();
-        if (sourceSize > maxSourceBytes) throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件体积超出在线转换上限，请下载后查看");
+        if (sourceSize > ("VIDEO_MP4".equals(normalizedType) ? videoMaxSourceBytes : maxSourceBytes)) throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件体积超出在线转换上限，请下载后查看");
         if ("READY".equals(asset.status()) || "PROCESSING".equals(asset.status())) {
             return asset;
         }
@@ -148,19 +154,24 @@ public class PreviewAssetService {
         boolean remote = input.startsWith("https://") || input.startsWith("http://");
         Process process = null;
         try {
-            ProcessBuilder pb = new ProcessBuilder(
+            var command = new ArrayList<>(List.of(
                     ffprobeBin,
-                    "-v", "quiet",
-                    "-protocol_whitelist", remote ? "http,https,tcp,tls" : "file",
+                    "-v", "error",
+                    "-protocol_whitelist", remote ? "http,https,tcp,tls,httpproxy" : "file",
                     "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf,mp3,aac,wav,flac",
-                    "-rw_timeout", "10000000",
+                    "-rw_timeout", "30000000",
                     "-probesize", "5242880",
                     "-analyzeduration", "5000000",
                     "-print_format", "json",
                     "-show_format",
-                    "-show_streams",
-                    input);
-            process = pb.start();
+                    "-show_streams"));
+            if (remote) command.addAll(List.of("-seekable", "1"));
+            command.add(input);
+            try {
+                process = new ProcessBuilder(command).start();
+            } catch (IOException e) {
+                return probeFailure(ext, "FFprobe 未安装或后端进程无法执行，请检查 FFprobe 路径");
+            }
             Process running = process;
             ByteArrayOutputStream stdout = new ByteArrayOutputStream();
             Thread reader = new Thread(() -> {
@@ -168,24 +179,51 @@ public class PreviewAssetService {
                     in.transferTo(stdout);
                 } catch (IOException ignored) {}
             });
+            var stderr = new ByteArrayOutputStream();
+            Thread errorReader = new Thread(() -> {
+                try (InputStream in = running.getErrorStream()) {
+                    stderr.write(in.readNBytes(16 * 1024));
+                    in.transferTo(OutputStream.nullOutputStream());
+                } catch (IOException ignored) {}
+            });
             reader.start();
-            boolean finished = process.waitFor(Math.min(15, timeoutSeconds), TimeUnit.SECONDS);
+            errorReader.start();
+            boolean finished = process.waitFor(Math.max(5, videoProbeTimeoutSeconds), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                throw new IOException("ffprobe 探测超时");
+                return probeFailure(ext, "FFprobe 视频探测超时，请检查存储网络或使用兼容播放");
             }
             reader.join(2000);
+            errorReader.join(2000);
             if (process.exitValue() != 0) {
-                throw new IOException("ffprobe 返回非零状态码");
+                return probeFailure(ext, probeErrorReason(stderr.toString(StandardCharsets.UTF_8), remote));
             }
             return parseFfprobeJson(stdout.toString(StandardCharsets.UTF_8), ext);
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            return new VideoProbe(ext, "", "", 0, 0, 0, 0, "UNKNOWN",
-                    "视频探测未完成，请尝试原文件播放或重新探测", "FAILED");
+            return probeFailure(ext, "视频探测未完成，请使用兼容播放或检查原文件");
         } finally {
             if (process != null && process.isAlive()) process.destroyForcibly();
         }
+    }
+
+    private static VideoProbe probeFailure(String ext, String reason) {
+        return new VideoProbe(ext, "", "", 0, 0, 0, 0, "UNKNOWN", reason, "FAILED");
+    }
+
+    // Do not expose stderr verbatim: FFprobe may include the signed object URL.
+    static String probeErrorReason(String stderr, boolean remote) {
+        String error = stderr.toLowerCase(Locale.ROOT);
+        if (error.contains("403") || error.contains("401") || error.contains("access denied"))
+            return "远程视频访问被拒绝，请检查存储签名和权限";
+        if (error.contains("timed out") || error.contains("timeout"))
+            return "FFprobe 读取视频超时，请检查存储网络";
+        if (error.contains("moov atom not found") || error.contains("invalid data"))
+            return "视频容器无法解析，请检查原文件完整性或使用兼容播放";
+        if (error.contains("not on whitelist"))
+            return "FFprobe 视频格式或网络协议不受当前预览配置支持";
+        return remote ? "FFprobe 无法读取远程视频，请检查后端网络、TLS 或视频格式"
+                : "FFprobe 无法解析本地视频，请检查视频格式和完整性";
     }
 
     public static VideoProbe decideVideoStrategy(
@@ -304,7 +342,6 @@ public class PreviewAssetService {
     }
 
     private void transcodeVideoViaFfmpeg(String assetId, long versionId, DriveModels.Content source) throws Exception {
-        VideoProbe probe = probeVideo(source);
         String key = "video/" + versionId + ".mp4";
         Path target = previewRoot.resolve(key).normalize();
         Files.createDirectories(target.getParent());
@@ -312,17 +349,17 @@ public class PreviewAssetService {
 
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegBin);
-        cmd.add("-y");
+        cmd.addAll(List.of("-y", "-nostdin", "-hide_banner", "-loglevel", "error"));
         cmd.addAll(List.of("-protocol_whitelist", "file",
                 "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf"));
         cmd.add("-i");
         cmd.add(source.path().toAbsolutePath().toString());
-        if ("REMUX".equals(probe.strategy())) {
-            cmd.addAll(List.of("-c", "copy", "-movflags", "+faststart"));
-        } else {
-            cmd.addAll(List.of("-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"));
-        }
+        // A compatibility asset must contain a real video track (not album art) and
+        // must not preserve an original codec/profile that the browser failed to decode.
+        cmd.addAll(List.of("-map", "0:V:0", "-map", "0:a:0?",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:a", "aac", "-ac", "2", "-b:a", "128k", "-movflags", "+faststart"));
         cmd.add(temp.toAbsolutePath().toString());
 
         Process process;
@@ -338,11 +375,11 @@ public class PreviewAssetService {
             } catch (IOException ignored) {}
         });
         drainer.start();
-        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        boolean finished = process.waitFor(Math.max(5, videoTranscodeTimeoutSeconds), TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
             Files.deleteIfExists(temp);
-            throw new IOException("FFmpeg 转码超时（超过 " + timeoutSeconds + " 秒）");
+            throw new IOException("FFmpeg 视频转码超时（超过 " + videoTranscodeTimeoutSeconds + " 秒）");
         }
         drainer.join(2000);
         if (process.exitValue() != 0 || !Files.isRegularFile(temp)) {
