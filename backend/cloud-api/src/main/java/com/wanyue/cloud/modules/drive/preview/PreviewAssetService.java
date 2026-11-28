@@ -75,8 +75,13 @@ public class PreviewAssetService {
     }
 
     public PreviewAsset getOrTriggerAsset(long fileId, long versionId, String assetType, DriveModels.Content source) {
+        return getOrTriggerAsset(fileId, versionId, assetType, source.size(), () -> source);
+    }
+
+    public PreviewAsset getOrTriggerAsset(long fileId, long versionId, String assetType, long sourceSize,
+                                          java.util.function.Supplier<DriveModels.Content> source) {
         String normalizedType = normalizeAssetType(assetType);
-        if (source.size() > maxSourceBytes) {
+        if (sourceSize > maxSourceBytes) {
             throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件体积超出在线转换上限，请下载后查看");
         }
         Optional<PreviewAsset> existing = findAsset(versionId, normalizedType);
@@ -96,12 +101,18 @@ public class PreviewAssetService {
     }
 
     public PreviewAsset retryAsset(long fileId, long versionId, String assetType, DriveModels.Content source) {
+        return retryAsset(fileId, versionId, assetType, source.size(), () -> source);
+    }
+
+    public PreviewAsset retryAsset(long fileId, long versionId, String assetType, long sourceSize,
+                                   java.util.function.Supplier<DriveModels.Content> source) {
         String normalizedType = normalizeAssetType(assetType);
         Optional<PreviewAsset> existing = findAsset(versionId, normalizedType);
         if (existing.isEmpty()) {
-            return getOrTriggerAsset(fileId, versionId, normalizedType, source);
+            return getOrTriggerAsset(fileId, versionId, normalizedType, sourceSize, source);
         }
         PreviewAsset asset = existing.get();
+        if (sourceSize > maxSourceBytes) throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件体积超出在线转换上限，请下载后查看");
         if ("READY".equals(asset.status()) || "PROCESSING".equals(asset.status())) {
             return asset;
         }
@@ -129,19 +140,31 @@ public class PreviewAssetService {
     }
 
     public VideoProbe probeVideo(DriveModels.Content source) {
-        String ext = extensionOf(source.name());
+        return probeInput(source.path().toAbsolutePath().toString(), source.name());
+    }
+
+    public VideoProbe probeInput(String input, String fileName) {
+        String ext = extensionOf(fileName);
+        boolean remote = input.startsWith("https://") || input.startsWith("http://");
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     ffprobeBin,
                     "-v", "quiet",
+                    "-protocol_whitelist", remote ? "http,https,tcp,tls" : "file",
+                    "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf,mp3,aac,wav,flac",
+                    "-rw_timeout", "10000000",
+                    "-probesize", "5242880",
+                    "-analyzeduration", "5000000",
                     "-print_format", "json",
                     "-show_format",
                     "-show_streams",
-                    source.path().toAbsolutePath().toString());
-            Process process = pb.start();
+                    input);
+            process = pb.start();
+            Process running = process;
             ByteArrayOutputStream stdout = new ByteArrayOutputStream();
             Thread reader = new Thread(() -> {
-                try (InputStream in = process.getInputStream()) {
+                try (InputStream in = running.getInputStream()) {
                     in.transferTo(stdout);
                 } catch (IOException ignored) {}
             });
@@ -157,7 +180,11 @@ public class PreviewAssetService {
             }
             return parseFfprobeJson(stdout.toString(StandardCharsets.UTF_8), ext);
         } catch (Exception e) {
-            return decideVideoFallbackByExtension(ext);
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return new VideoProbe(ext, "", "", 0, 0, 0, 0, "UNKNOWN",
+                    "视频探测未完成，请尝试原文件播放或重新探测", "FAILED");
+        } finally {
+            if (process != null && process.isAlive()) process.destroyForcibly();
         }
     }
 
@@ -182,19 +209,6 @@ public class PreviewAssetService {
         }
         return new VideoProbe(c, vc, ac, durationSeconds, width, height, bitrate,
                 "TRANSCODE", "编码格式不兼容浏览器，需转码为 H.264/AAC MP4");
-    }
-
-    static VideoProbe decideVideoFallbackByExtension(String ext) {
-        if ("mp4".equals(ext) || "m4v".equals(ext) || "webm".equals(ext)) {
-            return new VideoProbe(ext, "h264", "aac", 0, 0, 0, 0,
-                    "DIRECT_PLAY", "环境未检测到 FFprobe，按浏览器常见容器直放");
-        }
-        if ("mkv".equals(ext) || "mov".equals(ext)) {
-            return new VideoProbe(ext, "unknown", "unknown", 0, 0, 0, 0,
-                    "REMUX", "环境未检测到 FFprobe，建议转封装为 MP4");
-        }
-        return new VideoProbe(ext, "unknown", "unknown", 0, 0, 0, 0,
-                "TRANSCODE", "环境未检测到 FFprobe，建议转码为兼容 MP4");
     }
 
     private static VideoProbe parseFfprobeJson(String json, String fallbackExt) {
@@ -229,7 +243,7 @@ public class PreviewAssetService {
         return decideVideoStrategy(container, videoCodec, audioCodec, duration, width, height, bitrate);
     }
 
-    private void submitAsync(String assetId, long versionId, String assetType, DriveModels.Content source) {
+    private void submitAsync(String assetId, long versionId, String assetType, java.util.function.Supplier<DriveModels.Content> loader) {
         executor.submit(() -> {
             boolean acquired = false;
             try {
@@ -240,6 +254,7 @@ public class PreviewAssetService {
                 }
                 db.update("UPDATE preview_asset SET status='PROCESSING', updated_at=UTC_TIMESTAMP(3) WHERE id=?",
                         Long.parseLong(assetId));
+                DriveModels.Content source = loader.get();
                 if ("OFFICE_PDF".equals(assetType)) {
                     convertOfficeViaGotenberg(assetId, versionId, source);
                 } else if ("VIDEO_MP4".equals(assetType)) {
@@ -298,13 +313,15 @@ public class PreviewAssetService {
         List<String> cmd = new ArrayList<>();
         cmd.add(ffmpegBin);
         cmd.add("-y");
+        cmd.addAll(List.of("-protocol_whitelist", "file",
+                "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf"));
         cmd.add("-i");
         cmd.add(source.path().toAbsolutePath().toString());
         if ("REMUX".equals(probe.strategy())) {
             cmd.addAll(List.of("-c", "copy", "-movflags", "+faststart"));
         } else {
             cmd.addAll(List.of("-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                    "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"));
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"));
         }
         cmd.add(temp.toAbsolutePath().toString());
 

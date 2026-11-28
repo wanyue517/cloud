@@ -7,7 +7,8 @@ import 'xgplayer/dist/index.min.css'
 import { normalizeErrorMessage } from '@repo/drive-core/errors'
 import { formatBytes } from '@repo/drive-core/format'
 import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
-import { mobileDriveApi, type DriveNode, type PreviewAsset } from '@/api/drive'
+import { createMediaPlaybackSession } from '@repo/drive-core/media-playback'
+import { mobileDriveApi, type DriveNode, type PreviewAsset, type VideoProbe } from '@/api/drive'
 import { formatMediaTime } from '@/lib/archive-tree'
 import { networkPrefs, networkStatus, shouldWarnVideoOnNetwork } from '@/lib/network'
 
@@ -45,6 +46,10 @@ const progressReporter = createProgressReporter(
 let player: Player | null = null
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let runSeq = 0
+let playbackSession: ReturnType<typeof createMediaPlaybackSession> | undefined
+let probeTimer: ReturnType<typeof setTimeout> | undefined
+let probeResult: VideoProbe | null = null
+let playbackFailed = false
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let prevRate = 1
 let speedBoosting = false
@@ -100,9 +105,12 @@ function applyPlaybackRate(rate: number) {
   }
 }
 
-async function mountPlayer(streamUrl: string, seq: number) {
+async function mountPlayer(streamUrl: string, seq: number, position = 0, playing = false) {
+  if (seq !== runSeq) return
+  destroyPlayer()
   streamReady.value = true
   loading.value = false
+  errorText.value = ''
   currentRate.value = 1
   rateMenuOpen.value = false
   await nextTick()
@@ -125,6 +133,14 @@ async function mountPlayer(streamUrl: string, seq: number) {
     },
     download: false,
     lang: 'zh-cn',
+  })
+  const instance = player
+  player.on('canplay', () => { if (player === instance) playbackSession?.ready() })
+  player.on('error', () => { if (player === instance) void playbackSession?.recover() })
+  player.once('loadedmetadata', () => {
+    if (player !== instance) return
+    if (position > 0) instance.currentTime = position
+    if (playing) void instance.play()?.catch(() => undefined)
   })
   const enforceInitialRate = () => {
     if (!player || speedBoosting) return
@@ -173,6 +189,49 @@ async function mountPlayer(streamUrl: string, seq: number) {
     .catch(() => undefined)
 }
 
+async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
+  playbackSession?.dispose()
+  playbackSession = createMediaPlaybackSession({
+    requestAddress: forceProxy => mobileDriveApi.streamTicket(props.node.spaceId, props.node.id, {
+      versionId: props.versionId ?? props.node.currentVersionId ?? undefined, assetType, forceProxy,
+    }),
+    applyAddress: async (address, position, playing) => {
+      if (seq === runSeq) await mountPlayer(address.streamUrl, seq, position, playing)
+    },
+    getPosition: () => Number(player?.currentTime || 0),
+    isPlaying: () => Boolean(player && !player.paused),
+    onFailure: message => {
+      if (seq !== runSeq) return
+      playbackFailed = true
+      if (assetType === 'ORIGINAL' && (probeResult?.strategy === 'TRANSCODE' || probeResult?.strategy === 'REMUX')) {
+        void beginTranscode(seq)
+      } else { errorText.value = message; loading.value = false }
+    },
+  })
+  await playbackSession.start()
+}
+
+async function beginTranscode(seq: number) {
+  playbackSession?.dispose()
+  destroyPlayer()
+  errorText.value = ''
+  loading.value = true
+  await pollTranscode(seq)
+}
+
+async function pollProbe(seq: number) {
+  try {
+    const result = await mobileDriveApi.videoProbe(props.node.spaceId, props.node.id, props.versionId ?? props.node.currentVersionId ?? undefined)
+    if (seq !== runSeq) return
+    probeResult = result
+    if (result.status === 'PENDING' || result.status === 'PROCESSING') {
+      probeTimer = setTimeout(() => { void pollProbe(seq) }, 2500)
+    } else if (playbackFailed && (result.strategy === 'TRANSCODE' || result.strategy === 'REMUX')) {
+      await beginTranscode(seq)
+    }
+  } catch { /* The original video can play even when probing is unavailable. */ }
+}
+
 function resumeVideoFromSaved() {
   if (!player || resumePromptSec.value === null) return
   player.currentTime = resumePromptSec.value
@@ -192,12 +251,7 @@ async function pollTranscode(seq: number) {
     if (seq !== runSeq) return
     transcodeAsset.value = asset
     if (asset.status === 'READY') {
-      const ticket = await mobileDriveApi.streamTicket(props.node.spaceId, props.node.id, {
-        versionId: props.versionId ?? props.node.currentVersionId ?? undefined,
-        assetType: 'VIDEO_MP4',
-      })
-      if (seq !== runSeq) return
-      await mountPlayer(ticket.streamUrl, seq)
+      await startPlayback('VIDEO_MP4', seq)
     } else if (asset.status === 'PENDING' || asset.status === 'PROCESSING') {
       loading.value = false
       pollTimer = setTimeout(() => void pollTranscode(seq), 2500)
@@ -213,6 +267,10 @@ async function pollTranscode(seq: number) {
 
 async function startVideoFlow(bypassCellular = false) {
   const seq = ++runSeq
+  playbackSession?.dispose()
+  if (probeTimer) clearTimeout(probeTimer)
+  probeResult = null
+  playbackFailed = false
   destroyPlayer()
   errorText.value = ''
   transcodeAsset.value = null
@@ -226,22 +284,8 @@ async function startVideoFlow(bypassCellular = false) {
   needsCellularConfirm.value = false
   loading.value = true
   try {
-    const probe = await mobileDriveApi
-      .videoProbe(props.node.spaceId, props.node.id, props.versionId ?? props.node.currentVersionId ?? undefined)
-      .catch(() => null)
-    if (seq !== runSeq) return
-
-    if (probe && (probe.strategy === 'REMUX' || probe.strategy === 'TRANSCODE')) {
-      await pollTranscode(seq)
-      return
-    }
-
-    const ticket = await mobileDriveApi.streamTicket(props.node.spaceId, props.node.id, {
-      versionId: props.versionId ?? props.node.currentVersionId ?? undefined,
-      assetType: 'ORIGINAL',
-    })
-    if (seq !== runSeq) return
-    await mountPlayer(ticket.streamUrl, seq)
+    await startPlayback('ORIGINAL', seq)
+    if (seq === runSeq) void pollProbe(seq)
   } catch (err) {
     if (seq !== runSeq) return
     loading.value = false
@@ -252,6 +296,11 @@ async function startVideoFlow(bypassCellular = false) {
 async function handleRetryTranscode() {
   if (retrying.value) return
   retrying.value = true
+  const seq = ++runSeq
+  playbackSession?.dispose()
+  if (probeTimer) clearTimeout(probeTimer)
+  destroyPlayer()
+  errorText.value = ''
   try {
     await mobileDriveApi.retryPreviewAsset(
       props.node.spaceId,
@@ -260,7 +309,7 @@ async function handleRetryTranscode() {
       props.versionId ?? props.node.currentVersionId ?? undefined,
     )
     showToast('已重新提交转码任务')
-    await startVideoFlow(true)
+    await pollTranscode(seq)
   } catch (err) {
     showToast(normalizeErrorMessage(err, '重试转码失败'))
   } finally {
@@ -279,6 +328,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  playbackSession?.dispose()
+  if (probeTimer) clearTimeout(probeTimer)
   runSeq += 1
   destroyPlayer()
 })
@@ -425,7 +476,7 @@ function onGestureTouchEnd() {
       </p>
       <div class="flex gap-2">
         <VanButton
-          v-if="transcodeAsset?.status === 'FAILED'"
+          v-if="transcodeAsset?.status === 'FAILED' || errorText"
           block
           size="small"
           round

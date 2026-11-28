@@ -54,6 +54,8 @@ export interface components {
       status: number
     }
     AdminController_StorageProfileInput: {
+      playbackMode?: "AUTO" | "DIRECT" | "PROXY"
+      playbackEndpoint?: string
       name?: string
       provider?: string
       rootPath?: string
@@ -540,7 +542,10 @@ export interface components {
       nodeIds?: Array<string>
     }
     PreviewController_StreamTicketResponse: {
-      ticket?: string
+      mode?: "DIRECT" | "PROXY"
+      expiresAt?: number
+      proxyFallbackAllowed?: boolean
+      ticket?: string | null
       streamUrl?: string
       expiresInSeconds: number
     }
@@ -590,6 +595,7 @@ export interface components {
       updatedAt?: string
     }
     PreviewModels_VideoProbe: {
+      status?: "PENDING" | "PROCESSING" | "READY" | "FAILED"
       container?: string
       videoCodec?: string
       audioCodec?: string
@@ -4011,6 +4017,7 @@ export interface paths {
         query?: {
           versionId?: number
           assetType?: string
+          forceProxy?: boolean
         }
       }
       response: {

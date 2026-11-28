@@ -5,6 +5,7 @@ import 'xgplayer/dist/index.min.css'
 import { AlertCircle, Download, Loader2, RefreshCw } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
+import { createMediaPlaybackSession } from '@repo/drive-core/media-playback'
 import { drive, type DriveNode, type PreviewAsset, type Version, type VideoProbe } from '@/api/drive'
 
 const props = defineProps<{ node: DriveNode; version?: Version }>()
@@ -28,6 +29,9 @@ const progressReporter = createProgressReporter(
 let player: Player | null = null
 let pollTimer: number | null = null
 let seq = 0
+let playbackSession: ReturnType<typeof createMediaPlaybackSession> | undefined
+let probeTimer: number | null = null
+let playbackFailed = false
 
 function destroyPlayer() {
   progressReporter.flush()
@@ -40,6 +44,8 @@ function destroyPlayer() {
 }
 
 function clearPoll() {
+  if (probeTimer !== null) window.clearTimeout(probeTimer)
+  probeTimer = null
   if (pollTimer !== null) {
     window.clearTimeout(pollTimer)
     pollTimer = null
@@ -53,10 +59,12 @@ function setPlaybackRate(rate: number) {
   }
 }
 
-async function mountPlayer(url: string) {
+async function mountPlayer(url: string, currentSeq: number, position = 0, playing = false) {
   streamUrl.value = url
   loading.value = false
+  error.value = ''
   await nextTick()
+  if (currentSeq !== seq) return
   destroyPlayer()
   if (!containerRef.value) return
   player = new Player({
@@ -70,6 +78,14 @@ async function mountPlayer(url: string) {
     pip: true,
     lang: 'zh-cn',
   })
+  const instance = player
+  player.on('canplay', () => { if (player === instance) playbackSession?.ready() })
+  player.on('error', () => { if (player === instance) void playbackSession?.recover() })
+  player.once('loadedmetadata', () => {
+    if (player !== instance) return
+    if (position > 0) instance.currentTime = position
+    if (playing) void instance.play()?.catch(() => undefined)
+  })
   player.on('ratechange', () => {
     if (player && Number.isFinite(player.playbackRate)) {
       playbackRate.value = player.playbackRate
@@ -81,7 +97,6 @@ async function mountPlayer(url: string) {
     if (Number.isFinite(sec) && sec >= 1) progressReporter.report(sec)
   })
   player.on('pause', () => { progressReporter.flush() })
-  const currentSeq = seq
   void drive.getProgress(props.node).then((saved) => {
     if (currentSeq !== seq || !saved || saved.progressType !== 'VIDEO') return
     const dur = Number(player?.duration || 0)
@@ -89,6 +104,50 @@ async function mountPlayer(url: string) {
       resumePromptSec.value = saved.positionValue
     }
   }).catch(() => undefined)
+}
+
+async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', currentSeq: number) {
+  playbackSession?.dispose()
+  playbackSession = createMediaPlaybackSession({
+    requestAddress: forceProxy => drive.streamTicket(props.node, { versionId: props.version?.id, assetType, forceProxy }),
+    applyAddress: async (address, position, playing) => {
+      if (currentSeq === seq) await mountPlayer(address.streamUrl, currentSeq, position, playing)
+    },
+    getPosition: () => Number(player?.currentTime || 0),
+    isPlaying: () => Boolean(player && !player.paused),
+    onFailure: message => {
+      if (currentSeq !== seq) return
+      playbackFailed = true
+      if (assetType === 'ORIGINAL' && (probe.value?.strategy === 'TRANSCODE' || probe.value?.strategy === 'REMUX')) {
+        void beginTranscode(currentSeq)
+      } else { error.value = message; loading.value = false }
+    },
+  })
+  await playbackSession.start()
+}
+
+async function beginTranscode(currentSeq: number) {
+  playbackSession?.dispose()
+  destroyPlayer()
+  streamUrl.value = ''
+  error.value = ''
+  loading.value = true
+  await pollTranscode(currentSeq)
+}
+
+async function pollProbe(currentSeq: number) {
+  try {
+    const result = await drive.videoProbe(props.node, props.version?.id)
+    if (currentSeq !== seq) return
+    probe.value = result
+    if (result.status === 'PENDING' || result.status === 'PROCESSING') {
+      probeTimer = window.setTimeout(() => { void pollProbe(currentSeq) }, 2500)
+    } else if (playbackFailed && (result.strategy === 'TRANSCODE' || result.strategy === 'REMUX')) {
+      await beginTranscode(currentSeq)
+    }
+  } catch {
+    // Playback remains independent of probe availability.
+  }
 }
 
 function resumeVideoFromSaved() {
@@ -104,9 +163,7 @@ async function pollTranscode(currentSeq: number) {
     if (currentSeq !== seq) return
     transcodeAsset.value = asset
     if (asset.status === 'READY') {
-      const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'VIDEO_MP4' })
-      if (currentSeq !== seq) return
-      await mountPlayer(ticket.streamUrl)
+      await startPlayback('VIDEO_MP4', currentSeq)
       return
     }
     if (asset.status === 'PENDING' || asset.status === 'PROCESSING') {
@@ -123,6 +180,9 @@ async function pollTranscode(currentSeq: number) {
 }
 
 async function retryTranscode() {
+  playbackSession?.dispose()
+  destroyPlayer()
+  streamUrl.value = ''
   retrying.value = true
   error.value = ''
   clearPoll()
@@ -138,6 +198,8 @@ async function retryTranscode() {
 }
 
 async function loadVideo() {
+  playbackSession?.dispose()
+  playbackFailed = false
   clearPoll()
   destroyPlayer()
   streamUrl.value = ''
@@ -147,16 +209,8 @@ async function loadVideo() {
   probe.value = null
   transcodeAsset.value = null
   try {
-    const p = await drive.videoProbe(props.node, props.version?.id)
-    if (currentSeq !== seq) return
-    probe.value = p
-    if (p.strategy === 'DIRECT_PLAY') {
-      const ticket = await drive.streamTicket(props.node, { versionId: props.version?.id, assetType: 'ORIGINAL' })
-      if (currentSeq !== seq) return
-      await mountPlayer(ticket.streamUrl)
-    } else {
-      await pollTranscode(currentSeq)
-    }
+    await startPlayback('ORIGINAL', currentSeq)
+    if (currentSeq === seq) void pollProbe(currentSeq)
   } catch (e) {
     if (currentSeq !== seq) return
     error.value = e instanceof Error ? e.message : '视频加载失败'
@@ -167,6 +221,7 @@ async function loadVideo() {
 watch(() => [props.node.id, props.version?.id], () => { void loadVideo() })
 onMounted(() => { void loadVideo() })
 onBeforeUnmount(() => {
+  playbackSession?.dispose()
   seq++
   clearPoll()
   destroyPlayer()

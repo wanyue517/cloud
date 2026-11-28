@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./upload-queue": "./src/upload-queue.ts",
+    "./media-playback": "./src/media-playback.ts",
     "./direct-upload": "./src/direct-upload.ts",
     "./preview-registry": "./src/preview-registry.ts",
     "./path": "./src/path.ts",

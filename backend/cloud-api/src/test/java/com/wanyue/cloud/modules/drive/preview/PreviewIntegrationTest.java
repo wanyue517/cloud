@@ -164,6 +164,7 @@ class PreviewIntegrationTest {
         mvc.perform(get("/api/v1/spaces/" + space + "/nodes/" + fileId + "/preview/video/probe")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.strategy").value("DIRECT_PLAY"));
+                .andExpect(jsonPath("$.data.status").exists())
+                .andExpect(jsonPath("$.data.strategy").value("UNKNOWN"));
     }
 }

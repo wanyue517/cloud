@@ -5,6 +5,7 @@ import com.wanyue.cloud.common.security.UserIdPrincipal;
 import com.wanyue.cloud.modules.auth.support.JwtTokenProvider;
 import com.wanyue.cloud.modules.drive.DriveModels;
 import com.wanyue.cloud.modules.drive.DriveService;
+import com.wanyue.cloud.modules.drive.storage.StorageRouterService;
 import com.wanyue.cloud.modules.drive.preview.PreviewModels.*;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
@@ -27,6 +28,8 @@ public class PreviewController {
     private final ArchivePreviewService archiveService;
     private final ThumbnailService thumbnailService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final StorageRouterService storage;
+    private final VideoProbeService probes;
 
     public PreviewController(
             DriveService drive,
@@ -34,13 +37,15 @@ public class PreviewController {
             ExcelPreviewService excelService,
             ArchivePreviewService archiveService,
             ThumbnailService thumbnailService,
-            JwtTokenProvider jwtTokenProvider) {
+            JwtTokenProvider jwtTokenProvider, StorageRouterService storage, VideoProbeService probes) {
         this.drive = drive;
         this.assetService = assetService;
         this.excelService = excelService;
         this.archiveService = archiveService;
         this.thumbnailService = thumbnailService;
         this.jwtTokenProvider = jwtTokenProvider;
+        this.storage = storage;
+        this.probes = probes;
     }
 
     private static long user(Authentication auth) {
@@ -61,6 +66,10 @@ public class PreviewController {
             @PathVariable String assetType,
             @RequestParam(required = false) Long versionId) {
         long uid = user(auth);
+        if ("VIDEO_MP4".equalsIgnoreCase(assetType)) {
+            var source = drive.mediaSource(uid, space, id, versionId);
+            return R.ok(assetService.getOrTriggerAsset(id, source.versionId(), assetType, source.size(), () -> drive.materializeMediaSource(source)));
+        }
         DriveModels.Content content = drive.content(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
         return R.ok(assetService.getOrTriggerAsset(id, resolvedVersion, assetType, content));
@@ -74,6 +83,10 @@ public class PreviewController {
             @PathVariable String assetType,
             @RequestParam(required = false) Long versionId) {
         long uid = user(auth);
+        if ("VIDEO_MP4".equalsIgnoreCase(assetType)) {
+            var source = drive.mediaSource(uid, space, id, versionId);
+            return R.ok(assetService.retryAsset(id, source.versionId(), assetType, source.size(), () -> drive.materializeMediaSource(source)));
+        }
         DriveModels.Content content = drive.content(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
         return R.ok(assetService.retryAsset(id, resolvedVersion, assetType, content));
@@ -88,7 +101,7 @@ public class PreviewController {
             @RequestParam(required = false) Long versionId,
             WebRequest webRequest) {
         long uid = user(auth);
-        drive.content(uid, space, id, versionId);
+        drive.mediaSource(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
         Path assetPath = assetService.resolveReadyAssetPath(resolvedVersion, assetType);
         String etag = "\"asset-" + resolvedVersion + "-" + assetType.toUpperCase() + "\"";
@@ -136,11 +149,10 @@ public class PreviewController {
             @PathVariable long space,
             @PathVariable long id,
             @RequestParam(required = false) Long versionId) {
-        DriveModels.Content content = drive.content(user(auth), space, id, versionId);
-        return R.ok(assetService.probeVideo(content));
+        return R.ok(probes.getOrRequest(drive.mediaSource(user(auth), space, id, versionId)));
     }
 
-    public record StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds) {}
+    public record StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds, String mode, long expiresAt, boolean proxyFallbackAllowed) {}
 
     @PostMapping("/stream-ticket")
     public R<StreamTicketResponse> createStreamTicket(
@@ -148,18 +160,31 @@ public class PreviewController {
             @PathVariable long space,
             @PathVariable long id,
             @RequestParam(required = false) Long versionId,
-            @RequestParam(defaultValue = "ORIGINAL") String assetType) {
+            @RequestParam(defaultValue = "ORIGINAL") String assetType,
+            @RequestParam(defaultValue = "false") boolean forceProxy) {
         long uid = user(auth);
-        drive.content(uid, space, id, versionId);
-        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        var source = drive.mediaSource(uid, space, id, versionId);
+        long resolvedVersion = source.versionId();
         String normalizedAsset = "VIDEO_MP4".equalsIgnoreCase(assetType) ? "VIDEO_MP4" : "ORIGINAL";
         if ("VIDEO_MP4".equals(normalizedAsset)) {
             assetService.resolveReadyAssetPath(resolvedVersion, "VIDEO_MP4");
         }
         long ttlSeconds = 1800L;
+        long expiresAt = java.time.Instant.now().plusSeconds(ttlSeconds).toEpochMilli();
+        boolean video = (source.mimeType() != null && source.mimeType().startsWith("video/"))
+                || source.name().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mp4|m4v|mov|mkv|avi|webm|ogv)$");
+        String policy = storage.isRemote(source.profileId()) ? storage.playbackPolicy(source.profileId()).mode() : "PROXY";
+        if (video && "ORIGINAL".equals(normalizedAsset) && !forceProxy && !"PROXY".equals(policy)) {
+            try {
+                String url = storage.signedReadUrl(source.profileId(), source.storageKey(), (int) ttlSeconds, true);
+                return R.ok(new StreamTicketResponse(null, url, ttlSeconds, "DIRECT", expiresAt, "AUTO".equals(policy)));
+            } catch (RuntimeException e) {
+                if (!"AUTO".equals(policy)) throw e;
+            }
+        }
         String ticket = jwtTokenProvider.createMediaStreamTicket(uid, space, id, resolvedVersion, normalizedAsset, ttlSeconds);
         String streamUrl = "/api/v1/media/stream?ticket=" + java.net.URLEncoder.encode(ticket, StandardCharsets.UTF_8);
-        return R.ok(new StreamTicketResponse(ticket, streamUrl, ttlSeconds));
+        return R.ok(new StreamTicketResponse(ticket, streamUrl, ttlSeconds, "PROXY", expiresAt, false));
     }
 
     @GetMapping("/archive/entries")

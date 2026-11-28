@@ -234,7 +234,8 @@ public class S3StorageProvider implements StorageProvider {
     private static URI buildObjectUri(String endpoint, String bucket, String key) {
         URI base = normalizeEndpoint(endpoint);
         String cleanBucket = bucket.strip();
-        String cleanKey = key.replaceAll("^/+", "");
+        String cleanKey = java.util.Arrays.stream(key.replaceAll("^/+", "").split("/", -1))
+                .map(S3StorageProvider::encode).collect(java.util.stream.Collectors.joining("/"));
         String host = base.getHost();
         String authority = base.getPort() > 0 ? host + ":" + base.getPort() : host;
         if (host.toLowerCase(Locale.ROOT).startsWith(cleanBucket.toLowerCase(Locale.ROOT) + ".")) {
@@ -268,6 +269,15 @@ public class S3StorageProvider implements StorageProvider {
 
     private String presignPut(String endpoint, String bucket, String region, String accessKey, String secretKey,
                               String key, int expiresSeconds, Map<String, String> extraQuery) {
+        return presign("PUT", endpoint, bucket, region, accessKey, secretKey, key, expiresSeconds, extraQuery);
+    }
+
+    public String generatePresignedGetUrl(StorageRouterService.StorageProfileMeta profile, String secret, String key, int ttl) {
+        return presign("GET", profile.endpoint(), profile.bucket(), profile.region(), profile.accessKey(), secret, key, ttl, Map.of());
+    }
+
+    private String presign(String method, String endpoint, String bucket, String region, String accessKey, String secretKey,
+                           String key, int expiresSeconds, Map<String, String> extraQuery) {
         int safeExpires = Math.max(60, Math.min(3600, expiresSeconds));
         String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
         URI uri = buildObjectUri(endpoint, bucket, key);
@@ -286,15 +296,37 @@ public class S3StorageProvider implements StorageProvider {
                     + "&X-Amz-Expires=" + safeExpires
                     + "&X-Amz-SignedHeaders=host";
             if (!extraQuery.isEmpty()) canonicalQuery += "&" + query(extraQuery);
-            String canonicalRequest = "PUT\n" + canonicalUri + "\n" + canonicalQuery + "\nhost:" + host + "\n\nhost\nUNSIGNED-PAYLOAD";
+            String canonicalRequest = method + "\n" + canonicalUri + "\n" + canonicalQuery + "\nhost:" + host + "\n\nhost\nUNSIGNED-PAYLOAD";
             String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n"
                     + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
             byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey.strip(), dateStamp, safeRegion, "s3");
             String signature = HexFormat.of().formatHex(hmacSha256(signingKey, stringToSign));
             return uri + "?" + canonicalQuery + "&X-Amz-Signature=" + signature;
         } catch (Exception e) {
-            throw new BizException(HttpStatus.INTERNAL_SERVER_ERROR, 500, "生成 S3 预签名上传地址失败: " + e.getMessage());
+            throw new BizException(HttpStatus.INTERNAL_SERVER_ERROR, 500, "生成对象存储签名地址失败");
         }
+    }
+
+    /** Open only the requested bytes. Reject a storage endpoint that ignores Range. */
+    public InputStream openRange(StorageRouterService.StorageProfileMeta profile, String secret, String key,
+                                 long start, long end, long total) throws IOException {
+        try {
+            var req = buildSignedRequest("GET", buildObjectUri(profile.endpoint(), profile.bucket(), key),
+                    profile.region() == null || profile.region().isBlank() ? "us-east-1" : profile.region(),
+                    profile.accessKey(), secret, new byte[0], "bytes=" + start + "-" + end);
+            var response = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            String expected = "bytes " + start + "-" + end + "/" + total;
+            if (response.statusCode() != 206 || !expected.equals(response.headers().firstValue("Content-Range").orElse(""))
+                    || response.headers().firstValueAsLong("Content-Length").orElse(end - start + 1) != end - start + 1) {
+                response.body().close();
+                throw new IOException("对象存储未返回正确的视频范围，HTTP " + response.statusCode());
+            }
+            return response.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.io.InterruptedIOException("对象存储读取已中断");
+        } catch (IOException e) { throw e; }
+        catch (Exception e) { throw new IOException("对象存储范围读取失败", e); }
     }
 
     public HttpRequest buildSignedRequest(

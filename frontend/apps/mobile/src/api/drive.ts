@@ -178,14 +178,18 @@ export interface VideoProbe {
   width: number
   height: number
   bitrate: number
-  strategy: 'DIRECT_PLAY' | 'REMUX' | 'TRANSCODE'
+  strategy: 'DIRECT_PLAY' | 'REMUX' | 'TRANSCODE' | 'UNKNOWN'
+  status?: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED'
   reason: string
 }
 
 export interface StreamTicket {
-  ticket: string
+  ticket: string | null
   streamUrl: string
   expiresInSeconds: number
+  mode?: 'DIRECT' | 'PROXY'
+  expiresAt?: number
+  proxyFallbackAllowed?: boolean
 }
 
 export interface ArchiveEntry {
@@ -368,7 +372,7 @@ export const mobileDriveApi = {
   streamTicket: (
     spaceId: string,
     nodeId: string,
-    params: { versionId?: string; assetType?: 'ORIGINAL' | 'VIDEO_MP4' } = {},
+    params: { versionId?: string; assetType?: 'ORIGINAL' | 'VIDEO_MP4'; forceProxy?: boolean } = {},
   ) =>
     request.post<StreamTicket>(
       `/v1/spaces/${spaceId}/nodes/${nodeId}/preview/stream-ticket`,

@@ -144,7 +144,34 @@ public class AdminController {
             @Min(5242880) @Max(67108864) Integer directChunkSize,
             @Min(1) @Max(6) Integer directConcurrency,
             @Min(60) @Max(3600) Integer directUrlTtl,
-            Boolean directFallback) {}
+            Boolean directFallback,
+            @Pattern(regexp="AUTO|DIRECT|PROXY") String playbackMode,
+            @Size(max=512) String playbackEndpoint) {
+        public StorageProfileInput(String name, String provider, String rootPath, String endpoint, String bucket,
+                                   String region, String accessKey, String secretKey, Long maxFileBytes, String uploadMode,
+                                   Long directThresholdBytes, Integer directChunkSize, Integer directConcurrency, Integer directUrlTtl, Boolean directFallback) {
+            this(name, provider, rootPath, endpoint, bucket, region, accessKey, secretKey, maxFileBytes, uploadMode,
+                    directThresholdBytes, directChunkSize, directConcurrency, directUrlTtl, directFallback, null, null);
+        }
+    }
+
+    private void savePlaybackSettings(long id, StorageProfileInput input) {
+        if (input.playbackMode() == null && input.playbackEndpoint() == null) return;
+        String mode = input.playbackMode() == null ? "AUTO" : input.playbackMode();
+        if (!"S3".equals(input.provider())) {
+            if ("DIRECT".equals(mode)) throw BizException.conflict("仅对象存储支持签名直连播放");
+            mode = "PROXY";
+        }
+        String endpoint = input.playbackEndpoint() == null ? "" : input.playbackEndpoint().strip();
+        if (!endpoint.isBlank()) {
+            try {
+                var uri = java.net.URI.create(endpoint);
+                if (!("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) || uri.getHost() == null
+                        || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) throw new IllegalArgumentException();
+            } catch (IllegalArgumentException e) { throw new BizException(HttpStatus.BAD_REQUEST, 400, "播放端点必须是有效的 HTTP/HTTPS 对象存储地址"); }
+        }
+        db.update("UPDATE storage_profile SET playback_mode=?,playback_endpoint=? WHERE id=?", mode, endpoint.isEmpty() ? null : endpoint, id);
+    }
 
     private void saveUploadSettings(long id, StorageProfileInput input) {
         String mode = input.uploadMode() == null ? "PROXY" : input.uploadMode();
@@ -162,7 +189,7 @@ public class AdminController {
                 "SELECT CAST(p.id AS CHAR) id, p.name, p.provider, p.root_path rootPath, p.endpoint, p.bucket, p.region, "
                         + "p.access_key accessKey, (p.secret_cipher IS NOT NULL AND p.secret_cipher <> '') hasSecret, "
                         + "p.max_file_bytes maxFileBytes, p.is_default isDefault, p.upload_mode uploadMode, p.direct_threshold_bytes directThresholdBytes, "
-                        + "p.direct_chunk_size directChunkSize, p.direct_concurrency directConcurrency, p.direct_url_ttl directUrlTtl, p.direct_fallback directFallback, "
+                        + "p.direct_chunk_size directChunkSize, p.direct_concurrency directConcurrency, p.direct_url_ttl directUrlTtl, p.direct_fallback directFallback, p.playback_mode playbackMode, p.playback_endpoint playbackEndpoint, "
                         + "COUNT(b.id) objectCount, COALESCE(SUM(b.size_bytes), 0) totalBytes "
                         + "FROM storage_profile p LEFT JOIN blob_object b ON b.storage_profile_id = p.id "
                         + "GROUP BY p.id, p.name, p.provider, p.root_path, p.endpoint, p.bucket, p.region, p.access_key, p.secret_cipher, p.max_file_bytes, p.is_default "
@@ -210,6 +237,7 @@ public class AdminController {
                 encryptedSecret,
                 input.maxFileBytes());
         saveUploadSettings(id, input);
+        savePlaybackSettings(id, input);
         return R.ok(String.valueOf(id));
     }
 
@@ -245,6 +273,7 @@ public class AdminController {
                     cipher.encrypt(input.secretKey().strip()), id);
         }
         saveUploadSettings(id, input);
+        savePlaybackSettings(id, input);
         return R.ok();
     }
 

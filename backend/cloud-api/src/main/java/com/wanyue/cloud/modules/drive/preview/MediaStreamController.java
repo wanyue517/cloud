@@ -4,6 +4,8 @@ import com.wanyue.cloud.common.exception.BizException;
 import com.wanyue.cloud.modules.auth.support.JwtTokenProvider;
 import com.wanyue.cloud.modules.drive.DriveModels;
 import com.wanyue.cloud.modules.drive.DriveService;
+import com.wanyue.cloud.modules.drive.storage.StorageRouterService;
+import jakarta.servlet.http.HttpServletRequest;
 import io.jsonwebtoken.JwtException;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
@@ -44,20 +47,22 @@ public class MediaStreamController {
     private final JwtTokenProvider jwtTokenProvider;
     private final DriveService drive;
     private final PreviewAssetService assetService;
+    private final StorageRouterService storage;
 
     public MediaStreamController(
             JwtTokenProvider jwtTokenProvider,
             DriveService drive,
-            PreviewAssetService assetService) {
+            PreviewAssetService assetService, StorageRouterService storage) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.drive = drive;
         this.assetService = assetService;
+        this.storage = storage;
     }
 
-    @GetMapping("/stream")
+    @RequestMapping(value = "/stream", method = {RequestMethod.GET, RequestMethod.HEAD})
     public ResponseEntity<StreamingResponseBody> stream(
             @RequestParam("ticket") String ticket,
-            @RequestHeader HttpHeaders requestHeaders) throws IOException {
+            @RequestHeader HttpHeaders requestHeaders, HttpServletRequest request) throws IOException {
         JwtTokenProvider.MediaStreamTicket claims;
         try {
             claims = jwtTokenProvider.verifyMediaStreamTicket(ticket);
@@ -65,7 +70,8 @@ public class MediaStreamController {
             throw new BizException(HttpStatus.UNAUTHORIZED, 401, "媒体播放链接已过期或无效，请重新打开");
         }
 
-        Path path;
+        Path path = null;
+        DriveModels.MediaSource source = null;
         String fileName;
         String mimeType;
         if ("VIDEO_MP4".equalsIgnoreCase(claims.assetType())) {
@@ -73,22 +79,30 @@ public class MediaStreamController {
             fileName = path.getFileName().toString();
             mimeType = "video/mp4";
         } else {
-            DriveModels.Content content = drive.contentByVerifiedTicket(claims.spaceId(), claims.nodeId(), claims.versionId());
-            path = content.path();
-            fileName = content.name();
-            mimeType = content.mimeType();
+            source = drive.mediaSourceByVerifiedTicket(claims.spaceId(), claims.nodeId(), claims.versionId());
+            if (!storage.isRemote(source.profileId())) path = drive.materializeMediaSource(source).path();
+            fileName = source.name();
+            mimeType = source.mimeType();
         }
 
-        if (!Files.isRegularFile(path)) {
+        if (path != null && !Files.isRegularFile(path)) {
             throw BizException.notFound("媒体文件不存在");
         }
-        long contentLength = Files.size(path);
+        long contentLength = path == null ? source.size() : Files.size(path);
+        final Path localPath = path;
+        final DriveModels.MediaSource remoteSource = source;
+        boolean head = "HEAD".equals(request.getMethod());
         MediaType mediaType = resolveMediaType(mimeType, fileName);
         CacheControl cacheControl = CacheControl.maxAge(Duration.ofMinutes(5)).cachePrivate();
 
-        List<HttpRange> ranges = requestHeaders.getRange();
+        List<HttpRange> ranges;
+        try { ranges = requestHeaders.getRange(); }
+        catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + contentLength).build();
+        }
         if (ranges.isEmpty()) {
-            StreamingResponseBody body = outputStream -> streamRange(path, 0L, contentLength, outputStream);
+            StreamingResponseBody body = head ? null : body(localPath, remoteSource, 0, contentLength);
             return ResponseEntity.ok()
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                     .header("X-Content-Type-Options", "nosniff")
@@ -117,7 +131,7 @@ public class MediaStreamController {
 
         long rangeLength = Math.min(MAX_CHUNK_SIZE, requestedEnd - start + 1);
         long end = start + rangeLength - 1;
-        StreamingResponseBody body = outputStream -> streamRange(path, start, rangeLength, outputStream);
+        StreamingResponseBody body = head ? null : body(localPath, remoteSource, start, rangeLength);
         return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + contentLength)
@@ -126,6 +140,26 @@ public class MediaStreamController {
                 .contentType(mediaType)
                 .contentLength(rangeLength)
                 .body(body);
+    }
+
+    private StreamingResponseBody body(Path path, DriveModels.MediaSource source, long start, long length) throws IOException {
+        if (path != null) return out -> streamRange(path, start, length, out);
+        if (length == 0) return out -> {};
+        // Open upstream before committing HTTP headers, then forward with a bounded buffer.
+        var input = storage.openMediaRange(source, start, start + length - 1);
+        return out -> {
+            try (input) {
+                byte[] buffer = new byte[IO_BUFFER_SIZE];
+                long remaining = length;
+                while (remaining > 0) {
+                    int n = input.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                    if (n < 0) throw new java.io.EOFException("远程视频数据提前结束");
+                    out.write(buffer, 0, n);
+                    remaining -= n;
+                }
+                out.flush();
+            }
+        };
     }
 
     private static void streamRange(Path path, long start, long length, java.io.OutputStream out) throws IOException {

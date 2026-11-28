@@ -55,6 +55,9 @@ public final class DriveModels {
             this(id, chunkSize, chunkCount, received, missing, status, fileId, false);
         }
     }
+    /** Authorized immutable object metadata; resolving this must never download the object. */
+    public record MediaSource(long versionId, long profileId, String storageKey, long size, String name, String mimeType, String etag) {}
+
     public record Content(java.nio.file.Path path, long size, String name, String mimeType, String etag) {
         public Content(java.nio.file.Path path, long size, String name, String mimeType) {
             this(path, size, name, mimeType, "");
