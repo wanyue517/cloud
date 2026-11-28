@@ -35,11 +35,13 @@ class MediaStreamControllerTest {
         DriveService drive = mock(DriveService.class);
         PreviewAssetService assetService = mock(PreviewAssetService.class);
         // 故意模拟上传时 MIME 存成了 application/octet-stream
-        when(drive.contentByVerifiedTicket(2L, 3L, 4L))
-                .thenReturn(new DriveModels.Content(video, data.length, "demo.mp4", "application/octet-stream", "abc"));
+        var source = new DriveModels.MediaSource(4L, 1L, "key", data.length, "demo.mp4", "application/octet-stream", "abc");
+        when(drive.mediaSourceByVerifiedTicket(2L, 3L, 4L)).thenReturn(source);
+        when(drive.materializeMediaSource(source)).thenReturn(new DriveModels.Content(video, data.length, "demo.mp4", "application/octet-stream", "abc"));
 
         String ticket = jwt.createMediaStreamTicket(1L, 2L, 3L, 4L, "ORIGINAL", 1800);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assetService)).build();
+        var storage = mock(com.wanyue.cloud.modules.drive.storage.StorageRouterService.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assetService, storage)).build();
 
         var mvcResult = mvc.perform(get("/api/v1/media/stream")
                         .param("ticket", ticket)

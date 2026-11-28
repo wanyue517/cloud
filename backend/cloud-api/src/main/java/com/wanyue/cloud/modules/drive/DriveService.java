@@ -819,6 +819,10 @@ public class DriveService {
     private record BlobMeta(long profileId, String storageKey, long size, String mimeType, String sha256) {}
 
     private Content loadContentByVersion(String fileName, long id, long versionId) {
+        return materializeMediaSource(loadMediaSourceByVersion(fileName, id, versionId));
+    }
+
+    private MediaSource loadMediaSourceByVersion(String fileName, long id, long versionId) {
         // 先只查询元数据并立即释放 JDBC 连接，避免在 RowMapper 持有连接期间嵌套查库或执行 S3 远程下载导致连接池死锁。
         var rows = db.query(
                 "SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
@@ -826,9 +830,28 @@ public class DriveService {
                 versionId, id);
         if (rows.isEmpty()) throw BizException.notFound("文件内容不存在");
         BlobMeta meta = rows.get(0);
-        java.nio.file.Path path = storageRouter.resolveReadablePath(meta.profileId(), meta.storageKey());
+        return new MediaSource(versionId, meta.profileId(), meta.storageKey(), meta.size(), fileName, meta.mimeType(), meta.sha256());
+    }
+
+    public Content materializeMediaSource(MediaSource source) {
+        java.nio.file.Path path = storageRouter.resolveReadablePath(source.profileId(), source.storageKey());
         if (!java.nio.file.Files.isRegularFile(path)) throw BizException.notFound("文件内容不存在");
-        return new Content(path, meta.size(), fileName, meta.mimeType(), meta.sha256());
+        return new Content(path, source.size(), source.name(), source.mimeType(), source.etag());
+    }
+
+    public MediaSource mediaSource(long user, long space, long id, Long versionId) {
+        resolveNodeAccess(user, space, id, false, false);
+        Node n = getNode(space, id, false);
+        ancestors(space, id);
+        if (!"FILE".equals(n.nodeType())) throw BizException.notFound("文件不存在");
+        return loadMediaSourceByVersion(n.name(), id, versionId == null ? Long.parseLong(n.currentVersionId()) : versionId);
+    }
+
+    public MediaSource mediaSourceByVerifiedTicket(long space, long id, long versionId) {
+        Node n = getNode(space, id, false);
+        ancestors(space, id);
+        if (!"FILE".equals(n.nodeType())) throw BizException.notFound("文件不存在");
+        return loadMediaSourceByVersion(n.name(), id, versionId);
     }
 
     public Content content(long user,long space,long id,Long versionId) {

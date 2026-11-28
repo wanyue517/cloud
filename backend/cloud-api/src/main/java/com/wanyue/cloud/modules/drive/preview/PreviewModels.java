@@ -40,7 +40,13 @@ public final class PreviewModels {
             int height,
             long bitrate,
             String strategy,
-            String reason) {}
+            String reason,
+            String status) {
+        public VideoProbe(String container, String videoCodec, String audioCodec, double durationSeconds,
+                          int width, int height, long bitrate, String strategy, String reason) {
+            this(container, videoCodec, audioCodec, durationSeconds, width, height, bitrate, strategy, reason, "READY");
+        }
+    }
 
     public record ArchiveEntry(
             String path,

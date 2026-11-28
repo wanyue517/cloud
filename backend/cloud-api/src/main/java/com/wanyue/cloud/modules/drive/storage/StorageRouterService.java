@@ -57,6 +57,39 @@ public class StorageRouterService {
     public static final String USAGE_SITE_ASSETS = "site_assets";
     public static final String USAGE_USER_AVATARS = "user_avatars";
 
+    public record PlaybackPolicy(String mode, String endpoint) {}
+
+    public PlaybackPolicy playbackPolicy(long profileId) {
+        var rows = db.queryForList("SELECT playback_mode,playback_endpoint FROM storage_profile WHERE id=?", profileId);
+        if (rows.isEmpty()) return new PlaybackPolicy("PROXY", "");
+        var row = rows.get(0);
+        return new PlaybackPolicy(Objects.toString(row.get("playback_mode"), "AUTO"), Objects.toString(row.get("playback_endpoint"), ""));
+    }
+
+    public boolean isRemote(long profileId) { return "S3".equalsIgnoreCase(getProfile(profileId).provider()); }
+
+    public String signedReadUrl(long profileId, String key, int ttl, boolean browser) {
+        var profile = getProfile(profileId);
+        if (!"S3".equalsIgnoreCase(profile.provider())) throw BizException.conflict("当前存储不支持签名直连");
+        if (browser) {
+            String endpoint = playbackPolicy(profileId).endpoint();
+            if (!endpoint.isBlank()) profile = new StorageProfileMeta(profile.id(), profile.provider(), profile.rootPath(), endpoint,
+                    profile.bucket(), profile.region(), profile.accessKey(), profile.secretCipher(), profile.maxFileBytes());
+        }
+        return s3Provider.generatePresignedGetUrl(profile, cipher.decrypt(profile.secretCipher()), key, ttl);
+    }
+
+    public String probeInput(com.wanyue.cloud.modules.drive.DriveModels.MediaSource source) {
+        return isRemote(source.profileId()) ? signedReadUrl(source.profileId(), source.storageKey(), 300, false)
+                : resolveReadablePath(source.profileId(), source.storageKey()).toString();
+    }
+
+    public InputStream openMediaRange(com.wanyue.cloud.modules.drive.DriveModels.MediaSource source, long start, long end) throws IOException {
+        var profile = getProfile(source.profileId());
+        if (!"S3".equalsIgnoreCase(profile.provider())) throw new IOException("当前存储不是远程对象存储");
+        return s3Provider.openRange(profile, cipher.decrypt(profile.secretCipher()), source.storageKey(), start, end, source.size());
+    }
+
     public long resolveDefaultProfileId() {
         var rows = db.queryForList("SELECT id FROM storage_profile WHERE is_default=TRUE ORDER BY id ASC LIMIT 1");
         if (!rows.isEmpty()) {
@@ -181,7 +214,7 @@ public class StorageRouterService {
     }
 
     /** 服务端物化缓存超限时按最久未访问（LRU）清理至 80% 水位线，防止磁盘撑满 */
-    private void evictCacheIfNeeded() {
+    private void evictCacheIfNeeded(Path protectedPath) {
         try (var stream = Files.list(materializeCacheDir)) {
             record Entry(Path path, long size, long lastModified) {}
             List<Entry> entries = new ArrayList<>();
@@ -200,6 +233,7 @@ public class StorageRouterService {
             entries.sort(Comparator.comparingLong(Entry::lastModified));
             for (Entry e : entries) {
                 if (total <= target) break;
+                if (e.path().equals(protectedPath)) continue;
                 try {
                     if (Files.deleteIfExists(e.path())) {
                         total -= e.size();
@@ -222,7 +256,7 @@ public class StorageRouterService {
                 Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
                 Files.move(tmp, cached, StandardCopyOption.REPLACE_EXISTING);
                 touchCache(cached);
-                evictCacheIfNeeded();
+                evictCacheIfNeeded(cached);
                 return cached;
             } finally {
                 Files.deleteIfExists(tmp);
@@ -247,7 +281,7 @@ public class StorageRouterService {
                         profile.accessKey(), secret, storageKey, tmp);
                 Files.move(tmp, cached, StandardCopyOption.REPLACE_EXISTING);
                 touchCache(cached);
-                evictCacheIfNeeded();
+                evictCacheIfNeeded(cached);
                 return cached;
             } finally {
                 Files.deleteIfExists(tmp);

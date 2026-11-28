@@ -9,6 +9,7 @@ import { Select, type SelectOption } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
 import UploadModeSettings from './components/UploadModeSettings.vue'
+import PlaybackSettings from './components/PlaybackSettings.vue'
 
 interface StorageProfileItem {
   id: string
@@ -22,6 +23,8 @@ interface StorageProfileItem {
   hasSecret?: boolean | number
   maxFileBytes?: number | null
   uploadMode?: string
+  playbackMode?: string
+  playbackEndpoint?: string | null
   directThresholdBytes?: number
   directChunkSize?: number
   directConcurrency?: number
@@ -79,6 +82,7 @@ const formSecretKey = ref('')
 const formMaxFileMb = ref(4)
 const defaultUploadSettings = () => ({ uploadMode: 'PROXY', thresholdMb: 100, partMb: 16, concurrency: 3, ttl: 900, fallback: 'no' })
 const formUpload = ref(defaultUploadSettings())
+const formPlayback = ref({ mode: 'AUTO', endpoint: '' })
 
 const totalObjects = computed(() => profiles.value.reduce((acc, p) => acc + Number(p.objectCount || 0), 0))
 const totalBytes = computed(() => profiles.value.reduce((acc, p) => acc + Number(p.totalBytes || 0), 0))
@@ -226,6 +230,7 @@ async function deleteProfile(item: StorageProfileItem) {
 }
 
 function openCreateModal() {
+  formPlayback.value = { mode: 'AUTO', endpoint: '' }
   formUpload.value = defaultUploadSettings()
   editingId.value = null
   editingHasSecret.value = false
@@ -244,6 +249,7 @@ function openCreateModal() {
 }
 
 function openEditModal(item: StorageProfileItem) {
+  formPlayback.value = { mode: item.playbackMode || 'AUTO', endpoint: item.playbackEndpoint || '' }
   formUpload.value = {
     uploadMode: item.uploadMode || 'PROXY',
     thresholdMb: (item.directThresholdBytes ?? 104857600) / 1048576,
@@ -323,6 +329,8 @@ async function saveProfile() {
       directConcurrency: Number(formUpload.value.concurrency),
       directUrlTtl: Number(formUpload.value.ttl),
       directFallback: formUpload.value.fallback === 'yes',
+      playbackMode: formProvider.value === 'S3' ? formPlayback.value.mode : 'PROXY',
+      playbackEndpoint: formProvider.value === 'S3' ? formPlayback.value.endpoint.trim() : null,
     }
     if (editingId.value) {
       await request.put(`/v1/admin/storage-profiles/${editingId.value}`, payload)
@@ -564,6 +572,7 @@ onMounted(() => { void load() })
           <p v-if="formTestNotice" role="status" class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">{{ formTestNotice }}</p>
 
           <UploadModeSettings v-if="formProvider === 'S3'" v-model="formUpload" :disabled="saving || formTesting" />
+          <PlaybackSettings v-if="formProvider === 'S3'" v-model="formPlayback" :disabled="saving || formTesting" />
 
           <DialogFooter class="flex flex-wrap items-center justify-between gap-2 sm:justify-between">
             <Button variant="outline" type="button" :disabled="saving || formTesting || !canTestForm" @click="testFormConfig">

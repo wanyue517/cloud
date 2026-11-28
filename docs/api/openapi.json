@@ -10937,6 +10937,14 @@
           },
           "required" : false,
           "in" : "query"
+        }, {
+          "name" : "forceProxy",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "boolean",
+            "default" : false
+          }
         } ],
         "responses" : {
           "200" : {
@@ -11376,6 +11384,13 @@
       "AdminController_StorageProfileInput" : {
         "type" : "object",
         "properties" : {
+          "playbackMode" : {
+            "type" : "string",
+            "enum" : ["AUTO", "DIRECT", "PROXY"]
+          },
+          "playbackEndpoint" : {
+            "type" : "string"
+          },
           "name" : {
             "type" : "string"
           },
@@ -13038,6 +13053,10 @@
       "PreviewModels_VideoProbe" : {
         "type" : "object",
         "properties" : {
+          "status" : {
+            "type" : "string",
+            "enum" : ["PENDING", "PROCESSING", "READY", "FAILED"]
+          },
           "container" : {
             "type" : "string"
           },
@@ -15278,8 +15297,20 @@
       "PreviewController_StreamTicketResponse" : {
         "type" : "object",
         "properties" : {
+          "mode" : {
+            "type" : "string",
+            "enum" : ["DIRECT", "PROXY"]
+          },
+          "expiresAt" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "proxyFallbackAllowed" : {
+            "type" : "boolean"
+          },
           "ticket" : {
-            "type" : "string"
+            "type" : "string",
+            "nullable" : true
           },
           "streamUrl" : {
             "type" : "string"
