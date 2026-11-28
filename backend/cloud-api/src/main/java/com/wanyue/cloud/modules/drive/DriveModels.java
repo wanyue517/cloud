@@ -44,7 +44,10 @@ public final class DriveModels {
             this(spaceId, parentId, name, size, mimeType, null);
         }
     }
-    public record Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId, boolean instantHit, String errorMessage) {
+    public record Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId, boolean instantHit, String errorMessage, String uploadMode) {
+        public Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId, boolean instantHit, String errorMessage) {
+            this(id, chunkSize, chunkCount, received, missing, status, fileId, instantHit, errorMessage, "PROXY");
+        }
         public Upload(String id, int chunkSize, int chunkCount, List<Integer> received, List<Integer> missing, String status, String fileId, boolean instantHit) {
             this(id, chunkSize, chunkCount, received, missing, status, fileId, instantHit, null);
         }

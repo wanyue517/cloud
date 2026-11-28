@@ -5893,6 +5893,17 @@
               }
             }
           }
+        },
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "additionalProperties" : true
+              }
+            }
+          },
+          "required" : true
         }
       }
     },
@@ -10580,6 +10591,637 @@
           }
         }
       }
+    },
+    "/api/admin/auth/qr/create" : {
+      "post" : {
+        "tags" : [ "QrLogin" ],
+        "operationId" : "QrLoginController_create_post",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/QrLoginService_QrCreateResult"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/admin/auth/qr/{qrId}/status" : {
+      "get" : {
+        "tags" : [ "QrLogin" ],
+        "operationId" : "QrLoginController_status_get",
+        "parameters" : [ {
+          "name" : "qrId",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/QrLoginController_QrStatusResp"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/qr/{qrId}/confirm" : {
+      "post" : {
+        "tags" : [ "QrLogin" ],
+        "operationId" : "QrLoginController_confirm_post",
+        "parameters" : [ {
+          "name" : "qrId",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/qr/{qrId}/scan" : {
+      "post" : {
+        "tags" : [ "QrLogin" ],
+        "operationId" : "QrLoginController_scan_post",
+        "parameters" : [ {
+          "name" : "qrId",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "nullable" : true
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/media/stream" : {
+      "get" : {
+        "tags" : [ "MediaStream" ],
+        "operationId" : "MediaStreamController_stream_get",
+        "parameters" : [ {
+          "name" : "ticket",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "query"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/StreamingResponseBody"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/media/timeline" : {
+      "get" : {
+        "tags" : [ "MediaTimeline" ],
+        "operationId" : "MediaTimelineController_timeline_get",
+        "parameters" : [ {
+          "name" : "spaceId",
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "required" : false,
+          "in" : "query"
+        }, {
+          "name" : "mediaType",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : false,
+          "in" : "query"
+        }, {
+          "name" : "page",
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "required" : false,
+          "in" : "query"
+        }, {
+          "name" : "pageSize",
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "required" : false,
+          "in" : "query"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/MediaTimelineService_TimelinePage"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/public/shares/{token}/save" : {
+      "post" : {
+        "tags" : [ "ShareLink" ],
+        "operationId" : "ShareLinkController_saveToMyDrive_post",
+        "parameters" : [ {
+          "name" : "token",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ShareLinkModels_SavePublicShareInput"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/DriveModels_Node"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/spaces/{space}/nodes/{id}/preview/stream-ticket" : {
+      "post" : {
+        "tags" : [ "Preview" ],
+        "operationId" : "PreviewController_createStreamTicket_post",
+        "parameters" : [ {
+          "name" : "space",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        }, {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        }, {
+          "name" : "versionId",
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "required" : false,
+          "in" : "query"
+        }, {
+          "name" : "assetType",
+          "schema" : {
+            "type" : "string"
+          },
+          "required" : false,
+          "in" : "query"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PreviewController_StreamTicketResponse"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/spaces/{space}/nodes/{id}/progress" : {
+      "put" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_saveFileProgress_put",
+        "parameters" : [ {
+          "name" : "space",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        }, {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PersonalAndBatchService_FileProgressInput"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PersonalAndBatchService_FileProgressView"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      },
+      "get" : {
+        "tags" : [ "PersonalAndBatch" ],
+        "operationId" : "PersonalAndBatchController_getFileProgress_get",
+        "parameters" : [ {
+          "name" : "space",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        }, {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/PersonalAndBatchService_FileProgressView"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{id}/direct" : {
+      "post" : {
+        "tags" : [ "Upload" ],
+        "operationId" : "UploadController_directInfo_post",
+        "parameters" : [ {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "object",
+                      "additionalProperties" : true
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{id}/direct/parts/{index}" : {
+      "get" : {
+        "tags" : [ "Upload" ],
+        "operationId" : "UploadController_directPart_get",
+        "parameters" : [ {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        }, {
+          "name" : "index",
+          "schema" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "type" : "object",
+                      "additionalProperties" : true
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{id}/fallback" : {
+      "post" : {
+        "tags" : [ "Upload" ],
+        "operationId" : "UploadController_fallback_post",
+        "parameters" : [ {
+          "name" : "id",
+          "schema" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "required" : true,
+          "in" : "path"
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "code", "msg" ],
+                  "properties" : {
+                    "code" : {
+                      "format" : "int32",
+                      "type" : "integer"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/DriveModels_Upload"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        }
+      }
     }
   },
   "components" : {
@@ -10761,6 +11403,28 @@
           "maxFileBytes" : {
             "type" : "integer",
             "format" : "int64"
+          },
+          "uploadMode" : {
+            "type" : "string"
+          },
+          "directThresholdBytes" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "directChunkSize" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "directConcurrency" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "directUrlTtl" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "directFallback" : {
+            "type" : "boolean"
           }
         }
       },
@@ -11106,11 +11770,16 @@
             "type" : "string"
           },
           "errorMessage" : {
-            "type" : "string",
-            "nullable" : true
+            "type" : "string"
+          },
+          "instantHit" : {
+            "type" : "boolean"
+          },
+          "uploadMode" : {
+            "type" : "string"
           }
         },
-        "required" : [ "chunkSize", "chunkCount" ]
+        "required" : [ "chunkSize", "chunkCount", "instantHit" ]
       },
       "DriveModels_UploadInput" : {
         "type" : "object",
@@ -11131,6 +11800,9 @@
             "format" : "int64"
           },
           "mimeType" : {
+            "type" : "string"
+          },
+          "expectedSha256" : {
             "type" : "string"
           }
         },
@@ -14489,6 +15161,194 @@
           }
         },
         "required" : [ "current" ]
+      },
+      "MediaTimelineService_TimelineItem" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "spaceId" : {
+            "type" : "string"
+          },
+          "spaceName" : {
+            "type" : "string"
+          },
+          "parentId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "size" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "mimeType" : {
+            "type" : "string"
+          },
+          "mediaType" : {
+            "type" : "string"
+          },
+          "takenAt" : {
+            "type" : "string"
+          },
+          "dateGroup" : {
+            "type" : "string"
+          },
+          "width" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "height" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "durationSeconds" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "currentVersionId" : {
+            "type" : "string"
+          },
+          "revision" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "size", "revision" ]
+      },
+      "MediaTimelineService_TimelinePage" : {
+        "type" : "object",
+        "properties" : {
+          "items" : {
+            "items" : {
+              "$ref" : "#/components/schemas/MediaTimelineService_TimelineItem"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "page" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "hasMore" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "total", "page", "pageSize", "hasMore" ]
+      },
+      "PersonalAndBatchService_FileProgressInput" : {
+        "type" : "object",
+        "properties" : {
+          "progressType" : {
+            "type" : "string"
+          },
+          "positionValue" : {
+            "type" : "number"
+          }
+        },
+        "required" : [ "positionValue" ]
+      },
+      "PersonalAndBatchService_FileProgressView" : {
+        "type" : "object",
+        "properties" : {
+          "nodeId" : {
+            "type" : "string"
+          },
+          "progressType" : {
+            "type" : "string"
+          },
+          "positionValue" : {
+            "type" : "number"
+          },
+          "updatedAt" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "positionValue" ]
+      },
+      "PreviewController_StreamTicketResponse" : {
+        "type" : "object",
+        "properties" : {
+          "ticket" : {
+            "type" : "string"
+          },
+          "streamUrl" : {
+            "type" : "string"
+          },
+          "expiresInSeconds" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "required" : [ "expiresInSeconds" ]
+      },
+      "QrLoginController_QrStatusResp" : {
+        "type" : "object",
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          },
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresInSeconds" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "displayName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "QrLoginService_QrCreateResult" : {
+        "type" : "object",
+        "properties" : {
+          "qrId" : {
+            "type" : "string"
+          },
+          "expiresInSeconds" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "expiresAt" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "expiresInSeconds" ]
+      },
+      "ShareLinkModels_SavePublicShareInput" : {
+        "type" : "object",
+        "properties" : {
+          "targetSpaceId" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "targetParentId" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "nodeId" : {
+            "description" : "64-bit identifier transmitted as string",
+            "type" : "string"
+          },
+          "password" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "targetParentId" ]
+      },
+      "StreamingResponseBody" : {
+        "type" : "object",
+        "properties" : { }
       }
     }
   }

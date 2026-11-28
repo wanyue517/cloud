@@ -2,6 +2,10 @@ package com.wanyue.cloud.common.security;
 
 import com.wanyue.cloud.common.config.CorsProperties;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.context.request.async.WebAsyncManager;
+import org.springframework.web.context.request.async.WebAsyncUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +23,22 @@ import java.util.List;
 @org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 @EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfig {
+
+    private static boolean isAsyncStreamCompletion(HttpServletRequest request) {
+        if (request.getDispatcherType() != DispatcherType.ASYNC || !"GET".equals(request.getMethod())) return false;
+        Object manager = request.getAttribute(WebAsyncUtils.WEB_ASYNC_MANAGER_ATTRIBUTE);
+        if (!(manager instanceof WebAsyncManager async) || !async.hasConcurrentResult()) return false;
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        // The original REQUEST is still authenticated (or media-ticket checked). Resume its MVC result only.
+        return path.equals("/api/v1/messages/events") || path.equals("/api/v1/shares/events") || path.equals("/api/v1/media/stream");
+    }
+
+    private static boolean isContainerErrorInclude(HttpServletRequest request) {
+        // Tomcat includes the error page instead of forwarding when a streaming response is committed.
+        return request.getDispatcherType() == DispatcherType.INCLUDE
+                && request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI) instanceof String
+                && (request.getContextPath() + "/error").equals(request.getAttribute(RequestDispatcher.INCLUDE_REQUEST_URI));
+    }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
@@ -67,6 +87,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 容器内部错误转发应保留原始状态，不能被二次认证覆盖成403。
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(SecurityConfig::isAsyncStreamCompletion).permitAll()
+                        .requestMatchers(SecurityConfig::isContainerErrorInclude).permitAll()
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/site-config").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/assets/**").permitAll()

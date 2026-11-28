@@ -24,50 +24,26 @@ public class UploadService {
     private final DriveService drive;
     private final StorageRouterService storageRouter;
     private final SystemPolicyService policy;
-    private final com.wanyue.cloud.modules.drive.storage.S3StorageProvider s3Provider;
     private final com.wanyue.cloud.modules.drive.storage.SecretCipher cipher;
     private final Path temp;
+    private final DirectUploadService direct;
 
     public UploadService(
             JdbcTemplate db,
             DriveService drive,
             StorageRouterService storageRouter,
             SystemPolicyService policy,
-            com.wanyue.cloud.modules.drive.storage.S3StorageProvider s3Provider,
             com.wanyue.cloud.modules.drive.storage.SecretCipher cipher,
+            DirectUploadService direct,
             @Value("${cloud.storage.upload-temp:data/uploads}") String temp) throws IOException {
         this.db = db;
         this.drive = drive;
         this.storageRouter = storageRouter;
         this.policy = policy;
-        this.s3Provider = s3Provider;
         this.cipher = cipher;
+        this.direct = direct;
         this.temp = Path.of(temp).toAbsolutePath().normalize();
         Files.createDirectories(this.temp);
-    }
-
-    public Map<String, Object> presign(long user, long id, int expiresSeconds) {
-        var s = session(user, id, false);
-        long profileId = s.get("storage_profile_id") == null ? 1L : number(s, "storage_profile_id");
-        var profile = storageRouter.getProfile(profileId);
-        if (!"S3".equalsIgnoreCase(profile.provider())) {
-            return Map.of(
-                    "mode", "DIRECT_API",
-                    "provider", profile.provider(),
-                    "uploadUrl", "/api/v1/uploads/" + id + "/chunks/{index}",
-                    "expiresInSeconds", Math.max(60, Math.min(3600, expiresSeconds)));
-        }
-        String key = "uploads/" + id + "/" + UUID.randomUUID().toString().replace("-", "");
-        String secret = cipher.decrypt(profile.secretCipher());
-        String presignedUrl = s3Provider.generatePresignedPutUrl(
-                profile.endpoint(), profile.bucket(), profile.region(),
-                profile.accessKey(), secret, key, expiresSeconds);
-        return Map.of(
-                "mode", "S3_PRESIGNED_PUT",
-                "provider", "S3",
-                "objectKey", key,
-                "uploadUrl", presignedUrl,
-                "expiresInSeconds", Math.max(60, Math.min(3600, expiresSeconds)));
     }
 
     @Transactional
@@ -87,6 +63,11 @@ public class UploadService {
         int chunkSize = policy.uploadChunkSizeBytes();
         int ttlHours = policy.uploadSessionTtlHours();
         long profileId = storageRouter.resolveProfileIdForUsage(StorageRouterService.USAGE_USER_FILES);
+        var uploadConfig = db.queryForMap("SELECT * FROM storage_profile WHERE id=?", profileId);
+        String configuredMode = String.valueOf(uploadConfig.get("upload_mode"));
+        boolean isDirect = "S3".equals(uploadConfig.get("provider")) && input.size() > 0 &&
+                ("DIRECT".equals(configuredMode) || "AUTO".equals(configuredMode) && input.size() >= number(uploadConfig, "direct_threshold_bytes"));
+        if (isDirect) chunkSize = (int) number(uploadConfig, "direct_chunk_size");
         long id = IdWorker.getId();
         int count = (int) Math.max(1, (input.size() + chunkSize - 1) / chunkSize);
 
@@ -112,6 +93,8 @@ public class UploadService {
                         + "VALUES (?,?,?,?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL ? HOUR))",
                 id, user, input.spaceId(), profileId, input.parentId(), input.name(), input.size(), chunkSize, count,
                 DriveService.safeMime(input.name()), ttlHours);
+        db.update("UPDATE upload_session SET upload_mode=?,direct_concurrency=?,direct_url_ttl=?,direct_fallback=? WHERE id=?",
+                isDirect ? "DIRECT" : "PROXY", number(uploadConfig, "direct_concurrency"), number(uploadConfig, "direct_url_ttl"), uploadConfig.get("direct_fallback"), id);
         return status(user, id, false);
     }
 
@@ -136,12 +119,12 @@ public class UploadService {
         List<Integer> received = new ArrayList<>();
         List<Integer> missing = new ArrayList<>();
         for (int i = 0; i < count; i++) {
-            if (Set.of("COMPLETED", "QUEUED", "PROCESSING").contains(s.get("status")) || Files.isRegularFile(part(id, i))) received.add(i);
+            if (Set.of("COMPLETED", "QUEUED", "PROCESSING").contains(s.get("status")) || !"DIRECT".equals(s.get("upload_mode")) && Files.isRegularFile(part(id, i))) received.add(i);
             else missing.add(i);
         }
         return new Upload(String.valueOf(id), chunkSize, count, received, missing,
                 (String) s.get("status"), s.get("file_id") == null ? null : s.get("file_id").toString(), false,
-                (String) s.get("completion_error"));
+                (String) s.get("completion_error"), (String) s.get("upload_mode"));
     }
 
     private Path part(long id, int index) {
@@ -158,7 +141,9 @@ public class UploadService {
             throw new BizException(HttpStatus.BAD_REQUEST, 400, "文件 SHA-256 格式无效");
         }
         int count = (int) number(s, "chunk_count");
-        for (int i = 0; i < count; i++) if (!Files.isRegularFile(part(id, i))) throw BizException.conflict("仍有分片未上传");
+        if (!"DIRECT".equals(s.get("upload_mode"))) {
+            for (int i = 0; i < count; i++) if (!Files.isRegularFile(part(id, i))) throw BizException.conflict("仍有分片未上传");
+        } else if (s.get("direct_upload_id") == null) throw BizException.conflict("直传任务尚未初始化");
         drive.resolveNodeAccess(user, number(s, "space_id"), number(s, "parent_id"), true, true);
         drive.checkQuota(user, number(s, "size_bytes"));
         String token = com.wanyue.cloud.modules.drive.personal.PrivateTokenFilter.currentToken();
@@ -177,6 +162,7 @@ public class UploadService {
     }
 
     public DriveService.PreparedUpload prepareCompletion(long id, Map<String, Object> s) throws IOException {
+        if ("DIRECT".equals(s.get("upload_mode"))) return direct.prepare(s);
         int count = (int) number(s, "chunk_count");
         drive.checkUploadPolicy((String) s.get("name"), number(s, "size_bytes"));
         drive.checkQuota(number(s, "user_id"), number(s, "size_bytes"));
@@ -230,6 +216,7 @@ public class UploadService {
     public void chunk(long user, long id, int index, InputStream stream, long size, String expectedSha256) throws IOException {
         var s = session(user, id, true);
         int count = (int) number(s, "chunk_count");
+        if ("DIRECT".equals(s.get("upload_mode"))) throw BizException.conflict("直传任务请上传到对象存储");
         long sessionChunkSize = number(s, "chunk_size");
         if (!Set.of("UPLOADING", "FAILED").contains(s.get("status"))) throw BizException.conflict("上传已结束");
         if (index < 0 || index >= count) throw new BizException(HttpStatus.BAD_REQUEST, 400, "分片编号无效");
@@ -275,6 +262,7 @@ public class UploadService {
     @Transactional(rollbackFor = Exception.class)
     public String complete(long user, long id, String expectedSha256) throws IOException {
         var s = session(user, id, true);
+        if ("DIRECT".equals(s.get("upload_mode"))) throw BizException.conflict("直传任务请使用异步完成接口");
         if (s.get("status").equals("COMPLETED")) return s.get("file_id").toString();
         if (!s.get("status").equals("UPLOADING")) throw BizException.conflict("上传已取消");
         int count = (int) number(s, "chunk_count");
@@ -296,8 +284,18 @@ public class UploadService {
     public void cancel(long user, long id) {
         var s = session(user, id, true);
         if (s.get("status").equals("COMPLETED")) throw BizException.conflict("上传已完成");
+        // A running worker owns remote completion; cancellation must not race it.
+        if ("DIRECT".equals(s.get("upload_mode")) && s.get("status").equals("PROCESSING")) throw BizException.conflict("文件正在完成处理，请稍后重试取消");
+        if ("DIRECT".equals(s.get("upload_mode"))) {
+            try { direct.abort(s); } catch (IOException e) { throw new java.io.UncheckedIOException("直传清理失败，请重试", e); }
+        }
         db.update("UPDATE upload_session SET status='CANCELLED',completion_private_token=NULL WHERE id=?", id);
         cleanup(id, (int) number(s, "chunk_count"));
+    }
+
+    public Upload fallback(long user, long id) throws IOException {
+        direct.fallback(user, id, policy.uploadChunkSizeBytes());
+        return status(user, id, false);
     }
 
     private boolean cleanup(long id, int count) {
@@ -340,10 +338,13 @@ public class UploadService {
 
     @Transactional
     public int cleanExpiredAndCount() {
-        var expired = db.queryForList("SELECT id,chunk_count FROM upload_session WHERE expires_at<UTC_TIMESTAMP(3) AND status NOT IN ('EXPIRED','QUEUED','PROCESSING') LIMIT 100 FOR UPDATE SKIP LOCKED");
+        var expired = db.queryForList("SELECT * FROM upload_session WHERE expires_at<UTC_TIMESTAMP(3) AND status NOT IN ('EXPIRED','QUEUED','PROCESSING') LIMIT 100 FOR UPDATE SKIP LOCKED");
         int cleaned = 0;
         for (var session : expired) {
             long id = number(session, "id");
+            if ("DIRECT".equals(session.get("upload_mode")) && !"COMPLETED".equals(session.get("status"))) {
+                try { direct.abort(session); } catch (IOException e) { continue; }
+            }
             if (cleanup(id, (int) number(session, "chunk_count"))) {
                 db.update("UPDATE upload_session SET status='EXPIRED' WHERE id=?", id);
                 cleaned++;

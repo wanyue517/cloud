@@ -1,6 +1,7 @@
 import { request } from '@/utils/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
 import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
+import { executeDirectUpload } from '@repo/drive-core/direct-upload'
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -30,7 +31,7 @@ export type ArchiveEntry = { path: string; name: string; directory: boolean; siz
 export type ArchiveListing = { format: string; totalEntries: number; truncated: boolean; entries: ArchiveEntry[] }
 export type NodePage = Omit<Required<ApiSchemas['DriveModels_Page']>, 'items'> & { items: DriveNode[] }
 export type Version = Required<ApiSchemas['DriveModels_Version']>
-export type Upload = Omit<Required<ApiSchemas['DriveModels_Upload']>, 'fileId'> & { fileId: ResourceId | null }
+export type Upload = Omit<Required<ApiSchemas['DriveModels_Upload']>, 'fileId'> & { fileId: ResourceId | null; uploadMode?: string }
 export const drive = {
   spaces: () => request.get<Space[]>('/v1/spaces'),
   createSpace: (name: string, extra: { kind?: 'PERSONAL' | 'SHARED' | 'PRIVATE'; description?: string; color?: string; icon?: string; sortOrder?: number } = {}) =>
@@ -110,6 +111,11 @@ export async function uploadFile(spaceId: string, parentId: string, file: File, 
     }
     let fileId = upload.fileId || ''
     if (upload.status !== 'COMPLETED') {
+      upload = await executeDirectUpload({
+        info: (id, sig) => request.post(`/v1/uploads/${id}/direct`, undefined, { signal: sig }),
+        presign: (id, index, sig) => request.get(`/v1/uploads/${id}/direct/parts/${index}`, undefined, { signal: sig }),
+        fallback: (id, sig) => request.post(`/v1/uploads/${id}/fallback`, undefined, { signal: sig }),
+      }, upload, file, progress, signal)
       const received = new Set(upload.received ?? [])
       const totalChunks = upload.chunkCount
       for (let index = 0; !['QUEUED', 'PROCESSING'].includes(upload.status) && index < totalChunks; index++) {

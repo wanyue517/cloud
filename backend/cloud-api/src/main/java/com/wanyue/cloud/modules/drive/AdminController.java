@@ -138,14 +138,31 @@ public class AdminController {
             @Size(max = 64) String region,
             @Size(max = 255) String accessKey,
             @Size(max = 255) String secretKey,
-            Long maxFileBytes) {}
+            Long maxFileBytes,
+            @Pattern(regexp="PROXY|DIRECT|AUTO") String uploadMode,
+            @Min(0) Long directThresholdBytes,
+            @Min(5242880) @Max(67108864) Integer directChunkSize,
+            @Min(1) @Max(6) Integer directConcurrency,
+            @Min(60) @Max(3600) Integer directUrlTtl,
+            Boolean directFallback) {}
+
+    private void saveUploadSettings(long id, StorageProfileInput input) {
+        String mode = input.uploadMode() == null ? "PROXY" : input.uploadMode();
+        if (!"S3".equals(input.provider()) && !"PROXY".equals(mode)) throw BizException.conflict("仅 S3 对象存储支持直传");
+        db.update("UPDATE storage_profile SET upload_mode=?,direct_threshold_bytes=?,direct_chunk_size=?,direct_concurrency=?,direct_url_ttl=?,direct_fallback=? WHERE id=?",
+                mode, input.directThresholdBytes() == null ? 104857600L : input.directThresholdBytes(),
+                input.directChunkSize() == null ? 16777216 : input.directChunkSize(),
+                input.directConcurrency() == null ? 3 : input.directConcurrency(),
+                input.directUrlTtl() == null ? 900 : input.directUrlTtl(), Boolean.TRUE.equals(input.directFallback()), id);
+    }
 
     @GetMapping("/storage-profiles")
     public R<List<Map<String, Object>>> storageProfiles() {
         var rows = db.queryForList(
                 "SELECT CAST(p.id AS CHAR) id, p.name, p.provider, p.root_path rootPath, p.endpoint, p.bucket, p.region, "
                         + "p.access_key accessKey, (p.secret_cipher IS NOT NULL AND p.secret_cipher <> '') hasSecret, "
-                        + "p.max_file_bytes maxFileBytes, p.is_default isDefault, "
+                        + "p.max_file_bytes maxFileBytes, p.is_default isDefault, p.upload_mode uploadMode, p.direct_threshold_bytes directThresholdBytes, "
+                        + "p.direct_chunk_size directChunkSize, p.direct_concurrency directConcurrency, p.direct_url_ttl directUrlTtl, p.direct_fallback directFallback, "
                         + "COUNT(b.id) objectCount, COALESCE(SUM(b.size_bytes), 0) totalBytes "
                         + "FROM storage_profile p LEFT JOIN blob_object b ON b.storage_profile_id = p.id "
                         + "GROUP BY p.id, p.name, p.provider, p.root_path, p.endpoint, p.bucket, p.region, p.access_key, p.secret_cipher, p.max_file_bytes, p.is_default "
@@ -192,6 +209,7 @@ public class AdminController {
                 input.accessKey() == null ? null : input.accessKey().strip(),
                 encryptedSecret,
                 input.maxFileBytes());
+        saveUploadSettings(id, input);
         return R.ok(String.valueOf(id));
     }
 
@@ -226,6 +244,7 @@ public class AdminController {
             db.update("UPDATE storage_profile SET secret_cipher=? WHERE id=?",
                     cipher.encrypt(input.secretKey().strip()), id);
         }
+        saveUploadSettings(id, input);
         return R.ok();
     }
 
@@ -309,6 +328,8 @@ public class AdminController {
         if ((blobCount != null && blobCount > 0) || (assetCount != null && assetCount > 0)) {
             throw BizException.conflict("该存储实例仍关联有文件对象，无法直接删除");
         }
+        Long uploadCount = db.queryForObject("SELECT COUNT(*) FROM upload_session WHERE storage_profile_id=? AND (status IN ('QUEUED','PROCESSING') OR status IN ('UPLOADING','FAILED') AND expires_at>UTC_TIMESTAMP(3))", Long.class, id);
+        if (uploadCount != null && uploadCount > 0) throw BizException.conflict("该存储实例仍有未完成上传，请先完成或取消任务");
         Long routedCount = db.queryForObject(
                 "SELECT COUNT(*) FROM sys_policy WHERE policy_key IN ('storage.route.user_files','storage.route.site_assets','storage.route.user_avatars') AND policy_value=?",
                 Long.class, String.valueOf(id));

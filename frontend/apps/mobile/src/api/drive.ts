@@ -1,6 +1,7 @@
 import { request } from '@repo/session/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
 import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
+import { executeDirectUpload, type DirectSession } from '@repo/drive-core/direct-upload'
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -110,6 +111,7 @@ export interface PrivateOverview {
 }
 
 export interface UploadSession {
+  uploadMode?: string
   id: string
   spaceId: string
   parentId: string
@@ -457,6 +459,12 @@ export const mobileDriveApi = {
     }>('/v1/media/timeline', params),
 
   // Server upload sessions
+  uploadDirect: <T extends DirectSession>(session: T, file: Pick<File, 'size' | 'slice'>, progress?: (percent: number, message?: string) => void, signal?: AbortSignal) =>
+    executeDirectUpload({
+      info: (id, sig) => request.post(`/v1/uploads/${id}/direct`, undefined, { signal: sig }),
+      presign: (id, index, sig) => request.get(`/v1/uploads/${id}/direct/parts/${index}`, undefined, { signal: sig }),
+      fallback: (id, sig) => request.post(`/v1/uploads/${id}/fallback`, undefined, { signal: sig }),
+    }, session, file, progress, signal),
   listUploads: () => request.get<UploadSession[]>('/v1/uploads'),
   getUploadSession: (uploadId: string, signal?: AbortSignal) =>
     request.get<UploadSession>(`/v1/uploads/${uploadId}`, undefined, { signal, silent: true }),
@@ -496,7 +504,7 @@ export async function uploadFileDirect(
   onProgress?: (percent: number, message?: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
-  const upload = await request.post<UploadSession>(
+  let upload = await request.post<UploadSession>(
     '/v1/uploads',
     { spaceId, parentId, name: file.name, size: file.size, mimeType: file.type || 'application/octet-stream' },
     { signal },
@@ -504,6 +512,7 @@ export async function uploadFileDirect(
   try {
     let fileId = upload.fileId || ''
     if (upload.status !== 'COMPLETED') {
+      upload = await mobileDriveApi.uploadDirect(upload, file, onProgress, signal)
       const received = new Set(upload.received ?? [])
       for (let index = 0; index < upload.chunkCount; index++) {
         if (!received.has(index)) {

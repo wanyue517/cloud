@@ -8,6 +8,7 @@ export interface UploadSessionLike {
   status: string
   fileId?: string | null
   instantHit?: boolean
+  uploadMode?: string
 }
 
 export interface ChunkedUploadStorage {
@@ -31,6 +32,7 @@ export interface ChunkedUploadDeps {
     signal?: AbortSignal,
   ) => Promise<void>
   completeSession: (uploadId: string, signal?: AbortSignal) => Promise<string>
+  uploadDirect?: (session: UploadSessionLike, file: ChunkedUploadParams['file'], progress?: ChunkedUploadParams['onProgress'], signal?: AbortSignal) => Promise<UploadSessionLike>
   cancelSession?: (uploadId: string) => Promise<void>
   storage?: ChunkedUploadStorage | null
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
@@ -161,6 +163,8 @@ export async function executeChunkedUpload(
     if (session.status === 'COMPLETED') {
       onProgress?.(100)
     } else {
+      if (session.uploadMode === 'DIRECT' && !deps.uploadDirect) throw new Error('此客户端暂不支持对象存储直传')
+      if (deps.uploadDirect) session = await deps.uploadDirect(session, file, onProgress, signal)
       const received = new Set(session.received ?? [])
       const totalChunks = Math.max(1, session.chunkCount)
       for (let index = 0; !['QUEUED', 'PROCESSING'].includes(session.status) && index < totalChunks; index++) {
