@@ -812,7 +812,8 @@ public class DriveService {
         return switch(extension) {
             case "png"->"image/png"; case "jpg","jpeg"->"image/jpeg"; case "gif"->"image/gif"; case "webp"->"image/webp";
             case "pdf"->"application/pdf"; case "txt","md","java","js","ts","json","css","xml","csv","py","log","yaml","yml","html","svg"->"text/plain";
-            case "mp3"->"audio/mpeg"; case "wav"->"audio/wav"; case "ogg"->"audio/ogg"; case "mp4"->"video/mp4"; case "webm"->"video/webm";
+            case "mp3"->"audio/mpeg"; case "wav"->"audio/wav"; case "ogg"->"audio/ogg"; case "mp4","m4v"->"video/mp4"; case "webm"->"video/webm";
+            case "mov"->"video/quicktime"; case "mkv"->"video/x-matroska"; case "avi"->"video/x-msvideo"; case "ogv"->"video/ogg";
             default->"application/octet-stream";
         };
     }

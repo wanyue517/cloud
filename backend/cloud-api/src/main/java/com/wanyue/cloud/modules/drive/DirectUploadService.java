@@ -49,7 +49,7 @@ public class DirectUploadService {
         String uploadId = (String) row.get("direct_upload_id");
         if (uploadId == null) {
             key = "objects/" + UUID.randomUUID().toString().replace("-", "");
-            uploadId = s3.initiateMultipart(profile, secret, key);
+            uploadId = s3.initiateMultipart(profile, secret, key, DriveService.safeMime(String.valueOf(row.get("name"))));
             db.update("UPDATE upload_session SET direct_key=?,direct_upload_id=? WHERE id=?", key, uploadId, id);
         }
         java.util.List<S3StorageProvider.RemotePart> parts;

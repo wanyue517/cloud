@@ -84,7 +84,7 @@ class UploadCompletionTest {
         db.update("INSERT INTO storage_profile(id,name,provider,root_path,endpoint,bucket,region,access_key,secret_cipher,is_default,upload_mode,direct_threshold_bytes,direct_fallback) VALUES (?,'Direct test','S3','s3://test','https://storage.invalid','test','auto','access',?,TRUE,?,5,?)",
                 profile, cipher.encrypt("secret"), mode, fallback);
         var session = uploads.create(user, new DriveModels.UploadInput(space, 0, "direct.bin", 6, "application/octet-stream"));
-        doReturn("multipart-id").when(s3).initiateMultipart(any(), anyString(), anyString());
+        doReturn("multipart-id").when(s3).initiateMultipart(any(), anyString(), anyString(), anyString());
         doReturn(java.util.List.of()).when(s3).listParts(any(), anyString(), anyString(), anyString());
         doNothing().when(s3).abortMultipart(any(), anyString(), anyString(), anyString());
         doNothing().when(s3).deleteObject(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());

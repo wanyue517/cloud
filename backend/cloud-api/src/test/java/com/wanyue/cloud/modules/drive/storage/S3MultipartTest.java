@@ -22,6 +22,7 @@ class S3MultipartTest {
     StorageRouterService.StorageProfileMeta profile;
     AtomicReference<Throwable> failure = new AtomicReference<>();
     AtomicBoolean embeddedError = new AtomicBoolean();
+    AtomicReference<String> objectContentType = new AtomicReference<>();
 
     @BeforeEach void setup() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -41,7 +42,10 @@ class S3MultipartTest {
                 String expected = signature(date, scope, canonical);
                 assertTrue(exchange.getRequestHeaders().getFirst("Authorization").endsWith("Signature=" + expected));
                 String body = "";
-                if (exchange.getRequestMethod().equals("POST") && "uploads=".equals(rawQuery)) body = "<InitiateMultipartUploadResult><UploadId>id+/=</UploadId></InitiateMultipartUploadResult>";
+                if (exchange.getRequestMethod().equals("POST") && "uploads=".equals(rawQuery)) {
+                    objectContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+                    body = "<InitiateMultipartUploadResult><UploadId>id+/=</UploadId></InitiateMultipartUploadResult>";
+                }
                 else if (exchange.getRequestMethod().equals("GET")) {
                     assertTrue(rawQuery.contains("uploadId=id%2B%2F%3D"));
                     body = "<ListPartsResult><IsTruncated>false</IsTruncated><Part><PartNumber>1</PartNumber><Size>6</Size><ETag>&quot;etag&quot;</ETag></Part></ListPartsResult>";
@@ -86,6 +90,12 @@ class S3MultipartTest {
         provider.completeMultipart(profile, "secret", "object", "id+/=", parts);
         assertEquals(6, provider.headObjectSize(profile, "secret", "object"));
         provider.abortMultipart(profile, "secret", "object", "id+/=");
+        assertNull(failure.get());
+    }
+
+    @Test void multipartInitializationPreservesVideoContentType() throws Exception {
+        assertEquals("id+/=", provider.initiateMultipart(profile, "secret", "object", "video/mp4"));
+        assertEquals("video/mp4", objectContentType.get());
         assertNull(failure.get());
     }
 

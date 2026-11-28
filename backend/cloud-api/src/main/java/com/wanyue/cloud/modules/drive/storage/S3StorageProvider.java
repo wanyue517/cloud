@@ -394,12 +394,22 @@ public class S3StorageProvider implements StorageProvider {
 
     private HttpResponse<InputStream> multipartRequest(String method, StorageRouterService.StorageProfileMeta p,
             String secret, String key, Map<String, String> params, byte[] body) throws IOException {
+        return multipartRequest(method, p, secret, key, params, body, null);
+    }
+
+    private HttpResponse<InputStream> multipartRequest(String method, StorageRouterService.StorageProfileMeta p,
+            String secret, String key, Map<String, String> params, byte[] body, String contentType) throws IOException {
         URI base = buildObjectUri(p.endpoint(), p.bucket(), key);
         URI uri = URI.create(base + (params.isEmpty() ? "" : "?" + query(params)));
         try {
             var request = buildSignedRequest(method, uri, p.region().isBlank() ? "us-east-1" : p.region(),
                     p.accessKey(), secret, body, null,
                     "POST".equals(method) && params.containsKey("uploadId") ? Duration.ofMinutes(10) : Duration.ofSeconds(15));
+            // S3 persists object Content-Type from CreateMultipartUpload, not UploadPart.
+            if (contentType != null && !contentType.isBlank()) {
+                request = HttpRequest.newBuilder(request, (name, value) -> true)
+                        .setHeader("Content-Type", contentType).build();
+            }
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 response.body().close();
@@ -438,7 +448,11 @@ public class S3StorageProvider implements StorageProvider {
     }
 
     public String initiateMultipart(StorageRouterService.StorageProfileMeta p, String secret, String key) throws IOException {
-        return text(xml(multipartRequest("POST", p, secret, key, Map.of("uploads", ""), new byte[0])).getDocumentElement(), "UploadId");
+        return initiateMultipart(p, secret, key, "application/octet-stream");
+    }
+
+    public String initiateMultipart(StorageRouterService.StorageProfileMeta p, String secret, String key, String contentType) throws IOException {
+        return text(xml(multipartRequest("POST", p, secret, key, Map.of("uploads", ""), new byte[0], contentType)).getDocumentElement(), "UploadId");
     }
 
     public java.util.List<RemotePart> listParts(StorageRouterService.StorageProfileMeta p, String secret, String key, String uploadId) throws IOException {
