@@ -542,6 +542,7 @@ export interface components {
       nodeIds?: Array<string>
     }
     PreviewController_StreamTicketResponse: {
+      assetType?: "ORIGINAL" | "VIDEO_MP4" | "VIDEO_HLS"
       mode?: "DIRECT" | "PROXY"
       expiresAt?: number
       proxyFallbackAllowed?: boolean
@@ -595,6 +596,7 @@ export interface components {
       updatedAt?: string
     }
     PreviewModels_VideoProbe: {
+      videoTranscodeRequired?: boolean
       status?: "PENDING" | "PROCESSING" | "READY" | "FAILED"
       container?: string
       videoCodec?: string
@@ -1245,6 +1247,11 @@ export interface components {
     VersionPinUndoService_UserVersionPolicy: {
       maxVersions: number
       systemMaxVersions: number
+    }
+    VideoStreamingService_State: {
+      status?: string
+      availableSeconds: number
+      errorMessage?: string
     }
     WebSessionService_DeviceSession: {
       id?: string
@@ -3165,6 +3172,26 @@ export interface paths {
       }
     }
   }
+  "/api/v1/media/hls": {
+    get: {
+      parameters: {
+        query?: {
+          ticket: string
+          file: string
+        }
+      }
+      response: null
+    }
+    head: {
+      parameters: {
+        query?: {
+          ticket: string
+          file: string
+        }
+      }
+      response: null
+    }
+  }
   "/api/v1/media/stream": {
     get: {
       parameters: {
@@ -4058,6 +4085,26 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["PreviewModels_VideoProbe"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/spaces/{space}/nodes/{id}/preview/video/session": {
+    post: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+        query?: {
+          versionId?: number
+          retry?: boolean
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["VideoStreamingService_State"]
         traceId?: string | null
       }
     }

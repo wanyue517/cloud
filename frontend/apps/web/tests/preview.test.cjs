@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '../../..')
 const dependency = createRequire(path.join(root, 'apps/web/package.json'))
 const ts = dependency('typescript')
 
-function loadTs(relative) {
+function loadTs(relative, globals = {}) {
   const source = fs.readFileSync(path.join(root, relative), 'utf8')
   const module = { exports: {} }
   const localRequire = id => {
@@ -24,11 +24,23 @@ function loadTs(relative) {
       module: ts.ModuleKind.CommonJS,
       esModuleInterop: true,
     },
-  }).outputText, { module, exports: module.exports, require: localRequire, Error, console })
+  }).outputText, { module, exports: module.exports, require: localRequire, Error, console, ...globals })
   return module.exports
 }
 
 const preview = loadTs('apps/web/src/lib/preview-registry.ts')
+
+test('a thumbnail network failure is fetched once even when Cache Storage is available', async () => {
+  const thumbnails = loadTs('apps/web/src/lib/thumb-cache.ts', {
+    window: { caches: { open: async () => ({ match: async () => undefined }) } },
+  })
+  let attempts = 0
+  await assert.rejects(thumbnails.getOrFetchThumbnail('video', async () => {
+    attempts++
+    throw new Error('network unavailable')
+  }))
+  assert.equal(attempts, 1)
+})
 
 test('preview registry dispatches common file extensions and MIME types accurately', () => {
   assert.equal(preview.resolvePreviewKind('photo.png', 'image/png'), 'image')

@@ -26,7 +26,9 @@ const EXCEL_EXTS = new Set(['xls', 'xlsx', 'ods', 'csv'])
 const ARCHIVE_EXTS = new Set(['zip', 'tar', 'tgz', 'gz'])
 const MARKDOWN_EXTS = new Set(['md', 'markdown', 'mdx'])
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'])
-const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi'])
+const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'm4v', 'ogv', 'mkv', 'avi', 'flv', 'f4v',
+  'wmv', 'asf', 'mts', 'm2ts', 'mpg', 'mpeg', 'vob', '3gp', '3g2', 'mxf', 'rm', 'rmvb',
+  'divx', 'm2v', 'h264', 'hevc', 'av1'])
 const PLAIN_TEXT_EXTS = new Set(['txt', 'log', 'tsv', 'env', 'gitignore', 'editorconfig'])
 
 const CODE_LANG_BY_EXT: Record<string, string> = {
@@ -115,7 +117,7 @@ export function resolvePreviewKind(name: string, mimeType = ''): PreviewKind {
   if (MARKDOWN_EXTS.has(ext) || mime === 'text/markdown') {
     return 'markdown'
   }
-  if (AUDIO_EXTS.has(ext) || mime.startsWith('audio/')) {
+  if ((AUDIO_EXTS.has(ext) && !mime.startsWith('video/')) || mime.startsWith('audio/')) {
     return 'audio'
   }
   if (VIDEO_EXTS.has(ext) || mime.startsWith('video/')) {

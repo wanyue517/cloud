@@ -19,6 +19,7 @@ class VideoProbeServiceTest {
         var started = new CountDownLatch(1);
         var finish = new CountDownLatch(1);
         when(storage.probeInput(source)).thenReturn("https://storage.invalid/signed");
+        when(storage.openRange(source, 0, 65535)).thenReturn(new java.io.ByteArrayInputStream(new byte[0]));
         var ready = PreviewAssetService.decideVideoStrategy("mp4", "h264", "aac", 2000, 1920, 1080, 1);
         when(assets.probeInput(anyString(), anyString())).thenAnswer(call -> { started.countDown(); assertTrue(finish.await(5, TimeUnit.SECONDS)); return ready; });
         var service = new VideoProbeService(storage, assets);

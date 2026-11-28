@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
     },
   },
   optimizeDeps: {
+    include: ['hls.js'],
     exclude: ['@repo/drive-core', '@repo/ui', '@repo/session'],
   },
   resolve:{

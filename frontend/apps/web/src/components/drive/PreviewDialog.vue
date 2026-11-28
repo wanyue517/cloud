@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
     >
       <div ref="shellRef" class="flex h-full min-h-0 flex-1 flex-col bg-background">
         <DialogDescription class="sr-only">文件只读预览外框，支持全屏、切换相邻文件与下载原文件。</DialogDescription>
-        <header class="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5">
+        <header class="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-3 py-1.5">
           <div class="flex min-w-0 flex-1 items-center gap-2.5">
             <DialogTitle class="truncate text-sm font-semibold">
               {{ node.name }}<small v-if="version" class="ml-1.5 font-normal text-muted-foreground">· 版本 {{ version.number }}</small>
@@ -139,21 +139,21 @@ onBeforeUnmount(() => {
 
           <div class="flex shrink-0 items-center gap-1.5">
             <template v-if="canPrev || canNext">
-              <Button variant="outline" size="icon-sm" :disabled="!canPrev" title="上一个文件 (←)" aria-label="上一个文件" @click="goPrev">
+              <Button variant="ghost" size="icon-sm" :disabled="!canPrev" title="上一个文件 (←)" aria-label="上一个文件" @click="goPrev">
                 <ChevronLeft :size="16" />
               </Button>
-              <Button variant="outline" size="icon-sm" :disabled="!canNext" title="下一个文件 (→)" aria-label="下一个文件" @click="goNext">
+              <Button variant="ghost" size="icon-sm" :disabled="!canNext" title="下一个文件 (→)" aria-label="下一个文件" @click="goNext">
                 <ChevronRight :size="16" />
               </Button>
             </template>
-            <Button variant="outline" size="sm" :disabled="downloading" @click="download">
-              <Download :size="15" /> {{ downloading ? '下载中…' : '下载' }}
+            <Button variant="ghost" size="icon-sm" :disabled="downloading" :title="downloading ? '下载中…' : '下载原文件'" :aria-label="downloading ? '下载中…' : '下载原文件'" :aria-busy="downloading" @click="download">
+              <Download :size="16" />
             </Button>
-            <Button variant="outline" size="icon-sm" :title="fullscreen ? '退出全屏' : '全屏预览'" :aria-label="fullscreen ? '退出全屏' : '全屏预览'" @click="toggleFullscreen">
+            <Button variant="ghost" size="icon-sm" :title="fullscreen ? '退出全屏' : '全屏预览'" :aria-label="fullscreen ? '退出全屏' : '全屏预览'" @click="toggleFullscreen">
               <Minimize2 v-if="fullscreen" :size="16" />
               <Maximize2 v-else :size="16" />
             </Button>
-            <Button variant="outline" size="icon-sm" aria-label="关闭预览" @click="emit('close')">
+            <Button variant="ghost" size="icon-sm" title="关闭预览" aria-label="关闭预览" @click="emit('close')">
               <X :size="17" />
             </Button>
           </div>

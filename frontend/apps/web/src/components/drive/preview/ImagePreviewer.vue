@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Viewer from 'viewerjs'
 import 'viewerjs/dist/viewer.css'
-import { ChevronLeft, ChevronRight, FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, ZoomIn, ZoomOut, Maximize } from '@lucide/vue'
+import { FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, ZoomIn, ZoomOut, Maximize } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { drive, type DriveNode, type Version } from '@/api/drive'
 import { getOrFetchPreviewBlob, matchPreviewBlob } from '@/lib/thumb-cache'
@@ -14,7 +14,7 @@ const props = defineProps<{
   canNext?: boolean
 }>()
 
-const emit = defineEmits<{
+defineEmits<{
   prev: []
   next: []
 }>()
@@ -123,33 +123,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-1 flex-col bg-muted/20">
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/90 px-4 py-2">
-      <div class="flex items-center gap-1">
-        <Button v-if="canPrev || canNext" variant="outline" size="sm" :disabled="!canPrev" title="上一张 (←)" @click="emit('prev')">
-          <ChevronLeft :size="15" /> 上一张
-        </Button>
-        <Button v-if="canPrev || canNext" variant="outline" size="sm" :disabled="!canNext" title="下一张 (→)" @click="emit('next')">
-          下一张 <ChevronRight :size="15" />
-        </Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-1">
-        <Button variant="outline" size="icon-sm" title="缩小" aria-label="缩小" @click="zoomOut"><ZoomOut :size="15" /></Button>
+  <div class="relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted/20">
+    <p v-if="loading" role="status" class="text-sm text-muted-foreground">正在加载图片…</p>
+    <p v-else-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
+    <img v-show="!loading && !error && objectUrl" ref="imgRef" :src="objectUrl" :alt="node.name" class="hidden" />
+    <div v-if="!loading && !error && objectUrl" class="pointer-events-none absolute inset-x-3 bottom-5 z-10 flex justify-center">
+      <div class="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-background/90 px-3 py-2 shadow-lg backdrop-blur" role="toolbar" aria-label="图片操作">
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="缩小" aria-label="缩小" @click="zoomOut"><ZoomOut :size="15" /></Button>
         <span class="min-w-[3.2rem] text-center text-xs tabular-nums text-muted-foreground">{{ zoomPercent }}%</span>
-        <Button variant="outline" size="icon-sm" title="放大" aria-label="放大" @click="zoomIn"><ZoomIn :size="15" /></Button>
-        <Button variant="outline" size="icon-sm" title="重置视图" aria-label="重置视图" @click="resetView"><Maximize :size="15" /></Button>
-        <Button variant="outline" size="icon-sm" title="向左旋转 90°" aria-label="向左旋转" @click="rotateLeft"><RotateCcw :size="15" /></Button>
-        <Button variant="outline" size="icon-sm" title="向右旋转 90°" aria-label="向右旋转" @click="rotateRight"><RotateCw :size="15" /></Button>
-        <Button variant="outline" size="icon-sm" title="水平翻转" aria-label="水平翻转" @click="flipHorizontal"><FlipHorizontal2 :size="15" /></Button>
-        <Button variant="outline" size="icon-sm" title="垂直翻转" aria-label="垂直翻转" @click="flipVertical"><FlipVertical2 :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="放大" aria-label="放大" @click="zoomIn"><ZoomIn :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="重置视图" aria-label="重置视图" @click="resetView"><Maximize :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="向左旋转 90°" aria-label="向左旋转" @click="rotateLeft"><RotateCcw :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="向右旋转 90°" aria-label="向右旋转" @click="rotateRight"><RotateCw :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="左右翻转" aria-label="左右翻转" @click="flipHorizontal"><FlipVertical2 :size="15" /></Button>
+        <Button variant="ghost" size="icon-sm" class="rounded-full" title="上下翻转" aria-label="上下翻转" @click="flipVertical"><FlipHorizontal2 :size="15" /></Button>
       </div>
-      <span class="text-xs text-muted-foreground">滚轮缩放 · 拖拽平移 · 不修改原件</span>
-    </div>
-
-    <div class="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-      <p v-if="loading" role="status" class="text-sm text-muted-foreground">正在加载图片…</p>
-      <p v-else-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
-      <img v-show="!loading && !error && objectUrl" ref="imgRef" :src="objectUrl" :alt="node.name" class="hidden" />
     </div>
   </div>
 </template>

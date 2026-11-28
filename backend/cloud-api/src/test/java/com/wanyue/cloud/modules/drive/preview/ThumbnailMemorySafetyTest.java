@@ -22,6 +22,29 @@ class ThumbnailMemorySafetyTest {
     @TempDir Path temp;
 
     @Test
+    void videoThumbnailPreparationDoesNotBlockTheRequestAndReusesTheCompletedCache() throws Exception {
+        var entered = new CountDownLatch(1);
+        var finish = new CountDownLatch(1);
+        Path cached = temp.resolve("thumbs/77_480.jpg");
+        var service = new ThumbnailService(temp.toString(), "ffmpeg") {
+            @Override public Optional<Path> getOrGenerateVideo(long version, String name, String input, int width) {
+                entered.countDown();
+                try { assertTrue(finish.await(5, TimeUnit.SECONDS)); Files.write(cached, new byte[]{1,2,3}); }
+                catch (Exception e) { throw new RuntimeException(e); }
+                return Optional.of(cached);
+            }
+        };
+        try {
+            assertTimeoutPreemptively(java.time.Duration.ofSeconds(1), () ->
+                    assertTrue(service.getOrRequestVideo(77, "source.mp4", "https://storage.invalid/video", 320).isEmpty()));
+            assertTrue(entered.await(2, TimeUnit.SECONDS));
+            finish.countDown();
+            for (int i = 0; i < 100 && !Files.isRegularFile(cached); i++) Thread.sleep(10);
+            assertEquals(cached, service.getOrRequestVideo(77, "source.mp4", "https://storage.invalid/video", 320).orElseThrow());
+        } finally { finish.countDown(); service.close(); }
+    }
+
+    @Test
     void rejectsOversizedHeaderWithoutDecodingPixels() throws Exception {
         ImageReader reader = mock(ImageReader.class);
         when(reader.getWidth(0)).thenReturn(8000);

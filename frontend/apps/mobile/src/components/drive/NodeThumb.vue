@@ -44,6 +44,20 @@ const thumbUrl = ref<string | null>(null)
 const visible = ref(false)
 let observer: IntersectionObserver | null = null
 let ephemeralObjectUrl: string | null = null
+let thumbnailRetry: ReturnType<typeof setTimeout> | undefined
+let thumbnailAttempts = 0
+let disposed = false
+
+async function fetchThumbnail(width: number) {
+  const node = props.node
+  const blob = await mobileDriveApi.thumbnail(node.spaceId, node.id, width, node.currentVersionId ?? undefined)
+  if (disposed || node.id !== props.node.id || node.currentVersionId !== props.node.currentVersionId) return null
+  if (blob && blob.size === 0 && ++thumbnailAttempts < 10) {
+    clearTimeout(thumbnailRetry)
+    thumbnailRetry = setTimeout(() => { void loadThumb() }, 3000)
+  }
+  return blob
+}
 
 function revokeEphemeralUrl() {
   if (ephemeralObjectUrl) {
@@ -106,12 +120,7 @@ async function loadThumb() {
   const width = getMobileThumbWidth(networkPrefs, networkStatus)
   if (props.ephemeral) {
     try {
-      const blob = await mobileDriveApi.thumbnail(
-        props.node.spaceId,
-        props.node.id,
-        width,
-        props.node.currentVersionId ?? undefined,
-      )
+      const blob = await fetchThumbnail(width)
       if (blob && blob.size > 0) {
         revokeEphemeralUrl()
         ephemeralObjectUrl = URL.createObjectURL(blob)
@@ -131,12 +140,7 @@ async function loadThumb() {
   }
   const url = await mobileThumbCache.getOrFetch(key, async () => {
     try {
-      return await mobileDriveApi.thumbnail(
-        props.node.spaceId,
-        props.node.id,
-        width,
-        props.node.currentVersionId ?? undefined,
-      )
+      return await fetchThumbnail(width)
     } catch {
       return null
     }
@@ -168,6 +172,8 @@ onMounted(() => {
 watch(
   () => [props.node.id, props.node.revision, props.node.currentVersionId],
   () => {
+    clearTimeout(thumbnailRetry)
+    thumbnailAttempts = 0
     revokeEphemeralUrl()
     thumbUrl.value = null
     if (visible.value && canThumb.value) {
@@ -177,6 +183,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  disposed = true
+  clearTimeout(thumbnailRetry)
   observer?.disconnect()
   observer = null
   revokeEphemeralUrl()

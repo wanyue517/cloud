@@ -27,7 +27,7 @@ class MediaPlaybackControllerTest {
     final JwtTokenProvider jwt = new JwtTokenProvider(Base64.getEncoder().encodeToString("test-only-secret-at-least-32-bytes".getBytes()), "cloudlane", 900, new tools.jackson.databind.json.JsonMapper());
 
     PreviewController controller() {
-        return new PreviewController(drive, assets, mock(ExcelPreviewService.class), mock(ArchivePreviewService.class), mock(ThumbnailService.class), jwt, storage, probes);
+        return new PreviewController(drive, assets, mock(ExcelPreviewService.class), mock(ArchivePreviewService.class), mock(ThumbnailService.class), jwt, storage, probes, mock(VideoStreamingService.class));
     }
 
     Authentication auth() {
@@ -61,6 +61,16 @@ class MediaPlaybackControllerTest {
         assertEquals(4, jwt.verifyMediaStreamTicket(forced.ticket()).versionId());
         when(storage.playbackPolicy(9)).thenReturn(new StorageRouterService.PlaybackPolicy("PROXY", ""));
         assertEquals("PROXY", controller().createStreamTicket(auth, 2, 3, null, "ORIGINAL", false).getData().mode());
+        verify(storage, never()).signedReadUrl(anyLong(), anyString(), anyInt(), anyBoolean());
+        verify(drive, never()).materializeMediaSource(any());
+    }
+
+    @Test void optimizedVideoIsReusedWithoutRequestingTheRemoteOriginal() {
+        var auth = auth();
+        when(assets.hasReadyVideo(4)).thenReturn(true);
+        var result = controller().createStreamTicket(auth, 2, 3, null, "ORIGINAL", false).getData();
+        assertEquals("VIDEO_MP4", result.assetType());
+        assertEquals("VIDEO_MP4", jwt.verifyMediaStreamTicket(result.ticket()).assetType());
         verify(storage, never()).signedReadUrl(anyLong(), anyString(), anyInt(), anyBoolean());
         verify(drive, never()).materializeMediaSource(any());
     }

@@ -40,8 +40,8 @@ public class PreviewAssetService {
     private int videoProbeTimeoutSeconds = 60;
     @Value("${cloud.preview.video-transcode-timeout-seconds:1800}")
     private int videoTranscodeTimeoutSeconds = 1800;
-    @Value("${cloud.preview.video-max-source-bytes:2147483648}")
-    private long videoMaxSourceBytes = 2147483648L;
+    @Value("${cloud.preview.video-max-source-bytes:9223372036854775807}")
+    private long videoMaxSourceBytes = Long.MAX_VALUE;
     private final Semaphore concurrencyGuard;
     private final ExecutorService executor;
     private final HttpClient httpClient;
@@ -145,11 +145,26 @@ public class PreviewAssetService {
         return resolved;
     }
 
+    public boolean hasReadyVideo(long versionId) {
+        var asset = findAsset(versionId, "VIDEO_MP4");
+        if (asset.isEmpty() || !"READY".equals(asset.get().status())) return false;
+        try { resolveReadyAssetPath(versionId, "VIDEO_MP4"); return true; }
+        catch (BizException missing) { return false; }
+    }
+
     public VideoProbe probeVideo(DriveModels.Content source) {
         return probeInput(source.path().toAbsolutePath().toString(), source.name());
     }
 
     public VideoProbe probeInput(String input, String fileName) {
+        return probeInput(input, fileName, true, videoProbeTimeoutSeconds);
+    }
+
+    public VideoProbe probeStreamingInput(String input, String fileName, boolean fragmented) {
+        return probeInput(input, fileName, !fragmented, 15);
+    }
+
+    private VideoProbe probeInput(String input, String fileName, boolean seekable, int timeout) {
         String ext = extensionOf(fileName);
         boolean remote = input.startsWith("https://") || input.startsWith("http://");
         Process process = null;
@@ -158,14 +173,14 @@ public class PreviewAssetService {
                     ffprobeBin,
                     "-v", "error",
                     "-protocol_whitelist", remote ? "http,https,tcp,tls,httpproxy" : "file",
-                    "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf,mp3,aac,wav,flac",
+                    "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,mpegvideo,flv,ogg,asf,mxf,rm,dv,h264,hevc,av1,m4v,nut,h263,mjpeg,mp3,aac,wav,flac",
                     "-rw_timeout", "30000000",
                     "-probesize", "5242880",
                     "-analyzeduration", "5000000",
                     "-print_format", "json",
                     "-show_format",
                     "-show_streams"));
-            if (remote) command.addAll(List.of("-seekable", "1"));
+            if (remote) command.addAll(List.of("-seekable", seekable ? "1" : "0", "-multiple_requests", "0"));
             command.add(input);
             try {
                 process = new ProcessBuilder(command).start();
@@ -188,7 +203,7 @@ public class PreviewAssetService {
             });
             reader.start();
             errorReader.start();
-            boolean finished = process.waitFor(Math.max(5, videoProbeTimeoutSeconds), TimeUnit.SECONDS);
+            boolean finished = process.waitFor(Math.max(5, timeout), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 return probeFailure(ext, "FFprobe 视频探测超时，请检查存储网络或使用兼容播放");
@@ -241,7 +256,7 @@ public class PreviewAssetService {
             return new VideoProbe(c, vc, ac, durationSeconds, width, height, bitrate,
                     "DIRECT_PLAY", "编码与容器原生兼容浏览器，直接流式播放");
         }
-        if (webVideo && webAudio) {
+        if ("h264".equals(vc) && ("aac".equals(ac) || ac.isEmpty())) {
             return new VideoProbe(c, vc, ac, durationSeconds, width, height, bitrate,
                     "REMUX", "视频/音频编码兼容，仅需快速转封装为 MP4");
         }
@@ -263,6 +278,7 @@ public class PreviewAssetService {
         }
         String videoCodec = "";
         String audioCodec = "";
+        boolean compatiblePixels = true;
         int width = 0;
         int height = 0;
         var streams = root.get("streams");
@@ -270,7 +286,10 @@ public class PreviewAssetService {
             for (var s : streams) {
                 String type = s.has("codec_type") ? s.get("codec_type").asString() : "";
                 if ("video".equals(type) && videoCodec.isEmpty()) {
+                    if (s.path("disposition").path("attached_pic").asInt(0) == 1) continue;
                     videoCodec = s.has("codec_name") ? s.get("codec_name").asString() : "";
+                    String pixels = s.path("pix_fmt").asString("");
+                    compatiblePixels = !"h264".equals(videoCodec) || Set.of("yuv420p", "yuvj420p").contains(pixels);
                     width = s.has("width") ? s.get("width").asInt() : 0;
                     height = s.has("height") ? s.get("height").asInt() : 0;
                 } else if ("audio".equals(type) && audioCodec.isEmpty()) {
@@ -278,6 +297,8 @@ public class PreviewAssetService {
                 }
             }
         }
+        if (!compatiblePixels) return new VideoProbe(container, videoCodec, audioCodec, duration, width, height,
+                bitrate, "TRANSCODE", "视频像素格式需要转换为浏览器兼容格式", "READY", true);
         return decideVideoStrategy(container, videoCodec, audioCodec, duration, width, height, bitrate);
     }
 
@@ -290,8 +311,8 @@ public class PreviewAssetService {
                     markFailed(assetId, "转换队列繁忙，等待资源超时，请稍后重试");
                     return;
                 }
-                db.update("UPDATE preview_asset SET status='PROCESSING', updated_at=UTC_TIMESTAMP(3) WHERE id=?",
-                        Long.parseLong(assetId));
+                if (db.update("UPDATE preview_asset SET status='PROCESSING', updated_at=UTC_TIMESTAMP(3) WHERE id=? AND status='PENDING'",
+                        Long.parseLong(assetId)) == 0) return;
                 DriveModels.Content source = loader.get();
                 if ("OFFICE_PDF".equals(assetType)) {
                     convertOfficeViaGotenberg(assetId, versionId, source);
@@ -351,15 +372,11 @@ public class PreviewAssetService {
         cmd.add(ffmpegBin);
         cmd.addAll(List.of("-y", "-nostdin", "-hide_banner", "-loglevel", "error"));
         cmd.addAll(List.of("-protocol_whitelist", "file",
-                "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,flv,ogg,asf"));
+                "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpeg,mpegvideo,flv,ogg,asf,mxf,rm,dv,h264,hevc,av1,m4v,nut,h263,mjpeg"));
         cmd.add("-i");
         cmd.add(source.path().toAbsolutePath().toString());
-        // A compatibility asset must contain a real video track (not album art) and
-        // must not preserve an original codec/profile that the browser failed to decode.
-        cmd.addAll(List.of("-map", "0:V:0", "-map", "0:a:0?",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                "-c:a", "aac", "-ac", "2", "-b:a", "128k", "-movflags", "+faststart"));
+        VideoProbe probe = probeVideo(source);
+        cmd.addAll(compatibilityArguments(probe));
         cmd.add(temp.toAbsolutePath().toString());
 
         Process process;
@@ -371,7 +388,8 @@ public class PreviewAssetService {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         Thread drainer = new Thread(() -> {
             try (InputStream in = process.getInputStream()) {
-                in.transferTo(output);
+                output.write(in.readNBytes(16 * 1024));
+                in.transferTo(OutputStream.nullOutputStream());
             } catch (IOException ignored) {}
         });
         drainer.start();
@@ -388,6 +406,20 @@ public class PreviewAssetService {
         }
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
         markReady(assetId, key, "video/mp4", Files.size(target));
+    }
+
+    static List<String> compatibilityArguments(VideoProbe probe) {
+        var args = new ArrayList<>(List.of("-map", "0:V:0", "-map", "0:a:0?"));
+        // Preserve each compatible track independently: container fixes never re-encode
+        // H.264, and an incompatible audio track does not force a video transcode.
+        boolean copyVideo = "h264".equals(probe.videoCodec()) && !probe.videoTranscodeRequired();
+        if (copyVideo) args.addAll(List.of("-c:v", "copy"));
+        else args.addAll(List.of("-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"));
+        if ("aac".equals(probe.audioCodec()) || probe.audioCodec().isEmpty()) args.addAll(List.of("-c:a", "copy"));
+        else args.addAll(List.of("-c:a", "aac", "-ac", "2", "-b:a", "128k"));
+        args.addAll(List.of("-movflags", "+faststart"));
+        return args;
     }
 
     private Optional<PreviewAsset> findAsset(long versionId, String assetType) {

@@ -101,7 +101,7 @@ cloud:
     timeout-seconds: ${CLOUD_PREVIEW_TIMEOUT_SECONDS:60}
     video-probe-timeout-seconds: ${CLOUD_VIDEO_PROBE_TIMEOUT_SECONDS:60}
     video-transcode-timeout-seconds: ${CLOUD_VIDEO_TRANSCODE_TIMEOUT_SECONDS:1800}
-    video-max-source-bytes: ${CLOUD_VIDEO_MAX_SOURCE_BYTES:2147483648}
+    video-max-source-bytes: ${CLOUD_VIDEO_MAX_SOURCE_BYTES:9223372036854775807}
     max-concurrency: ${CLOUD_PREVIEW_MAX_CONCURRENCY:2}
     max-source-bytes: ${CLOUD_PREVIEW_MAX_SOURCE_BYTES:209715200}
     archive-max-entries: ${CLOUD_PREVIEW_ARCHIVE_MAX_ENTRIES:2000}

@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const config = {
     base: '/m/',
     plugins: [vue(), tailwindcss()],
+    optimizeDeps: { include: ['hls.js'] },
     server: {
       host: true,
       port: 3002,

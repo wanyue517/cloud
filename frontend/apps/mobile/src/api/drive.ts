@@ -184,6 +184,7 @@ export interface VideoProbe {
 }
 
 export interface StreamTicket {
+  assetType?: 'ORIGINAL' | 'VIDEO_MP4' | 'VIDEO_HLS'
   ticket: string | null
   streamUrl: string
   expiresInSeconds: number
@@ -369,10 +370,13 @@ export const mobileDriveApi = {
     request.get<VideoProbe>(`/v1/spaces/${spaceId}/nodes/${nodeId}/preview/video/probe`, {
       versionId,
     }),
+  videoSession: (spaceId: string, nodeId: string, versionId?: string, retry = false) =>
+    request.post<import('@repo/drive-core/video-streaming').VideoStreamState>(
+      `/v1/spaces/${spaceId}/nodes/${nodeId}/preview/video/session`, undefined, { params: { versionId, retry } }),
   streamTicket: (
     spaceId: string,
     nodeId: string,
-    params: { versionId?: string; assetType?: 'ORIGINAL' | 'VIDEO_MP4'; forceProxy?: boolean } = {},
+    params: { versionId?: string; assetType?: 'ORIGINAL' | 'VIDEO_MP4' | 'VIDEO_HLS'; forceProxy?: boolean } = {},
   ) =>
     request.post<StreamTicket>(
       `/v1/spaces/${spaceId}/nodes/${nodeId}/preview/stream-ticket`,

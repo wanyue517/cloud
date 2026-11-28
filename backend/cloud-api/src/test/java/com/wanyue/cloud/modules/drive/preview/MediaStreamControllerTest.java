@@ -74,11 +74,17 @@ class MediaStreamControllerTest {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage)).build();
 
         // HEAD can assert a multi-gigabyte range without allocating the payload.
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head("/api/v1/media/stream")
-                        .param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=0-"))
-                .andExpect(status().isPartialContent())
-                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 0-" + (size - 1) + "/" + size))
-                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, size));
+        // Spring's MockHttpServletResponse parses Content-Length as int. Assert this
+        // >2 GiB HEAD directly, retaining real async HTTP coverage for GET below.
+        var headRequest = new org.springframework.mock.web.MockHttpServletRequest();
+        headRequest.setMethod("HEAD");
+        var headers = new HttpHeaders();
+        headers.set(HttpHeaders.RANGE, "bytes=0-");
+        var head = new MediaStreamController(jwt, drive, assets, storage).stream(ticket, headers, headRequest);
+        org.junit.jupiter.api.Assertions.assertEquals(206, head.getStatusCode().value());
+        org.junit.jupiter.api.Assertions.assertEquals(size, head.getHeaders().getContentLength());
+        org.junit.jupiter.api.Assertions.assertEquals("bytes 0-" + (size - 1) + "/" + size,
+                head.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE));
 
         long start = size - 8;
         byte[] tail = "moovtail".getBytes(StandardCharsets.UTF_8);

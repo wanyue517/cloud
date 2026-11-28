@@ -6,6 +6,159 @@
     "description" : "Cloudlane 个人云端网盘 REST API 契约（自动由 Spring MVC 控制器导出）"
   },
   "paths" : {
+    "/api/v1/media/hls" : {
+      "get" : {
+        "tags" : [
+          "HlsMedia"
+        ],
+        "operationId" : "HlsMediaController_hls_get",
+        "parameters" : [
+          {
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            },
+            "name" : "ticket",
+            "in" : "query"
+          },
+          {
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            },
+            "name" : "file",
+            "in" : "query"
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "nullable" : true
+                }
+              }
+            }
+          }
+        },
+        "security" : []
+      },
+      "head" : {
+        "tags" : [
+          "HlsMedia"
+        ],
+        "operationId" : "HlsMediaController_hls_head",
+        "parameters" : [
+          {
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            },
+            "name" : "ticket",
+            "in" : "query"
+          },
+          {
+            "required" : true,
+            "schema" : {
+              "type" : "string"
+            },
+            "name" : "file",
+            "in" : "query"
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "nullable" : true
+                }
+              }
+            }
+          }
+        },
+        "security" : []
+      }
+    },
+    "/api/v1/spaces/{space}/nodes/{id}/preview/video/session" : {
+      "post" : {
+        "tags" : [
+          "Preview"
+        ],
+        "operationId" : "PreviewController_videoSession_post",
+        "parameters" : [
+          {
+            "required" : true,
+            "schema" : {
+              "description" : "64-bit identifier transmitted as string",
+              "type" : "string"
+            },
+            "name" : "space",
+            "in" : "path"
+          },
+          {
+            "required" : true,
+            "schema" : {
+              "description" : "64-bit identifier transmitted as string",
+              "type" : "string"
+            },
+            "name" : "id",
+            "in" : "path"
+          },
+          {
+            "required" : false,
+            "schema" : {
+              "type" : "integer",
+              "format" : "int64"
+            },
+            "name" : "versionId",
+            "in" : "query"
+          },
+          {
+            "required" : false,
+            "schema" : {
+              "type" : "boolean"
+            },
+            "name" : "retry",
+            "in" : "query"
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "object",
+                  "required" : [
+                    "code",
+                    "msg"
+                  ],
+                  "properties" : {
+                    "code" : {
+                      "type" : "integer",
+                      "format" : "int32"
+                    },
+                    "msg" : {
+                      "type" : "string"
+                    },
+                    "data" : {
+                      "$ref" : "#/components/schemas/VideoStreamingService_State"
+                    },
+                    "traceId" : {
+                      "nullable" : true,
+                      "type" : "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/auth/email" : {
       "post" : {
         "tags" : [ "Auth" ],
@@ -11234,6 +11387,23 @@
   },
   "components" : {
     "schemas" : {
+    "VideoStreamingService_State" : {
+      "type" : "object",
+      "properties" : {
+        "status" : {
+          "type" : "string"
+        },
+        "availableSeconds" : {
+          "type" : "number"
+        },
+        "errorMessage" : {
+          "type" : "string"
+        }
+      },
+      "required" : [
+        "availableSeconds"
+      ]
+    },
       "AccountController_ChangePasswordInput" : {
         "type" : "object",
         "properties" : {
@@ -13053,6 +13223,9 @@
       "PreviewModels_VideoProbe" : {
         "type" : "object",
         "properties" : {
+          "videoTranscodeRequired" : {
+            "type" : "boolean"
+          },
           "status" : {
             "type" : "string",
             "enum" : ["PENDING", "PROCESSING", "READY", "FAILED"]
@@ -15297,6 +15470,10 @@
       "PreviewController_StreamTicketResponse" : {
         "type" : "object",
         "properties" : {
+          "assetType" : {
+            "type" : "string",
+            "enum" : ["ORIGINAL", "VIDEO_MP4", "VIDEO_HLS"]
+          },
           "mode" : {
             "type" : "string",
             "enum" : ["DIRECT", "PROXY"]

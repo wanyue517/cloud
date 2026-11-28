@@ -30,6 +30,9 @@ public class PreviewController {
     private final JwtTokenProvider jwtTokenProvider;
     private final StorageRouterService storage;
     private final VideoProbeService probes;
+    private final VideoStreamingService streaming;
+    @org.springframework.beans.factory.annotation.Value("${cloud.preview.progressive-enabled:false}")
+    private boolean progressiveEnabled;
 
     public PreviewController(
             DriveService drive,
@@ -37,7 +40,8 @@ public class PreviewController {
             ExcelPreviewService excelService,
             ArchivePreviewService archiveService,
             ThumbnailService thumbnailService,
-            JwtTokenProvider jwtTokenProvider, StorageRouterService storage, VideoProbeService probes) {
+            JwtTokenProvider jwtTokenProvider, StorageRouterService storage, VideoProbeService probes,
+            VideoStreamingService streaming) {
         this.drive = drive;
         this.assetService = assetService;
         this.excelService = excelService;
@@ -46,6 +50,7 @@ public class PreviewController {
         this.jwtTokenProvider = jwtTokenProvider;
         this.storage = storage;
         this.probes = probes;
+        this.streaming = streaming;
     }
 
     private static long user(Authentication auth) {
@@ -152,7 +157,19 @@ public class PreviewController {
         return R.ok(probes.getOrRequest(drive.mediaSource(user(auth), space, id, versionId)));
     }
 
-    public record StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds, String mode, long expiresAt, boolean proxyFallbackAllowed) {}
+    @PostMapping("/video/session")
+    public R<VideoStreamingService.State> videoSession(Authentication auth, @PathVariable long space,
+            @PathVariable long id, @RequestParam(required = false) Long versionId,
+            @RequestParam(defaultValue = "false") boolean retry) {
+        if (!progressiveEnabled) throw com.wanyue.cloud.common.exception.BizException.conflict("流式预览尚未启用");
+        return R.ok(streaming.getOrStart(drive.mediaSource(user(auth), space, id, versionId), retry));
+    }
+
+    public record StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds, String mode, long expiresAt, boolean proxyFallbackAllowed, String assetType) {
+        public StreamTicketResponse(String ticket, String streamUrl, long expiresInSeconds, String mode, long expiresAt, boolean proxyFallbackAllowed) {
+            this(ticket, streamUrl, expiresInSeconds, mode, expiresAt, proxyFallbackAllowed, "ORIGINAL");
+        }
+    }
 
     @PostMapping("/stream-ticket")
     public R<StreamTicketResponse> createStreamTicket(
@@ -165,7 +182,14 @@ public class PreviewController {
         long uid = user(auth);
         var source = drive.mediaSource(uid, space, id, versionId);
         long resolvedVersion = source.versionId();
-        String normalizedAsset = "VIDEO_MP4".equalsIgnoreCase(assetType) ? "VIDEO_MP4" : "ORIGINAL";
+        String normalizedAsset = "VIDEO_HLS".equalsIgnoreCase(assetType) ? "VIDEO_HLS"
+                : "VIDEO_MP4".equalsIgnoreCase(assetType) ? "VIDEO_MP4" : "ORIGINAL";
+        if ("ORIGINAL".equals(normalizedAsset) && assetService.hasReadyVideo(resolvedVersion)) normalizedAsset = "VIDEO_MP4";
+        if (progressiveEnabled && "ORIGINAL".equals(normalizedAsset) && streaming.hasPlayable(resolvedVersion)) normalizedAsset = "VIDEO_HLS";
+        if (!progressiveEnabled && "VIDEO_HLS".equals(normalizedAsset))
+            throw com.wanyue.cloud.common.exception.BizException.conflict("流式预览尚未启用");
+        if ("VIDEO_HLS".equals(normalizedAsset) && !streaming.hasPlayable(resolvedVersion))
+            throw com.wanyue.cloud.common.exception.BizException.conflict("视频分段尚未就绪");
         if ("VIDEO_MP4".equals(normalizedAsset)) {
             assetService.resolveReadyAssetPath(resolvedVersion, "VIDEO_MP4");
         }
@@ -188,8 +212,9 @@ public class PreviewController {
             }
         }
         String ticket = jwtTokenProvider.createMediaStreamTicket(uid, space, id, resolvedVersion, normalizedAsset, ttlSeconds);
-        String streamUrl = "/api/v1/media/stream?ticket=" + java.net.URLEncoder.encode(ticket, StandardCharsets.UTF_8);
-        return R.ok(new StreamTicketResponse(ticket, streamUrl, ttlSeconds, "PROXY", expiresAt, false));
+        String streamUrl = ("VIDEO_HLS".equals(normalizedAsset) ? "/api/v1/media/hls?file=index.m3u8&ticket=" : "/api/v1/media/stream?ticket=")
+                + java.net.URLEncoder.encode(ticket, StandardCharsets.UTF_8);
+        return R.ok(new StreamTicketResponse(ticket, streamUrl, ttlSeconds, "PROXY", expiresAt, false, normalizedAsset));
     }
 
     @GetMapping("/archive/entries")
@@ -237,13 +262,21 @@ public class PreviewController {
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).cacheControl(cc).build();
         }
         java.util.Optional<java.nio.file.Path> thumb;
-        if (storage.isRemote(source.profileId()) && isVideo(source)) {
+        if (isVideo(source) && assetService.hasReadyVideo(resolvedVersion)) {
+            var path = assetService.resolveReadyAssetPath(resolvedVersion, "VIDEO_MP4");
+            thumb = thumbnailService.getOrRequestVideo(resolvedVersion, source.name(), path.toString(), width);
+        } else if (isVideo(source) && streaming.thumbnailInput(resolvedVersion).isPresent()) {
+            var path = streaming.thumbnailInput(resolvedVersion).orElseThrow();
+            thumb = thumbnailService.getOrRequestVideo(resolvedVersion, source.name(), path.toString(), width);
+        } else if (storage.isRemote(source.profileId()) && isVideo(source)) {
             String input = storage.signedReadUrl(source.profileId(), source.storageKey(), 300, false);
-            thumb = thumbnailService.getOrGenerateVideo(resolvedVersion, source.name(), input, width);
+            thumb = thumbnailService.getOrRequestVideo(resolvedVersion, source.name(), input, width);
         } else {
             thumb = thumbnailService.getOrGenerate(resolvedVersion, drive.materializeMediaSource(source), width);
         }
         if (thumb.isEmpty()) {
+            if (isVideo(source)) return ResponseEntity.accepted().cacheControl(CacheControl.noStore())
+                    .header(HttpHeaders.RETRY_AFTER, "3").build();
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok()

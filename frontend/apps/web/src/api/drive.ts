@@ -2,6 +2,8 @@ import { request } from '@/utils/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
 import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
 import { executeDirectUpload } from '@repo/drive-core/direct-upload'
+import type { VideoAssetType, VideoStreamState } from '@repo/drive-core/video-streaming'
+export type { VideoStreamState } from '@repo/drive-core/video-streaming'
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -27,7 +29,7 @@ export type VideoProbe = {
   strategy: 'DIRECT_PLAY' | 'REMUX' | 'TRANSCODE' | 'UNKNOWN'; reason: string
   status?: 'PENDING' | 'PROCESSING' | 'READY' | 'FAILED'
 }
-export type StreamTicket = { ticket: string | null; streamUrl: string; expiresInSeconds: number; mode?: 'DIRECT' | 'PROXY'; expiresAt?: number; proxyFallbackAllowed?: boolean }
+export type StreamTicket = { ticket: string | null; streamUrl: string; expiresInSeconds: number; mode?: 'DIRECT' | 'PROXY'; expiresAt?: number; proxyFallbackAllowed?: boolean; assetType?: VideoAssetType }
 export type ArchiveEntry = { path: string; name: string; directory: boolean; size: number; compressedSize: number; modifiedAt: string }
 export type ArchiveListing = { format: string; totalEntries: number; truncated: boolean; entries: ArchiveEntry[] }
 export type NodePage = Omit<Required<ApiSchemas['DriveModels_Page']>, 'items'> & { items: DriveNode[] }
@@ -67,7 +69,9 @@ export const drive = {
     request.get<ExcelRowsPage>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/excel/rows`, params),
   videoProbe: (node: DriveNode, versionId?: string) =>
     request.get<VideoProbe>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/video/probe`, { versionId }),
-  streamTicket: (node: DriveNode, params: { versionId?: string; assetType?: 'ORIGINAL' | 'VIDEO_MP4'; forceProxy?: boolean } = {}) =>
+  videoSession: (node: DriveNode, versionId?: string, retry = false) =>
+    request.post<VideoStreamState>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/video/session`, undefined, { params: { versionId, retry } }),
+  streamTicket: (node: DriveNode, params: { versionId?: string; assetType?: VideoAssetType; forceProxy?: boolean } = {}) =>
     request.post<StreamTicket>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/stream-ticket`, undefined, { params }),
   archiveEntries: (node: DriveNode, versionId?: string) =>
     request.get<ArchiveListing>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/archive/entries`, { versionId }),

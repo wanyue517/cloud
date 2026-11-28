@@ -17,6 +17,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PreDestroy;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -77,6 +78,11 @@ public class ThumbnailService {
     private final Semaphore generationSlots = new Semaphore(2, true);
     private final Semaphore admissionSlots = new Semaphore(18, true);
     private final ConcurrentHashMap<Path, CompletableFuture<Optional<Path>>> inFlight = new ConcurrentHashMap<>();
+    private final java.util.concurrent.ThreadPoolExecutor videoWorkers = new java.util.concurrent.ThreadPoolExecutor(
+            2, 2, 0, TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(16),
+            r -> { var t = new Thread(r, "video-thumbnail"); t.setDaemon(true); return t; });
+    private final Set<Path> pendingVideo = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<Path, Long> videoCooldown = new ConcurrentHashMap<>();
 
     public ThumbnailService(
             @Value("${cloud.storage.preview-root:data/previews}") String previewRoot,
@@ -91,8 +97,32 @@ public class ThumbnailService {
     }
 
     public Optional<Path> getOrGenerateVideo(long versionId, String fileName, String input, int requestedWidth) {
-        return getOrGenerate(versionId, fileName, null, input, requestedWidth);
+        return getOrGenerate(versionId, "video.mp4", null, input, requestedWidth);
     }
+
+    public Optional<Path> getOrRequestVideo(long versionId, String fileName, String input, int requestedWidth) {
+        int width = requestedWidth <= 240 ? 240 : requestedWidth <= 480 ? 480 : 640;
+        Path cached = thumbDir.resolve(versionId + "_" + width + ".jpg");
+        if (Files.isRegularFile(cached)) return Optional.of(cached);
+        boolean remote = input.startsWith("http://") || input.startsWith("https://");
+        if (remote && videoCooldown.getOrDefault(cached, 0L) > System.nanoTime()) return Optional.empty();
+        if (pendingVideo.add(cached)) {
+            try {
+                videoWorkers.execute(() -> {
+                    try {
+                        if (getOrGenerateVideo(versionId, fileName, input, width).isEmpty())
+                            videoCooldown.put(cached, System.nanoTime() + TimeUnit.SECONDS.toNanos(15));
+                    } finally { pendingVideo.remove(cached); }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException busy) {
+                pendingVideo.remove(cached);
+                throw busy();
+            }
+        }
+        return Optional.empty();
+    }
+
+    @PreDestroy public void close() { videoWorkers.shutdownNow(); }
 
     private Optional<Path> getOrGenerate(long versionId, String fileName, Path localPath, String input, int requestedWidth) {
         int width = requestedWidth <= 240 ? 240 : (requestedWidth <= 480 ? 480 : 640);

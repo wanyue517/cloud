@@ -97,6 +97,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/public/shares/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/media/stream").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/api/v1/media/stream").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/media/hls").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/api/v1/media/hls").permitAll()
                         .requestMatchers(HttpMethod.POST, registerPaths).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/qr/*/status").permitAll()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/refresh").permitAll()

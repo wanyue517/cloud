@@ -154,7 +154,7 @@ export function createThumbLruCache(
           }
           const blob = await fetcher()
           if (!blob || blob.size === 0) {
-            missing.add(key)
+            if (!blob) missing.add(key) // An empty 202 response is still being prepared, not permanently missing.
             return null
           }
           void writePersistentBlob(key, blob)

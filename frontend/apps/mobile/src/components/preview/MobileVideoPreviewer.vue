@@ -7,8 +7,9 @@ import 'xgplayer/dist/index.min.css'
 import { normalizeErrorMessage } from '@repo/drive-core/errors'
 import { formatBytes } from '@repo/drive-core/format'
 import { createProgressReporter, formatResumePrompt, shouldPromptResume } from '@repo/drive-core/progress'
-import { createMediaPlaybackSession } from '@repo/drive-core/media-playback'
-import { mobileDriveApi, type DriveNode, type PreviewAsset, type VideoProbe } from '@/api/drive'
+import { createMediaPlaybackSession, hasDecodedVideoFrame, needsVideoCompatibility } from '@repo/drive-core/media-playback'
+import { attachHlsPlayback, type VideoAssetType, type VideoStreamState } from '@repo/drive-core/video-streaming'
+import { mobileDriveApi, type DriveNode, type PreviewAsset } from '@/api/drive'
 import { formatMediaTime } from '@/lib/archive-tree'
 import { networkPrefs, networkStatus, shouldWarnVideoOnNetwork } from '@/lib/network'
 
@@ -23,9 +24,10 @@ const emit = defineEmits<{
 }>()
 
 const containerRef = ref<HTMLElement | null>(null)
+const progressiveVideo = import.meta.env.VITE_PROGRESSIVE_VIDEO === 'true'
 const needsCellularConfirm = ref(false)
 const loading = ref(true)
-const transcodeAsset = ref<PreviewAsset | null>(null)
+const transcodeAsset = ref<VideoStreamState | PreviewAsset | null>(null)
 const errorText = ref('')
 const retrying = ref(false)
 const streamReady = ref(false)
@@ -48,10 +50,11 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null
 let runSeq = 0
 let playbackSession: ReturnType<typeof createMediaPlaybackSession> | undefined
 let probeTimer: ReturnType<typeof setTimeout> | undefined
-let probeResult: VideoProbe | null = null
-let playbackFailed = false
 let compatibilityStarted = false
-let activeAsset: 'ORIGINAL' | 'VIDEO_MP4' = 'ORIGINAL'
+let compatibilityPosition = 0
+let compatibilityPlaying = false
+let activeAsset: VideoAssetType = 'ORIGINAL'
+let disposeHls: (() => void) | undefined
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 let prevRate = 1
 let speedBoosting = false
@@ -78,6 +81,8 @@ function clearLongPress() {
 }
 
 function destroyPlayer() {
+  disposeHls?.()
+  disposeHls = undefined
   progressReporter.flush()
   progressReporter.reset()
   resumePromptSec.value = null
@@ -107,7 +112,7 @@ function applyPlaybackRate(rate: number) {
   }
 }
 
-async function mountPlayer(streamUrl: string, seq: number, position = 0, playing = false) {
+async function mountPlayer(streamUrl: string, seq: number, position = 0, playing = false, hls = false) {
   if (seq !== runSeq) return
   destroyPlayer()
   streamReady.value = true
@@ -119,7 +124,7 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
   if (seq !== runSeq || !containerRef.value) return
   player = new Player({
     el: containerRef.value,
-    url: streamUrl,
+    url: hls ? '' : streamUrl,
     playsinline: true,
     preload: 'auto',
     fluid: true,
@@ -138,6 +143,7 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
     lang: 'zh-cn',
   })
   const instance = player
+  if (hls) instance.handleSource = false
   player.on('canplay', () => { if (player === instance) playbackSession?.ready() })
   player.on('progress', () => { if (player === instance) playbackSession?.progress() })
   player.on('error', () => {
@@ -148,8 +154,6 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
   })
   player.once('loadedmetadata', () => {
     if (player !== instance) return
-    // Metadata is enough to stop the startup watchdog, even if playback is paused.
-    playbackSession?.ready()
     if (position > 0) instance.currentTime = position
     if (playing) void instance.play()?.catch(() => undefined)
   })
@@ -182,7 +186,7 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
     if (!player) return
     const sec = Number(player.currentTime)
     const media = containerRef.value?.querySelector('video')
-    if (activeAsset === 'ORIGINAL' && sec >= 2 && media && media.readyState >= 2 && media.videoWidth === 0) {
+    if (activeAsset === 'ORIGINAL' && sec >= 2 && media && media.readyState >= 2 && !hasDecodedVideoFrame(media)) {
       void beginTranscode(seq)
       return
     }
@@ -203,9 +207,17 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
       }
     })
     .catch(() => undefined)
+  if (hls) {
+    const media = instance.media as HTMLVideoElement
+    const dispose = await attachHlsPlayback(media, streamUrl, reason => {
+      if (player === instance) void playbackSession?.recover(reason)
+    })
+    if (seq !== runSeq || player !== instance) dispose()
+    else disposeHls = dispose
+  }
 }
 
-async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
+async function startPlayback(assetType: VideoAssetType, seq: number) {
   playbackSession?.dispose()
   activeAsset = assetType
   const versionId = props.versionId ?? props.node.currentVersionId ?? undefined
@@ -214,14 +226,23 @@ async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
       versionId, assetType, forceProxy,
     }),
     applyAddress: async (address, position, playing) => {
-      if (seq === runSeq) await mountPlayer(address.streamUrl, seq, position, playing)
+      if (seq === runSeq && address.assetType && address.assetType !== 'ORIGINAL') {
+        activeAsset = address.assetType
+        compatibilityStarted = true
+        if (probeTimer) clearTimeout(probeTimer)
+      }
+      if (seq === runSeq) await mountPlayer(address.streamUrl, seq, position, playing, address.assetType === 'VIDEO_HLS')
     },
-    getPosition: () => Number(player?.currentTime || 0),
-    isPlaying: () => Boolean(player && !player.paused),
+    getPosition: () => Number(player?.currentTime ?? compatibilityPosition),
+    isPlaying: () => player ? !player.paused : compatibilityPlaying,
+    onStartupTimeout: () => {
+      if (seq !== runSeq) return
+      if (activeAsset === 'ORIGINAL') void beginTranscode(seq)
+      else void playbackSession?.recover('timeout')
+    },
     onFailure: message => {
       if (seq !== runSeq) return
-      playbackFailed = true
-      if (assetType === 'ORIGINAL' && (probeResult?.strategy === 'TRANSCODE' || probeResult?.strategy === 'REMUX')) {
+      if (assetType === 'ORIGINAL' && activeAsset === 'ORIGINAL') {
         void beginTranscode(seq)
       } else { errorText.value = message; loading.value = false }
     },
@@ -232,6 +253,8 @@ async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', seq: number) {
 async function beginTranscode(seq: number) {
   if (seq !== runSeq || compatibilityStarted) return
   compatibilityStarted = true
+  compatibilityPosition = Number(player?.currentTime || 0)
+  compatibilityPlaying = Boolean(player && !player.paused)
   if (probeTimer) clearTimeout(probeTimer)
   playbackSession?.dispose()
   destroyPlayer()
@@ -241,13 +264,13 @@ async function beginTranscode(seq: number) {
 }
 
 async function pollProbe(seq: number) {
+  if (compatibilityStarted || seq !== runSeq) return
   try {
     const result = await mobileDriveApi.videoProbe(props.node.spaceId, props.node.id, props.versionId ?? props.node.currentVersionId ?? undefined)
     if (seq !== runSeq) return
-    probeResult = result
     if (result.status === 'PENDING' || result.status === 'PROCESSING') {
       probeTimer = setTimeout(() => { void pollProbe(seq) }, 2500)
-    } else if (playbackFailed && (result.strategy === 'TRANSCODE' || result.strategy === 'REMUX')) {
+    } else if (needsVideoCompatibility(result, containerRef.value?.querySelector('video'))) {
       await beginTranscode(seq)
     }
   } catch { /* The original video can play even when probing is unavailable. */ }
@@ -263,20 +286,23 @@ function resumeVideoFromSaved() {
 async function pollTranscode(seq: number) {
   clearPoll()
   try {
-    const asset = await mobileDriveApi.previewAsset(
-      props.node.spaceId,
-      props.node.id,
-      'VIDEO_MP4',
-      props.versionId ?? props.node.currentVersionId ?? undefined,
-    )
+    const versionId = props.versionId ?? props.node.currentVersionId ?? undefined
+    const asset = progressiveVideo
+      ? await mobileDriveApi.videoSession(props.node.spaceId, props.node.id, versionId)
+      : await mobileDriveApi.previewAsset(props.node.spaceId, props.node.id, 'VIDEO_MP4', versionId)
     if (seq !== runSeq) return
     transcodeAsset.value = asset
-    if (asset.status === 'READY') {
-      await startPlayback('VIDEO_MP4', seq)
+    if (asset.status === 'READY' || asset.status === 'PLAYABLE') {
+      const target = progressiveVideo ? 'VIDEO_HLS' : 'VIDEO_MP4'
+      if (activeAsset !== target) await startPlayback(target, seq)
+      if (asset.status === 'PLAYABLE') pollTimer = setTimeout(() => void pollTranscode(seq), 3000)
     } else if (asset.status === 'PENDING' || asset.status === 'PROCESSING') {
       loading.value = false
-      pollTimer = setTimeout(() => void pollTranscode(seq), 2500)
+      pollTimer = setTimeout(() => void pollTranscode(seq), 1000)
     } else {
+      playbackSession?.dispose()
+      destroyPlayer()
+      errorText.value = asset.errorMessage || '视频处理失败，请重试'
       loading.value = false
     }
   } catch (err) {
@@ -290,9 +316,9 @@ async function startVideoFlow(bypassCellular = false) {
   const seq = ++runSeq
   playbackSession?.dispose()
   if (probeTimer) clearTimeout(probeTimer)
-  probeResult = null
-  playbackFailed = false
   compatibilityStarted = false
+  compatibilityPosition = 0
+  compatibilityPlaying = false
   destroyPlayer()
   errorText.value = ''
   transcodeAsset.value = null
@@ -324,12 +350,10 @@ async function handleRetryTranscode() {
   destroyPlayer()
   errorText.value = ''
   try {
-    await mobileDriveApi.retryPreviewAsset(
-      props.node.spaceId,
-      props.node.id,
-      'VIDEO_MP4',
-      props.versionId ?? props.node.currentVersionId ?? undefined,
-    )
+    activeAsset = 'ORIGINAL'
+    const versionId = props.versionId ?? props.node.currentVersionId ?? undefined
+    if (progressiveVideo) await mobileDriveApi.videoSession(props.node.spaceId, props.node.id, versionId, true)
+    else await mobileDriveApi.retryPreviewAsset(props.node.spaceId, props.node.id, 'VIDEO_MP4', versionId)
     showToast('已重新提交转码任务')
     await pollTranscode(seq)
   } catch (err) {
@@ -482,9 +506,9 @@ function onGestureTouchEnd() {
     >
       <Loader2 :size="28" class="animate-spin text-primary" />
       <p class="text-sm font-medium">
-        {{ transcodeAsset.status === 'PENDING' ? '视频排队转码中…' : '正在转码为移动兼容 MP4…' }}
+        {{ transcodeAsset.status === 'PENDING' ? '视频正在排队准备…' : '正在准备视频…' }}
       </p>
-      <p class="text-xs text-white/70">转码完成后将自动播放，您也可以直接下载原视频</p>
+      <p class="text-xs text-white/70">{{ progressiveVideo ? '首段就绪后即可播放' : '处理完成后即可播放' }}</p>
       <VanButton size="small" round plain type="primary" @click="emit('download')">下载原视频</VanButton>
     </div>
 
@@ -528,9 +552,6 @@ function onGestureTouchEnd() {
       @touchcancel.passive="onGestureTouchEnd"
     >
       <div ref="containerRef" class="w-full max-h-full" />
-      <button v-if="!transcodeAsset && !locked" type="button"
-        class="absolute right-3 top-3 z-20 rounded-full bg-black/70 px-3 py-1.5 text-xs text-white"
-        @click.stop="beginTranscode(runSeq)">兼容播放</button>
 
       <!-- 亮度调节遮罩 -->
       <div
@@ -550,7 +571,8 @@ function onGestureTouchEnd() {
       <!-- 跨端播放进度接力提示 -->
       <div
         v-if="resumePromptSec !== null"
-        class="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-full bg-black/80 px-3.5 py-2 text-xs text-white shadow-lg backdrop-blur border border-white/15 whitespace-nowrap"
+        class="absolute bottom-20 right-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-2 rounded-xl bg-black/80 px-3.5 py-2 text-xs text-white shadow-lg backdrop-blur border border-white/15"
+        role="status"
         @click.stop
       >
         <span>{{ formatResumePrompt('VIDEO', resumePromptSec) }}</span>

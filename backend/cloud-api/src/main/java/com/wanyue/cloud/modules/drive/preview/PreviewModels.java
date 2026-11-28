@@ -41,7 +41,13 @@ public final class PreviewModels {
             long bitrate,
             String strategy,
             String reason,
-            String status) {
+            String status,
+            boolean videoTranscodeRequired) {
+        public VideoProbe(String container, String videoCodec, String audioCodec, double durationSeconds,
+                          int width, int height, long bitrate, String strategy, String reason, String status) {
+            this(container, videoCodec, audioCodec, durationSeconds, width, height, bitrate, strategy, reason,
+                    status, !"h264".equals(videoCodec));
+        }
         public VideoProbe(String container, String videoCodec, String audioCodec, double durationSeconds,
                           int width, int height, long bitrate, String strategy, String reason) {
             this(container, videoCodec, audioCodec, durationSeconds, width, height, bitrate, strategy, reason, "READY");

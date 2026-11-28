@@ -39,7 +39,20 @@ public class VideoProbeService {
         try {
             executor.execute(() -> {
                 entry.result = state("PROCESSING", "正在探测视频，原文件可先尝试播放");
-                try { entry.result = assets.probeInput(storage.probeInput(source), source.name()); }
+                try {
+                    // Fragmented MP4 can make both FFprobe and HTMLMediaElement scan every
+                    // remote fragment to establish duration. Route it before starting that scan.
+                    if (source.size() >= 8) {
+                        try (var input = storage.openRange(source, 0, Math.min(source.size(), 65536) - 1)) {
+                            if (VideoContainerInspector.fragmented(input.readNBytes(65536))) {
+                                entry.result = new VideoProbe("mp4", "", "", 0, 0, 0, 0,
+                                        "REMUX", "分段 MP4，正在优化为快速播放格式");
+                                return;
+                            }
+                        }
+                    }
+                    entry.result = assets.probeInput(storage.probeInput(source), source.name());
+                }
                 catch (Exception e) { entry.result = state("FAILED", "视频探测失败，可稍后重试"); }
             });
         } catch (RejectedExecutionException e) {

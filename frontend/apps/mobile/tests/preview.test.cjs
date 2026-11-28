@@ -8,6 +8,17 @@ const pdfWindowUrl = pathToFileURL(path.resolve(__dirname, '../src/lib/pdf-windo
 const archiveTreeUrl = pathToFileURL(path.resolve(__dirname, '../src/lib/archive-tree.ts')).href
 const thumbCacheUrl = pathToFileURL(path.resolve(__dirname, '../src/lib/thumb-cache.ts')).href
 
+test('a pending thumbnail is retried rather than cached as permanently missing', async () => {
+  const { createThumbLruCache } = await import(thumbCacheUrl)
+  const cache = createThumbLruCache(3)
+  let attempts = 0
+  const fetcher = async () => { attempts++; return attempts === 1 ? new Blob([]) : new Blob(['image']) }
+  assert.equal(await cache.getOrFetch('pending-video', fetcher), null)
+  assert.ok(await cache.getOrFetch('pending-video', fetcher))
+  assert.equal(attempts, 2)
+  cache.clear()
+})
+
 test('M022: escapeHtml and highlightCodeSnippet safely encode and highlight code', async () => {
   const { escapeHtml, highlightCodeSnippet } = await import(markdownLibUrl)
 

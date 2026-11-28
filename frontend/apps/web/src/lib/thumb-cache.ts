@@ -54,24 +54,25 @@ async function getOrFetchCachedBlob(
   fetcher: () => Promise<Blob>,
 ): Promise<Blob> {
   const hasCacheApi = typeof window !== 'undefined' && 'caches' in window
+  let cache: Cache | undefined
   if (hasCacheApi) {
     try {
-      const cache = await window.caches.open(cacheName)
+      cache = await window.caches.open(cacheName)
       const hit = await cache.match(cacheRequestKey(namespace, cacheKey))
       if (hit) {
         const blob = await hit.blob()
         if (blob.size > 0) return blob
       }
-      const fresh = await fetcher()
-      if (fresh && fresh.size > 0 && fresh.size <= maxBytes) {
-        void writeWithLimit(cache, namespace, maxEntries, cacheKey, fresh)
-      }
-      return fresh
     } catch {
-      // Cache API unavailable or quota exceeded; fallback to direct fetch
+      // Cache failure may fall back to one network request; a fetch failure must not send it twice.
+      cache = undefined
     }
   }
-  return fetcher()
+  const fresh = await fetcher()
+  if (cache && fresh && fresh.size > 0 && fresh.size <= maxBytes) {
+    void writeWithLimit(cache, namespace, maxEntries, cacheKey, fresh)
+  }
+  return fresh
 }
 
 async function writeWithLimit(cache: Cache, namespace: string, maxEntries: number, cacheKey: string, blob: Blob) {

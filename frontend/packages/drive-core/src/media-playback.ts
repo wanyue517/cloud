@@ -4,6 +4,7 @@ export interface PlaybackAddress {
   expiresAt?: number
   mode?: 'DIRECT' | 'PROXY'
   proxyFallbackAllowed?: boolean
+  assetType?: 'ORIGINAL' | 'VIDEO_MP4' | 'VIDEO_HLS'
 }
 
 /** Owns URL renewal, a single direct-to-proxy fallback, and the metadata/decode watchdog. */
@@ -13,6 +14,7 @@ export function createMediaPlaybackSession(deps: {
   getPosition: () => number
   isPlaying: () => boolean
   onFailure: (message: string) => void
+  onStartupTimeout?: () => void
   now?: () => number
   schedule?: (callback: () => void, ms: number) => unknown
   cancel?: (timer: unknown) => void
@@ -28,6 +30,7 @@ export function createMediaPlaybackSession(deps: {
   let current: PlaybackAddress | undefined
   let renewal: unknown
   let watchdog: unknown
+  let startupDeadline: unknown
   let expiresAt = 0
   let retries = 0
   const startupIdleMs = 60_000
@@ -36,6 +39,8 @@ export function createMediaPlaybackSession(deps: {
   function clearTimers() {
     if (renewal !== undefined) cancel(renewal)
     if (watchdog !== undefined) cancel(watchdog)
+    if (startupDeadline !== undefined) cancel(startupDeadline)
+    startupDeadline = undefined
     renewal = watchdog = undefined
   }
 
@@ -60,6 +65,13 @@ export function createMediaPlaybackSession(deps: {
       const playing = deps.isPlaying()
       // Register before applying: a cached media source can become ready immediately.
       armWatchdog()
+      // Download progress does not prove that metadata or a picture can be decoded.
+      startupDeadline = schedule(() => {
+        startupDeadline = undefined
+        if (disposed || failed) return
+        if (deps.onStartupTimeout) deps.onStartupTimeout()
+        else void recover('timeout')
+      }, 20_000)
       await deps.applyAddress(address, Number.isFinite(position) ? position : 0, playing)
       if (disposed) return
       renewal = schedule(() => { void load() }, Math.max(1000, expiresAt - now() - 60000))
@@ -112,10 +124,27 @@ export function createMediaPlaybackSession(deps: {
     },
     ready() {
       if (watchdog !== undefined) cancel(watchdog)
+      if (startupDeadline !== undefined) cancel(startupDeadline)
+      startupDeadline = undefined
       watchdog = undefined
       recoveryPending = undefined
       retries = 0
     },
     dispose() { disposed = true; clearTimers() },
   }
+}
+
+export function hasDecodedVideoFrame(media: HTMLVideoElement): boolean {
+  if (media.videoWidth === 0 || media.videoHeight === 0) return false
+  if (typeof media.getVideoPlaybackQuality !== 'function') return true
+  const quality = media.getVideoPlaybackQuality()
+  return quality.totalVideoFrames - (quality.droppedVideoFrames ?? 0) > 0
+}
+
+export function needsVideoCompatibility(probe: { strategy: string; videoCodec: string; audioCodec: string }, media?: HTMLVideoElement | null): boolean {
+  if (probe.strategy !== 'REMUX' && probe.strategy !== 'TRANSCODE') return false
+  // Keep successful native/hardware decoding, including HEVC-capable browsers.
+  // An unknown fragmented source still needs its container normalized.
+  return !(probe.videoCodec && media && hasDecodedVideoFrame(media)
+    && ['', 'aac', 'mp3', 'opus', 'vorbis', 'flac'].includes(probe.audioCodec))
 }

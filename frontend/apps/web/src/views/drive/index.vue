@@ -663,6 +663,11 @@ async function submitCreateSpace() {
 
 const thumbUrls = reactive<Record<string, string>>({})
 const thumbLoading = new Set<string>()
+const thumbAttempts = new Map<string, number>()
+const thumbWaiting = new Set<string>()
+let thumbRetryTimer: number | undefined
+let thumbnailsDisposed = false
+onBeforeUnmount(() => { thumbnailsDisposed = true; window.clearTimeout(thumbRetryTimer) })
 const THUMB_EXTS = new Set([
   // 图片
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
@@ -687,10 +692,11 @@ function canShowThumb(node: DriveNode): boolean {
 }
 
 async function ensureThumbnails() {
+  if (thumbnailsDisposed) return
   const pending = nodes.value.filter(node => {
     if (!canShowThumb(node)) return false
     const key = `${node.id}:${node.currentVersionId || ''}`
-    return !thumbUrls[key] && !thumbLoading.has(key)
+    return !thumbUrls[key] && !thumbLoading.has(key) && (thumbAttempts.get(key) ?? 0) < 10
   })
   if (!pending.length) return
 
@@ -703,10 +709,13 @@ async function ensureThumbnails() {
       const key = `${node.id}:${node.currentVersionId || ''}`
       if (thumbUrls[key] || thumbLoading.has(key)) continue
       thumbLoading.add(key)
+      thumbAttempts.set(key, (thumbAttempts.get(key) ?? 0) + 1)
       try {
         const blob = await getOrFetchThumbnail(`${key}:320`, () => drive.thumbnail(node, 320, node.currentVersionId || undefined))
-        if (blob && blob.size > 0) thumbUrls[key] = URL.createObjectURL(blob)
+        if (blob && blob.size > 0) { thumbUrls[key] = URL.createObjectURL(blob); thumbWaiting.delete(key) }
+        else thumbWaiting.add(key)
       } catch {
+        thumbWaiting.delete(key)
         // 404（如无专辑封面的音频）静默回退默认文件图标
       } finally {
         thumbLoading.delete(key)
@@ -714,6 +723,13 @@ async function ensureThumbnails() {
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, () => worker()))
+  if (!thumbnailsDisposed && pending.some(node => {
+    const key = `${node.id}:${node.currentVersionId || ''}`
+    return thumbWaiting.has(key) && !thumbUrls[key] && (thumbAttempts.get(key) ?? 0) < 10
+  })) {
+    window.clearTimeout(thumbRetryTimer)
+    thumbRetryTimer = window.setTimeout(() => { void ensureThumbnails() }, 3000)
+  }
 }
 
 watch([() => view.value, () => nodes.value], () => { void ensureThumbnails() })
