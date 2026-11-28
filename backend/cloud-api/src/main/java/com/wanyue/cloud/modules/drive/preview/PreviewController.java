@@ -173,8 +173,13 @@ public class PreviewController {
         long expiresAt = java.time.Instant.now().plusSeconds(ttlSeconds).toEpochMilli();
         boolean video = (source.mimeType() != null && source.mimeType().startsWith("video/"))
                 || source.name().toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mp4|m4v|mov|mkv|avi|webm|ogv)$");
-        String policy = storage.isRemote(source.profileId()) ? storage.playbackPolicy(source.profileId()).mode() : "PROXY";
-        if (video && "ORIGINAL".equals(normalizedAsset) && !forceProxy && !"PROXY".equals(policy)) {
+        var playbackPolicy = storage.isRemote(source.profileId())
+                ? storage.playbackPolicy(source.profileId())
+                : new StorageRouterService.PlaybackPolicy("PROXY", "");
+        String policy = playbackPolicy.mode();
+        boolean directAllowed = "DIRECT".equals(policy)
+                || ("AUTO".equals(policy) && !playbackPolicy.endpoint().isBlank());
+        if (video && "ORIGINAL".equals(normalizedAsset) && !forceProxy && directAllowed) {
             try {
                 String url = storage.signedReadUrl(source.profileId(), source.storageKey(), (int) ttlSeconds, true);
                 return R.ok(new StreamTicketResponse(null, url, ttlSeconds, "DIRECT", expiresAt, "AUTO".equals(policy)));

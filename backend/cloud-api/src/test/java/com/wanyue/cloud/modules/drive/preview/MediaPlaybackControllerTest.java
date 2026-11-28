@@ -35,7 +35,7 @@ class MediaPlaybackControllerTest {
         when(auth.getPrincipal()).thenReturn((UserIdPrincipal) () -> 1L);
         when(drive.mediaSource(1, 2, 3, null)).thenReturn(source);
         when(storage.isRemote(9)).thenReturn(true);
-        when(storage.playbackPolicy(9)).thenReturn(new StorageRouterService.PlaybackPolicy("AUTO", ""));
+        when(storage.playbackPolicy(9)).thenReturn(new StorageRouterService.PlaybackPolicy("AUTO", "https://media.example.test"));
         return auth;
     }
 
@@ -63,6 +63,15 @@ class MediaPlaybackControllerTest {
         assertEquals("PROXY", controller().createStreamTicket(auth, 2, 3, null, "ORIGINAL", false).getData().mode());
         verify(storage, never()).signedReadUrl(anyLong(), anyString(), anyInt(), anyBoolean());
         verify(drive, never()).materializeMediaSource(any());
+    }
+
+    @Test void autoPolicyWithoutBrowserEndpointUsesProxyTicket() {
+        var auth = auth();
+        when(storage.playbackPolicy(9)).thenReturn(new StorageRouterService.PlaybackPolicy("AUTO", ""));
+        var result = controller().createStreamTicket(auth, 2, 3, null, "ORIGINAL", false).getData();
+        assertEquals("PROXY", result.mode());
+        assertNotNull(result.ticket());
+        verify(storage, never()).signedReadUrl(anyLong(), anyString(), anyInt(), anyBoolean());
     }
 
     @Test void directOnlyPolicyDoesNotAdvertiseAutomaticFallback() {
