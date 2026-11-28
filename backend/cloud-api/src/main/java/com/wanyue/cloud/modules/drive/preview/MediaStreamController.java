@@ -46,15 +46,17 @@ public class MediaStreamController {
     private final DriveService drive;
     private final PreviewAssetService assetService;
     private final StorageRouterService storage;
+    private final LivePhotoService livePhotos;
 
     public MediaStreamController(
             JwtTokenProvider jwtTokenProvider,
             DriveService drive,
-            PreviewAssetService assetService, StorageRouterService storage) {
+            PreviewAssetService assetService, StorageRouterService storage, LivePhotoService livePhotos) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.drive = drive;
         this.assetService = assetService;
         this.storage = storage;
+        this.livePhotos = livePhotos;
     }
 
     @RequestMapping(value = "/stream", method = {RequestMethod.GET, RequestMethod.HEAD})
@@ -72,8 +74,9 @@ public class MediaStreamController {
         DriveModels.MediaSource source = null;
         String fileName;
         String mimeType;
-        if ("VIDEO_MP4".equalsIgnoreCase(claims.assetType())) {
-            path = assetService.resolveReadyAssetPath(claims.versionId(), "VIDEO_MP4");
+        if ("VIDEO_MP4".equalsIgnoreCase(claims.assetType()) || "LIVE_PHOTO_MP4".equalsIgnoreCase(claims.assetType())) {
+            if ("LIVE_PHOTO_MP4".equalsIgnoreCase(claims.assetType())) livePhotos.validateTicketSources(claims.spaceId(), claims.nodeId(), claims.versionId());
+            path = assetService.resolveReadyAssetPath(claims.versionId(), claims.assetType().toUpperCase(Locale.ROOT));
             fileName = path.getFileName().toString();
             mimeType = "video/mp4";
         } else {

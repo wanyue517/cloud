@@ -4,8 +4,10 @@ import Viewer from 'viewerjs'
 import 'viewerjs/dist/viewer.css'
 import { FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, ZoomIn, ZoomOut, Maximize } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
+import LivePhotoOverlay from '@repo/ui/LivePhotoOverlay.vue'
 import { drive, type DriveNode, type Version } from '@/api/drive'
 import { getOrFetchPreviewBlob, matchPreviewBlob } from '@/lib/thumb-cache'
+import { saveBlob } from '@/utils/request'
 
 const props = defineProps<{
   node: DriveNode
@@ -28,6 +30,12 @@ let viewer: Viewer | null = null
 let scaleX = 1
 let scaleY = 1
 let loadSeq = 0
+
+async function downloadMotionPhoto() {
+  const node = props.node
+  const blob = await drive.motionPhoto(node, props.version?.id ?? node.currentVersionId ?? undefined)
+  saveBlob(blob, `${node.name.replace(/\.[^.]+$/, '')}MP.jpg`)
+}
 
 function destroyViewer() {
   if (viewer) {
@@ -91,7 +99,9 @@ async function loadImage() {
       blob = cached
     } else {
       loading.value = true
-      blob = await getOrFetchPreviewBlob(cacheKey, () => drive.content(props.node, props.version?.id))
+      blob = await getOrFetchPreviewBlob(cacheKey, () => /\.hei[cf]$/i.test(props.node.name)
+        ? drive.livePhotoPoster(props.node, props.version?.id).catch(() => drive.content(props.node, props.version?.id))
+        : drive.content(props.node, props.version?.id))
       if (seq !== loadSeq) return
     }
     objectUrl.value = URL.createObjectURL(blob)
@@ -127,6 +137,12 @@ onBeforeUnmount(() => {
     <p v-if="loading" role="status" class="text-sm text-muted-foreground">正在加载图片…</p>
     <p v-else-if="error" role="alert" class="text-sm text-destructive">{{ error }}</p>
     <img v-show="!loading && !error && objectUrl" ref="imgRef" :src="objectUrl" :alt="node.name" class="hidden" />
+    <LivePhotoOverlay v-if="!loading && !error && objectUrl"
+      :identity="`${node.spaceId}:${node.id}:${version?.id ?? node.currentVersionId}`"
+      :inspect="retry => drive.livePhoto(node, version?.id, retry)"
+      :address="() => drive.livePhotoAddress(node, version?.id)"
+      :export-motion="downloadMotionPhoto"
+      :upload-video="version ? undefined : file => drive.attachLiveVideo(node, file)" />
     <div v-if="!loading && !error && objectUrl" class="pointer-events-none absolute inset-x-3 bottom-5 z-10 flex justify-center">
       <div class="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-background/90 px-3 py-2 shadow-lg backdrop-blur" role="toolbar" aria-label="图片操作">
         <Button variant="ghost" size="icon-sm" class="rounded-full" title="缩小" aria-label="缩小" @click="zoomOut"><ZoomOut :size="15" /></Button>

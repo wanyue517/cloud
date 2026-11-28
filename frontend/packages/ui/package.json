@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./LivePhotoOverlay.vue": "./src/components/LivePhotoOverlay.vue",
     "./styles.css": "./src/styles/index.css",
     "./tokens.css": "./src/styles/theme.css",
     "./theme": "./src/theme.ts",

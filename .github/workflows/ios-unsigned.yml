@@ -1,0 +1,51 @@
+name: Build iOS IPA for local signing
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/live-photo]
+    paths:
+      - 'frontend/apps/mobile/**'
+      - 'frontend/packages/**'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/package.json'
+      - 'scripts/build-ios-unsigned.py'
+      - '.github/workflows/ios-unsigned.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install workspace dependencies
+        working-directory: frontend
+        run: |
+          npm install --global pnpm@11.25.0
+          pnpm install --frozen-lockfile
+      - name: Build web assets for the native app
+        working-directory: frontend
+        env:
+          CAPACITOR_BUILD: '1'
+        run: pnpm --filter @cloud/mobile build
+      - name: Sync iOS plugins and web assets
+        working-directory: frontend/apps/mobile
+        run: pnpm exec cap sync ios
+      - name: Compile and package unsigned device IPA
+        run: python3 scripts/build-ios-unsigned.py
+      - name: Upload IPA and build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cloudlane-iOS-unsigned
+          path: |
+            release-dist/ios/Cloudlane-unsigned.ipa
+            release-dist/ios/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 7

@@ -23,11 +23,12 @@ class MediaPlaybackControllerTest {
     final StorageRouterService storage = mock(StorageRouterService.class);
     final PreviewAssetService assets = mock(PreviewAssetService.class);
     final VideoProbeService probes = mock(VideoProbeService.class);
+    final LivePhotoService livePhotos = mock(LivePhotoService.class);
     final DriveModels.MediaSource source = new DriveModels.MediaSource(4, 9, "objects/video", 2_000_000_000L, "large.mp4", "video/mp4", "hash");
     final JwtTokenProvider jwt = new JwtTokenProvider(Base64.getEncoder().encodeToString("test-only-secret-at-least-32-bytes".getBytes()), "cloudlane", 900, new tools.jackson.databind.json.JsonMapper());
 
     PreviewController controller() {
-        return new PreviewController(drive, assets, mock(ExcelPreviewService.class), mock(ArchivePreviewService.class), mock(ThumbnailService.class), jwt, storage, probes, mock(VideoStreamingService.class));
+        return new PreviewController(drive, assets, mock(ExcelPreviewService.class), mock(ArchivePreviewService.class), mock(ThumbnailService.class), jwt, storage, probes, mock(VideoStreamingService.class), livePhotos);
     }
 
     Authentication auth() {
@@ -75,6 +76,15 @@ class MediaPlaybackControllerTest {
         verify(drive, never()).materializeMediaSource(any());
     }
 
+    @Test void livePhotoTicketAuthorizesBothOriginalsAndUsesTheDedicatedAsset() {
+        var result = controller().createStreamTicket(auth(), 2, 3, null, "LIVE_PHOTO_MP4", false).getData();
+        assertEquals("LIVE_PHOTO_MP4", result.assetType());
+        assertEquals("LIVE_PHOTO_MP4", jwt.verifyMediaStreamTicket(result.ticket()).assetType());
+        verify(livePhotos).authorizePair(1, 2, 3, 4);
+        verify(assets).resolveReadyAssetPath(4, "LIVE_PHOTO_MP4");
+        verify(storage, never()).signedReadUrl(anyLong(), anyString(), anyInt(), anyBoolean());
+    }
+
     @Test void autoPolicyWithoutBrowserEndpointUsesProxyTicket() {
         var auth = auth();
         when(storage.playbackPolicy(9)).thenReturn(new StorageRouterService.PlaybackPolicy("AUTO", ""));
@@ -95,7 +105,7 @@ class MediaPlaybackControllerTest {
         auth();
         when(drive.mediaSourceByVerifiedTicket(2, 3, 4)).thenReturn(source);
         when(storage.openRange(source, 10, 19)).thenReturn(new ByteArrayInputStream("abcdefghij".getBytes()));
-        var mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage)).build();
+        var mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage, mock(LivePhotoService.class))).build();
         String ticket = jwt.createMediaStreamTicket(1, 2, 3, 4, "ORIGINAL", 1800);
         var pending = mvc.perform(get("/api/v1/media/stream").param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=10-19"))
                 .andExpect(request().asyncStarted()).andReturn();

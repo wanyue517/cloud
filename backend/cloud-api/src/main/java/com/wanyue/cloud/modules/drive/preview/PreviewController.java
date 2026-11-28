@@ -31,6 +31,7 @@ public class PreviewController {
     private final StorageRouterService storage;
     private final VideoProbeService probes;
     private final VideoStreamingService streaming;
+    private final LivePhotoService livePhotos;
     @org.springframework.beans.factory.annotation.Value("${cloud.preview.progressive-enabled:false}")
     private boolean progressiveEnabled;
 
@@ -41,7 +42,7 @@ public class PreviewController {
             ArchivePreviewService archiveService,
             ThumbnailService thumbnailService,
             JwtTokenProvider jwtTokenProvider, StorageRouterService storage, VideoProbeService probes,
-            VideoStreamingService streaming) {
+            VideoStreamingService streaming, LivePhotoService livePhotos) {
         this.drive = drive;
         this.assetService = assetService;
         this.excelService = excelService;
@@ -51,6 +52,7 @@ public class PreviewController {
         this.storage = storage;
         this.probes = probes;
         this.streaming = streaming;
+        this.livePhotos = livePhotos;
     }
 
     private static long user(Authentication auth) {
@@ -71,6 +73,7 @@ public class PreviewController {
             @PathVariable String assetType,
             @RequestParam(required = false) Long versionId) {
         long uid = user(auth);
+        if ("LIVE_PHOTO_MP4".equalsIgnoreCase(assetType)) throw com.wanyue.cloud.common.exception.BizException.conflict("请使用实况图接口");
         if ("VIDEO_MP4".equalsIgnoreCase(assetType)) {
             var source = drive.mediaSource(uid, space, id, versionId);
             return R.ok(assetService.getOrTriggerAsset(id, source.versionId(), assetType, source.size(), () -> drive.materializeMediaSource(source)));
@@ -88,6 +91,7 @@ public class PreviewController {
             @PathVariable String assetType,
             @RequestParam(required = false) Long versionId) {
         long uid = user(auth);
+        if ("LIVE_PHOTO_MP4".equalsIgnoreCase(assetType)) throw com.wanyue.cloud.common.exception.BizException.conflict("请使用实况图接口");
         if ("VIDEO_MP4".equalsIgnoreCase(assetType)) {
             var source = drive.mediaSource(uid, space, id, versionId);
             return R.ok(assetService.retryAsset(id, source.versionId(), assetType, source.size(), () -> drive.materializeMediaSource(source)));
@@ -108,6 +112,7 @@ public class PreviewController {
         long uid = user(auth);
         drive.mediaSource(uid, space, id, versionId);
         long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        if ("LIVE_PHOTO_MP4".equalsIgnoreCase(assetType)) livePhotos.authorizePair(uid, space, id, resolvedVersion);
         Path assetPath = assetService.resolveReadyAssetPath(resolvedVersion, assetType);
         String etag = "\"asset-" + resolvedVersion + "-" + assetType.toUpperCase() + "\"";
         CacheControl cc = CacheControl.maxAge(Duration.ofHours(1)).cachePrivate();
@@ -183,7 +188,12 @@ public class PreviewController {
         var source = drive.mediaSource(uid, space, id, versionId);
         long resolvedVersion = source.versionId();
         String normalizedAsset = "VIDEO_HLS".equalsIgnoreCase(assetType) ? "VIDEO_HLS"
+                : "LIVE_PHOTO_MP4".equalsIgnoreCase(assetType) ? "LIVE_PHOTO_MP4"
                 : "VIDEO_MP4".equalsIgnoreCase(assetType) ? "VIDEO_MP4" : "ORIGINAL";
+        if ("LIVE_PHOTO_MP4".equals(normalizedAsset)) {
+            livePhotos.authorizePair(uid, space, id, resolvedVersion);
+            assetService.resolveReadyAssetPath(resolvedVersion, normalizedAsset);
+        }
         if ("ORIGINAL".equals(normalizedAsset) && assetService.hasReadyVideo(resolvedVersion)) normalizedAsset = "VIDEO_MP4";
         if (progressiveEnabled && "ORIGINAL".equals(normalizedAsset) && streaming.hasPlayable(resolvedVersion)) normalizedAsset = "VIDEO_HLS";
         if (!progressiveEnabled && "VIDEO_HLS".equals(normalizedAsset))
@@ -252,10 +262,10 @@ public class PreviewController {
             @PathVariable long id,
             @RequestParam(required = false) Long versionId,
             @RequestParam(defaultValue = "320") int width,
-            WebRequest webRequest) {
+            WebRequest webRequest) throws IOException {
         long uid = user(auth);
         var source = drive.mediaSource(uid, space, id, versionId);
-        long resolvedVersion = resolveVersionId(uid, space, id, versionId);
+        long resolvedVersion = source.versionId();
         String etag = "\"thumb-" + resolvedVersion + "-" + width + "\"";
         CacheControl cc = CacheControl.maxAge(Duration.ofHours(24)).cachePrivate();
         if (webRequest.checkNotModified(etag)) {
@@ -272,7 +282,9 @@ public class PreviewController {
             String input = storage.signedReadUrl(source.profileId(), source.storageKey(), 300, false);
             thumb = thumbnailService.getOrRequestVideo(resolvedVersion, source.name(), input, width);
         } else {
-            thumb = thumbnailService.getOrGenerate(resolvedVersion, drive.materializeMediaSource(source), width);
+            var poster = source.name().toLowerCase(java.util.Locale.ROOT).matches(".*\\.hei[cf]$")
+                    ? livePhotos.posterSource(uid, space, id, resolvedVersion) : java.util.Optional.<DriveModels.Content>empty();
+            thumb = thumbnailService.getOrGenerate(resolvedVersion, poster.orElseGet(() -> drive.materializeMediaSource(source)), width);
         }
         if (thumb.isEmpty()) {
             if (isVideo(source)) return ResponseEntity.accepted().cacheControl(CacheControl.noStore())

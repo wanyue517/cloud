@@ -35,7 +35,26 @@ export type ArchiveListing = { format: string; totalEntries: number; truncated: 
 export type NodePage = Omit<Required<ApiSchemas['DriveModels_Page']>, 'items'> & { items: DriveNode[] }
 export type Version = Required<ApiSchemas['DriveModels_Version']>
 export type Upload = Omit<Required<ApiSchemas['DriveModels_Upload']>, 'fileId'> & { fileId: ResourceId | null; uploadMode?: string }
+export type LivePhotoState = { livePhoto: boolean; status: string; errorMessage?: string | null }
 export const drive = {
+  motionPhoto: (node: DriveNode, versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo/motion-photo`, { versionId }, { timeout: 300_000, silent: true }),
+  livePhotoPoster: (node: DriveNode, versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo/parts/poster`, { versionId }, { silent: true }),
+  livePhoto: (node: DriveNode, versionId?: string, retry = false) =>
+    request.get<LivePhotoState>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo`, { versionId, retry }, { silent: true }),
+  livePhotoAddress: async (node: DriveNode, versionId?: string) => {
+    const result = await request.post<{ streamUrl: string }>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/stream-ticket`, undefined,
+      { params: { versionId, assetType: 'LIVE_PHOTO_MP4' }, silent: true })
+    return result.streamUrl
+  },
+  attachLiveVideo: async (node: DriveNode, file: File, versionId?: string) => {
+    const photoVersion = versionId ?? node.currentVersionId
+    if (!photoVersion) throw new Error('照片版本不存在，请刷新后重试')
+    const videoNodeId = await uploadFile(node.spaceId, node.parentId, file, () => {})
+    return request.post<LivePhotoState>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo`,
+      { versionId: photoVersion, videoNodeId }, { silent: true })
+  },
   spaces: () => request.get<Space[]>('/v1/spaces'),
   createSpace: (name: string, extra: { kind?: 'PERSONAL' | 'SHARED' | 'PRIVATE'; description?: string; color?: string; icon?: string; sortOrder?: number } = {}) =>
     request.post<string>('/v1/spaces', { name, ...extra }),

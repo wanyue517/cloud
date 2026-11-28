@@ -27,6 +27,29 @@ class MediaStreamControllerTest {
     Path tempDir;
 
     @Test
+    void livePhotoRangeUsesDedicatedAssetAndValidatesOriginalLifecycle() throws Exception {
+        Path video = tempDir.resolve("live.mp4");
+        Files.writeString(video, "0123456789");
+        var jwt = new JwtTokenProvider(Base64.getEncoder().encodeToString("test-only-secret-at-least-32-bytes".getBytes(StandardCharsets.UTF_8)), "cloudlane", 900, new JsonMapper());
+        var drive = mock(DriveService.class);
+        var assets = mock(PreviewAssetService.class);
+        var live = mock(LivePhotoService.class);
+        var storage = mock(com.wanyue.cloud.modules.drive.storage.StorageRouterService.class);
+        when(assets.resolveReadyAssetPath(4, "LIVE_PHOTO_MP4")).thenReturn(video);
+        var mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage, live)).build();
+        String ticket = jwt.createMediaStreamTicket(1, 2, 3, 4, "LIVE_PHOTO_MP4", 1800);
+        var pending = mvc.perform(get("/api/v1/media/stream").param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=2-5"))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(pending))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"))
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 2-5/10"))
+                .andExpect(content().string("2345"));
+        verify(live).validateTicketSources(2, 3, 4);
+        org.mockito.Mockito.verifyNoInteractions(storage);
+    }
+
+    @Test
     void rangeRequestReturns206WithVideoMp4ContentTypeAndExactBytes() throws Exception {
         byte[] data = "0123456789abcdefghijklmnopqrstuvwxyz".getBytes(StandardCharsets.UTF_8);
         Path video = tempDir.resolve("demo.mp4");
@@ -42,7 +65,7 @@ class MediaStreamControllerTest {
         String ticket = jwt.createMediaStreamTicket(1L, 2L, 3L, 4L, "ORIGINAL", 1800);
         var storage = mock(com.wanyue.cloud.modules.drive.storage.StorageRouterService.class);
         when(storage.openRange(source, 10, 19)).thenReturn(new java.io.ByteArrayInputStream("abcdefghij".getBytes(StandardCharsets.UTF_8)));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assetService, storage)).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assetService, storage, mock(LivePhotoService.class))).build();
 
         var mvcResult = mvc.perform(get("/api/v1/media/stream")
                         .param("ticket", ticket)
@@ -71,7 +94,7 @@ class MediaStreamControllerTest {
         var source = new DriveModels.MediaSource(4L, 9L, "large", size, "large.mp4", "video/mp4", "abc");
         when(drive.mediaSourceByVerifiedTicket(2L, 3L, 4L)).thenReturn(source);
         String ticket = jwt.createMediaStreamTicket(1L, 2L, 3L, 4L, "ORIGINAL", 1800);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage)).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage, mock(LivePhotoService.class))).build();
 
         // HEAD can assert a multi-gigabyte range without allocating the payload.
         // Spring's MockHttpServletResponse parses Content-Length as int. Assert this
@@ -80,7 +103,7 @@ class MediaStreamControllerTest {
         headRequest.setMethod("HEAD");
         var headers = new HttpHeaders();
         headers.set(HttpHeaders.RANGE, "bytes=0-");
-        var head = new MediaStreamController(jwt, drive, assets, storage).stream(ticket, headers, headRequest);
+        var head = new MediaStreamController(jwt, drive, assets, storage, mock(LivePhotoService.class)).stream(ticket, headers, headRequest);
         org.junit.jupiter.api.Assertions.assertEquals(206, head.getStatusCode().value());
         org.junit.jupiter.api.Assertions.assertEquals(size, head.getHeaders().getContentLength());
         org.junit.jupiter.api.Assertions.assertEquals("bytes 0-" + (size - 1) + "/" + size,

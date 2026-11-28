@@ -52,6 +52,8 @@ import { canEditSpace, resolveActiveSpace } from '@/lib/spaces'
 import { setTabBarHidden, showUndoToast } from '@/stores/mobile-ui'
 import { fetchSpaces, spacesState, visibleSpaces } from '@/stores/spaces'
 import { enqueueFilesWithGuard, onUploadCompleted } from '@/stores/uploads'
+import { uploadNativeLivePhoto } from '@/native/live-photo'
+import { networkPrefs, networkStatus, shouldConfirmUploadOnNetwork } from '@/lib/network'
 import {
   ActionSheet,
   EmptyState,
@@ -684,6 +686,30 @@ async function handleRenameOrCreateSubmit(name: string) {
 }
 
 // FAB upload handlers
+const liveUploading = ref(false)
+async function triggerLivePhotoUpload() {
+  const space = currentSpace.value
+  const parentId = routeFolderId.value
+  if (!space || liveUploading.value) return
+  if (!networkStatus.online) { showToast('当前无网络连接，请联网后上传'); return }
+  liveUploading.value = true
+  try {
+    const complete = await uploadNativeLivePhoto(space.id, parentId, message => { uploadingHint.value = message }, async bytes => {
+      if (!shouldConfirmUploadOnNetwork(networkPrefs, networkStatus)) return true
+      try {
+        await showConfirmDialog({ title: '移动网络上传提醒', message: `当前为移动网络，仍要上传完整实况照片（${formatBytes(bytes)}）吗？` })
+        return true
+      } catch { return false }
+    })
+    if (complete) {
+      showToast('实况照片已上传，配套原件请一并保留')
+      await loadDirectory(true)
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'CANCELLED') showToast(normalizeErrorMessage(error, '实况照片上传失败'))
+  } finally { liveUploading.value = false; uploadingHint.value = '' }
+}
+
 let mediaPickWaitTimer: ReturnType<typeof setTimeout> | null = null
 let mediaPickFocusCleanup: (() => void) | null = null
 
@@ -1596,6 +1622,7 @@ async function confirmTrashNode(node: DriveNode) {
       v-model:open="createSheetOpen"
       @create-folder="openCreateFolderDialog"
       @upload-media="triggerMediaUpload"
+      @upload-live="triggerLivePhotoUpload"
       @capture-photo="triggerPhotoCapture"
       @capture-video="triggerVideoCapture"
       @record-voice="openVoiceRecorder"

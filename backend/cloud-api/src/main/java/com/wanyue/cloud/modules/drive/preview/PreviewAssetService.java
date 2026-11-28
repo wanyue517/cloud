@@ -316,8 +316,20 @@ public class PreviewAssetService {
                 DriveModels.Content source = loader.get();
                 if ("OFFICE_PDF".equals(assetType)) {
                     convertOfficeViaGotenberg(assetId, versionId, source);
-                } else if ("VIDEO_MP4".equals(assetType)) {
-                    transcodeVideoViaFfmpeg(assetId, versionId, source);
+                } else if ("VIDEO_MP4".equals(assetType) || "LIVE_PHOTO_MP4".equals(assetType)) {
+                    Path extracted = null;
+                    try {
+                        if ("LIVE_PHOTO_MP4".equals(assetType) && "IMAGE".equals(MediaTimelineService.detectMediaType(source.name(), source.mimeType()))) {
+                            var segment = MotionPhotoReader.find(source.path())
+                                    .orElseThrow(() -> BizException.notFound("未检测到支持的动态照片视频"));
+                            extracted = Files.createTempFile(previewRoot, "motion-", ".mp4");
+                            MotionPhotoReader.extract(source.path(), segment, extracted);
+                            source = new DriveModels.Content(extracted, Files.size(extracted), "motion.mp4", "video/mp4");
+                        }
+                        transcodeVideoViaFfmpeg(assetId, versionId, source, assetType);
+                    } finally {
+                        if (extracted != null) Files.deleteIfExists(extracted);
+                    }
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
@@ -362,8 +374,8 @@ public class PreviewAssetService {
         markReady(assetId, key, "application/pdf", resp.body().length);
     }
 
-    private void transcodeVideoViaFfmpeg(String assetId, long versionId, DriveModels.Content source) throws Exception {
-        String key = "video/" + versionId + ".mp4";
+    private void transcodeVideoViaFfmpeg(String assetId, long versionId, DriveModels.Content source, String assetType) throws Exception {
+        String key = ("LIVE_PHOTO_MP4".equals(assetType) ? "live/" : "video/") + versionId + ".mp4";
         Path target = previewRoot.resolve(key).normalize();
         Files.createDirectories(target.getParent());
         Path temp = target.resolveSibling(versionId + ".tmp.mp4");
@@ -422,7 +434,7 @@ public class PreviewAssetService {
         return args;
     }
 
-    private Optional<PreviewAsset> findAsset(long versionId, String assetType) {
+    public Optional<PreviewAsset> findAsset(long versionId, String assetType) {
         var rows = db.query(
                 "SELECT id, file_id, version_id, asset_type, status, mime_type, size_bytes, error_message, attempt_count, updated_at "
                         + "FROM preview_asset WHERE version_id=? AND asset_type=?",
@@ -457,7 +469,7 @@ public class PreviewAssetService {
     private static String normalizeAssetType(String raw) {
         if (raw == null) throw new BizException(HttpStatus.BAD_REQUEST, 400, "不支持的派生资源类型");
         String upper = raw.trim().toUpperCase(Locale.ROOT);
-        if (!"OFFICE_PDF".equals(upper) && !"VIDEO_MP4".equals(upper)) {
+        if (!"OFFICE_PDF".equals(upper) && !"VIDEO_MP4".equals(upper) && !"LIVE_PHOTO_MP4".equals(upper)) {
             throw new BizException(HttpStatus.BAD_REQUEST, 400, "不支持的派生资源类型: " + raw);
         }
         return upper;

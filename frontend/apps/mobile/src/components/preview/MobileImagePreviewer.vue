@@ -4,7 +4,9 @@ import { showToast } from 'vant'
 import { ChevronLeft, ChevronRight, Download, RotateCcw, RotateCw, ZoomIn } from '@lucide/vue'
 import { normalizeErrorMessage } from '@repo/drive-core/errors'
 import { mobileDriveApi, type DriveNode } from '@/api/drive'
+import LivePhotoOverlay from '@repo/ui/LivePhotoOverlay.vue'
 import { triggerBlobDownload } from '@/lib/file-actions'
+import { supportsNativeLivePhoto, saveNativeLivePhoto } from '@/native/live-photo'
 
 const props = defineProps<{
   node: DriveNode
@@ -25,6 +27,12 @@ const loading = ref(true)
 const errorText = ref('')
 const imageUrl = ref<string | null>(null)
 const currentBlob = ref<Blob | null>(null)
+
+async function downloadMotionPhoto() {
+  const node = props.node
+  const blob = await mobileDriveApi.motionPhoto(node, props.versionId ?? node.currentVersionId ?? undefined)
+  triggerBlobDownload(blob, `${node.name.replace(/\.[^.]+$/, '')}MP.jpg`)
+}
 
 // Transform state
 const scale = ref(1)
@@ -97,11 +105,14 @@ async function loadImage() {
   resetTransform()
   revokeCurrentUrl()
   try {
-    const blob = await mobileDriveApi.downloadContent(
+    const blob = await (/\.hei[cf]$/i.test(props.node.name)
+      ? mobileDriveApi.livePhotoPart(props.node, 'poster', props.versionId ?? props.node.currentVersionId ?? undefined)
+          .catch(() => mobileDriveApi.downloadContent(props.node.spaceId, props.node.id, props.versionId ?? props.node.currentVersionId ?? undefined))
+      : mobileDriveApi.downloadContent(
       props.node.spaceId,
       props.node.id,
       props.versionId ?? props.node.currentVersionId ?? undefined,
-    )
+    ))
     if (seq !== loadSeq) return
     currentBlob.value = blob
     imageUrl.value = URL.createObjectURL(blob)
@@ -305,7 +316,14 @@ function toggleZoom() {
   }
 }
 
-function downloadOriginal() {
+async function downloadOriginal() {
+  if (/\.hei[cf]$/i.test(props.node.name)) {
+    try {
+      const blob = await mobileDriveApi.downloadContent(props.node.spaceId, props.node.id, props.versionId ?? props.node.currentVersionId ?? undefined)
+      triggerBlobDownload(blob, props.node.name)
+    } catch (error) { showToast(normalizeErrorMessage(error, '下载原件失败')) }
+    return
+  }
   if (!currentBlob.value) {
     showToast('图片尚未加载完成')
     return
@@ -348,6 +366,15 @@ function downloadOriginal() {
       :style="imageStyle"
       draggable="false"
     />
+
+    <LivePhotoOverlay v-if="!loading && !errorText && imageUrl"
+      :identity="`${props.node.spaceId}:${props.node.id}:${props.versionId ?? props.node.currentVersionId}`"
+      :inspect="retry => mobileDriveApi.livePhoto(props.node, props.versionId, retry)"
+      :address="() => mobileDriveApi.livePhotoAddress(props.node, props.versionId)"
+      controls-offset="calc(env(safe-area-inset-top) + 3.5rem)"
+      :save-native="supportsNativeLivePhoto() ? () => saveNativeLivePhoto(props.node, props.versionId) : undefined"
+      :export-motion="downloadMotionPhoto"
+      :upload-video="props.versionId ? undefined : file => mobileDriveApi.attachLiveVideo(props.node, file)" />
 
     <!-- 左右切换按钮（大屏/点击兜底） -->
     <button

@@ -2,6 +2,9 @@ import { request } from '@repo/session/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
 import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
 import { executeDirectUpload, type DirectSession } from '@repo/drive-core/direct-upload'
+import { getSavedServerOrigin } from '@/native/server-config'
+
+export type LivePhotoState = { livePhoto: boolean; status: string; errorMessage?: string | null }
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -210,6 +213,26 @@ export interface ArchiveListing {
 }
 
 export const mobileDriveApi = {
+  motionPhoto: (node: DriveNode, versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo/motion-photo`, { versionId }, { timeout: 300_000, silent: true }),
+  livePhotoPart: (node: DriveNode, kind: 'photo' | 'video' | 'poster', versionId?: string) =>
+    request.download(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo/parts/${kind}`, { versionId }, { silent: true, timeout: 300_000 }),
+  pairLivePhoto: (spaceId: string, nodeId: string, versionId: string, videoNodeId: string, posterNodeId?: string) =>
+    request.post<LivePhotoState>(`/v1/spaces/${spaceId}/nodes/${nodeId}/live-photo`, { versionId, videoNodeId, posterNodeId }),
+  livePhoto: (node: DriveNode, versionId?: string, retry = false) =>
+    request.get<LivePhotoState>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo`, { versionId, retry }, { silent: true }),
+  livePhotoAddress: async (node: DriveNode, versionId?: string) => {
+    const result = await request.post<{ streamUrl: string }>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/preview/stream-ticket`, undefined,
+      { params: { versionId, assetType: 'LIVE_PHOTO_MP4' }, silent: true })
+    return `${getSavedServerOrigin()}${result.streamUrl}`
+  },
+  attachLiveVideo: async (node: DriveNode, file: File, versionId?: string) => {
+    const photoVersion = versionId ?? node.currentVersionId
+    if (!photoVersion) throw new Error('照片版本不存在，请刷新后重试')
+    const videoNodeId = await uploadFileDirect(node.spaceId, node.parentId, file)
+    return request.post<LivePhotoState>(`/v1/spaces/${node.spaceId}/nodes/${node.id}/live-photo`,
+      { versionId: photoVersion, videoNodeId }, { silent: true })
+  },
   // Spaces
   spaces: () => request.get<Space[]>('/v1/spaces'),
   createSpace: (payload: {
