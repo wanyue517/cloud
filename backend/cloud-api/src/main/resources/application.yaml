@@ -89,6 +89,7 @@ cloud:
     upload-temp: ${CLOUD_UPLOAD_TEMP:data/uploads}
     preview-root: ${CLOUD_PREVIEW_ROOT:data/previews}
     worker-tmp: ${CLOUD_WORKER_TMP:data/worker-tmp}
+    s3-upload-timeout: ${CLOUD_S3_UPLOAD_TIMEOUT:PT30M}
   preview:
     gotenberg-url: ${CLOUD_PREVIEW_GOTENBERG_URL:http://127.0.0.1:3002}
     ffmpeg-bin: ${CLOUD_PREVIEW_FFMPEG_BIN:ffmpeg}

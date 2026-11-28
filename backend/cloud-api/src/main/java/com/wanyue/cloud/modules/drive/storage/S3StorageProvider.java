@@ -3,6 +3,8 @@ package com.wanyue.cloud.modules.drive.storage;
 import com.wanyue.cloud.common.exception.BizException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -14,6 +16,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.ZoneOffset;
@@ -28,11 +32,29 @@ public class S3StorageProvider implements StorageProvider {
     private static final DateTimeFormatter AMZ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
     private static final DateTimeFormatter DATE_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd");
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
+    private final HttpClient httpClient;
+    private final Path uploadTemp;
+    private final Duration uploadTimeout;
+
+    @Autowired
+    public S3StorageProvider(
+            @Value("${cloud.storage.worker-tmp:data/worker-tmp}") String workerTmp,
+            @Value("${cloud.storage.s3-upload-timeout:PT30M}") Duration uploadTimeout) {
+        this(HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .proxy(ProxySelector.getDefault())
             .connectTimeout(Duration.ofSeconds(15))
-            .build();
+            .build(), Path.of(workerTmp).resolve("s3-uploads"), uploadTimeout);
+    }
+
+    S3StorageProvider(HttpClient httpClient, Path uploadTemp, Duration uploadTimeout) {
+        if (uploadTimeout.isNegative() || uploadTimeout.isZero()) {
+            throw new IllegalArgumentException("S3 upload timeout must be positive");
+        }
+        this.httpClient = httpClient;
+        this.uploadTemp = uploadTemp;
+        this.uploadTimeout = uploadTimeout;
+    }
 
     @Override
     public String providerType() {
@@ -81,35 +103,52 @@ public class S3StorageProvider implements StorageProvider {
     public StoredObject putObject(
             String endpoint, String bucket, String region, String accessKey, String secretKey,
             String key, InputStream input, long maxBytes) throws IOException {
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         MessageDigest sha;
         try { sha = MessageDigest.getInstance("SHA-256"); }
         catch (Exception e) { throw new IOException(e); }
         long total = 0L;
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = input.read(buf)) >= 0) {
-            total += n;
-            if (total > maxBytes) {
-                throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件大小超出系统上传限制");
-            }
-            sha.update(buf, 0, n);
-            out.write(buf, 0, n);
-        }
-        byte[] payload = out.toByteArray();
         URI uri = buildObjectUri(endpoint, bucket, key);
         String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
+        Files.createDirectories(uploadTemp);
+        Path staged = Files.createTempFile(uploadTemp, "put-", ".bin");
         try {
-            HttpRequest req = buildSignedRequest("PUT", uri, safeRegion, accessKey, secretKey, payload, null);
+            // SigV4 needs the final hash before sending headers, not an in-memory payload.
+            // Retain the caller's input ownership; only the staging output is closed here.
+            try (var out = Files.newOutputStream(staged)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = input.read(buf)) != -1) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new java.io.InterruptedIOException("S3 对象写入已中断");
+                    }
+                    if (n > maxBytes - total) {
+                        throw new BizException(HttpStatus.PAYLOAD_TOO_LARGE, 413, "文件大小超出系统上传限制");
+                    }
+                    total += n;
+                    sha.update(buf, 0, n);
+                    out.write(buf, 0, n);
+                }
+            }
+            String payloadHash = HexFormat.of().formatHex(sha.digest());
+            // ofFile supplies the exact Content-Length and reads with bounded buffers.
+            HttpRequest req = buildSignedRequest("PUT", uri, safeRegion, accessKey, secretKey,
+                    payloadHash, HttpRequest.BodyPublishers.ofFile(staged), null, uploadTimeout);
             HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
             if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
                 throw new IOException("S3 对象写入失败，HTTP 状态码: " + resp.statusCode());
             }
-            return new StoredObject(key, total, HexFormat.of().formatHex(sha.digest()));
+            return new StoredObject(key, total, payloadHash);
+        } catch (BizException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.io.InterruptedIOException("S3 对象写入已中断");
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
             throw new IOException("S3 对象写入异常: " + e.getMessage(), e);
+        } finally {
+            Files.deleteIfExists(staged);
         }
     }
 
@@ -251,10 +290,16 @@ public class S3StorageProvider implements StorageProvider {
 
     public HttpRequest buildSignedRequest(
             String method, URI uri, String region, String accessKey, String secretKey, byte[] payload, String rangeHeader, Duration timeout) throws Exception {
+        return buildSignedRequest(method, uri, region, accessKey, secretKey,
+                sha256Hex(payload), HttpRequest.BodyPublishers.ofByteArray(payload), rangeHeader, timeout);
+    }
+
+    private HttpRequest buildSignedRequest(
+            String method, URI uri, String region, String accessKey, String secretKey, String payloadHash,
+            HttpRequest.BodyPublisher publisher, String rangeHeader, Duration timeout) throws Exception {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         String amzDate = AMZ_DATE.format(now);
         String dateStamp = DATE_STAMP.format(now);
-        String payloadHash = sha256Hex(payload);
         String host = canonicalHostHeader(uri);
         String canonicalUri = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String canonicalHeaders = "host:" + host + "\nx-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + amzDate + "\n";
@@ -277,7 +322,7 @@ public class S3StorageProvider implements StorageProvider {
         }
         return switch (method) {
             case "HEAD" -> builder.method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
-            case "PUT" -> builder.PUT(HttpRequest.BodyPublishers.ofByteArray(payload)).build();
+            case "PUT" -> builder.PUT(publisher).build();
             case "DELETE" -> builder.DELETE().build();
             default -> builder.GET().build();
         };
