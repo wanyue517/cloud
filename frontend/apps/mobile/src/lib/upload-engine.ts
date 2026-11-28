@@ -48,9 +48,10 @@ export interface ChunkedUploadParams {
 }
 
 /**
- * 计算文件 SHA-256 哈希（用于 M039 用户级秒传去重；默认仅对 <= 64MB 文件在前端计算避免阻塞主线程）。
+ * 计算文件 SHA-256 哈希（用于 M039 用户级秒传去重；仅对 <= 8MB 文件在前端计算，
+ * 避免手机端大照片/视频全量读入内存导致刚入队时卡在 0% 或内存飙升）。
  */
-export async function computeFileSha256(file: Blob, maxBytes = 64 * 1024 * 1024): Promise<string | undefined> {
+export async function computeFileSha256(file: Blob, maxBytes = 8 * 1024 * 1024): Promise<string | undefined> {
   if (file.size <= 0 || file.size > maxBytes) return undefined
   const subtle = globalThis.crypto?.subtle
   if (!subtle) return undefined

@@ -684,7 +684,36 @@ async function handleRenameOrCreateSubmit(name: string) {
 }
 
 // FAB upload handlers
+let mediaPickWaitTimer: ReturnType<typeof setTimeout> | null = null
+let mediaPickFocusCleanup: (() => void) | null = null
+
+function clearMediaPickWait() {
+  if (mediaPickWaitTimer) {
+    clearTimeout(mediaPickWaitTimer)
+    mediaPickWaitTimer = null
+  }
+  mediaPickFocusCleanup?.()
+  mediaPickFocusCleanup = null
+  if (uploadingHint.value.startsWith('系统正在导出所选照片/视频')) {
+    uploadingHint.value = ''
+  }
+}
+
 function triggerMediaUpload() {
+  clearMediaPickWait()
+  const onReturnFocus = () => {
+    mediaPickFocusCleanup?.()
+    mediaPickFocusCleanup = null
+    // 手机系统相册返回后，若系统正在导出/转码 HEIC 或大视频，change 事件会延迟数秒到数十秒，先给出友好等待提示
+    mediaPickWaitTimer = setTimeout(() => {
+      uploadingHint.value = '系统正在导出所选照片/视频，请稍候…（大文件可在「上传文件」选原件跳过转码）'
+      mediaPickWaitTimer = setTimeout(() => {
+        clearMediaPickWait()
+      }, 45_000)
+    }, 350)
+  }
+  window.addEventListener('focus', onReturnFocus, { once: true })
+  mediaPickFocusCleanup = () => window.removeEventListener('focus', onReturnFocus)
   mediaInputRef.value?.click()
 }
 
@@ -724,6 +753,7 @@ async function handleConfirmedMediaUpload(file: File) {
 }
 
 async function handleSelectedFiles(event: Event) {
+  clearMediaPickWait()
   const input = event.target as HTMLInputElement
   const files = input.files ? Array.from(input.files) : []
   input.value = ''
@@ -734,6 +764,10 @@ async function handleSelectedFiles(event: Event) {
   if (enqueued) {
     showToast(`已加入上传队列（${files.length} 个文件）`)
   }
+}
+
+function handlePickerCancel() {
+  clearMediaPickWait()
 }
 
 async function handleReplaceFileChange(event: Event) {
@@ -1490,6 +1524,7 @@ async function confirmTrashNode(node: DriveNode) {
       multiple
       class="hidden"
       @change="handleSelectedFiles"
+      @cancel="handlePickerCancel"
     />
     <input
       ref="cameraPhotoInputRef"
