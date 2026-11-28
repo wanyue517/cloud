@@ -2,5 +2,6 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
-  core-js: set this to true or false
-  es5-ext: set this to true or false
+  # These postinstall scripts only print messages; the packages ship ready-to-use JS.
+  core-js: false
+  es5-ext: false

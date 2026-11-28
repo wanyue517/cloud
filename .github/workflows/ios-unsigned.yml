@@ -8,6 +8,7 @@ on:
       - 'frontend/apps/mobile/**'
       - 'frontend/packages/**'
       - 'frontend/pnpm-lock.yaml'
+      - 'frontend/pnpm-workspace.yaml'
       - 'frontend/package.json'
       - 'scripts/build-ios-unsigned.py'
       - '.github/workflows/ios-unsigned.yml'
