@@ -28,6 +28,7 @@ public class PublicSiteController {
                         + "FROM sys_oauth_provider WHERE enabled=1 ORDER BY provider_code");
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("siteName", policy.getString("site_name", "Cloudlane"));
+        data.put("siteDescription", policy.getString("site_description", "个人云端工作台"));
         data.put("siteLogoUrl", policy.getString("site_logo_url", ""));
         data.put("siteAnnouncement", policy.getString("site_announcement", ""));
         data.put("allowRegister", policy.allowRegister());

@@ -42,7 +42,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'search',
         name: 'search',
-        component: () => import('@/views/drive/index.vue'),
+        redirect: '/app',
       },
       {
         path: 'tasks',

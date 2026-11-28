@@ -47,6 +47,7 @@ export interface components {
     }
     AdminController_SiteSettingsInput: {
       siteName?: string
+      siteDescription?: string
       siteLogoUrl?: string
       siteAnnouncement?: string
     }

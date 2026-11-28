@@ -8,7 +8,7 @@ const state = useConfirmState()
 
 <template>
   <Dialog :open="state.open" @update:open="v => { if (!v) settleConfirm(false) }">
-    <DialogContent class="!max-w-md">
+    <DialogContent class="!max-w-md !z-[100]" overlay-class="!z-[99]">
       <DialogHeader>
         <DialogTitle>{{ state.title }}</DialogTitle>
         <DialogDescription v-if="state.description">{{ state.description }}</DialogDescription>

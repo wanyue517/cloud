@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Eye, File, Folder, FolderOpen, Globe, Search } from '@lucide/vue'
 import { Button } from '@repo/ui/button'
 import { Checkbox } from '@repo/ui/checkbox'
@@ -10,7 +10,7 @@ import { searchApi, type SearchHit } from '@/api/search'
 
 const props = defineProps<{
   spaces: Space[]
-  /** 进入搜索页时所在空间，默认按此空间检索 */
+  /** 打开搜索时所在空间，默认按此空间检索 */
   currentSpaceId: string
   initialQuery?: string
   initialScope?: 'space' | 'global'
@@ -75,12 +75,14 @@ function matchBadge(hit: SearchHit): string {
 }
 
 async function runSearch(targetPage = page.value) {
+  const gen = ++searchGeneration
   if (!query.value.trim() && !category.value && !extension.value.trim()) {
     items.value = []
     total.value = 0
+    loading.value = false
+    error.value = ''
     return
   }
-  const gen = ++searchGeneration
   loading.value = true
   error.value = ''
   try {
@@ -116,6 +118,11 @@ onMounted(async () => {
   await nextTick()
   ;(inputRef.value?.$el as HTMLInputElement | undefined)?.focus?.()
   if (query.value.trim()) void runSearch()
+})
+
+onBeforeUnmount(() => {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  searchGeneration++
 })
 </script>
 

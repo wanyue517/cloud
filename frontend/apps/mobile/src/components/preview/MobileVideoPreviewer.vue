@@ -127,9 +127,11 @@ async function mountPlayer(streamUrl: string, seq: number, position = 0, playing
     url: hls ? '' : streamUrl,
     playsinline: true,
     preload: 'auto',
-    fluid: true,
+    // The preview shell supplies the viewport; fluid mode forces a 16:9 box.
+    fluid: false,
     width: '100%',
     height: '100%',
+    videoFillMode: 'contain',
     autoplay: false,
     defaultPlaybackRate: 1,
     // 关闭 xgplayer 内置倍速与内置长按倍速，统一由移动端触控倍速胶囊和手势层控制，彻底避免默认 2x 与冲突
@@ -551,7 +553,7 @@ function onGestureTouchEnd() {
       @touchend.passive="onGestureTouchEnd"
       @touchcancel.passive="onGestureTouchEnd"
     >
-      <div ref="containerRef" class="w-full max-h-full" />
+      <div ref="containerRef" class="absolute inset-0 h-full w-full" />
 
       <!-- 亮度调节遮罩 -->
       <div

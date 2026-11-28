@@ -11533,6 +11533,9 @@
           "siteName" : {
             "type" : "string"
           },
+          "siteDescription" : {
+            "type" : "string"
+          },
           "siteLogoUrl" : {
             "type" : "string"
           },

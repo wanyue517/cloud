@@ -324,6 +324,12 @@
 
   html {
     font-size: 16px;
+    scrollbar-gutter: stable;
+  }
+
+  /* Keep auto-scrolling panels the same width when content starts overflowing. */
+  :where(.overflow-auto, .overflow-y-auto, .overflow-scroll, .overflow-y-scroll) {
+    scrollbar-gutter: stable;
   }
 
   body {

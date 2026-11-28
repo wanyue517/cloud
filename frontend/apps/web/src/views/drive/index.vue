@@ -6,6 +6,7 @@ import { IconPicker, LucideIconByName } from '@repo/ui/icon-picker'
 import { Input } from '@repo/ui/input'
 import { Select } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
+import { confirm } from '@repo/ui/confirm-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@repo/ui/dialog'
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@repo/ui/context-menu'
 import {
@@ -25,7 +26,7 @@ import SpaceMembersDialog from '@/components/drive/SpaceMembersDialog.vue'
 import FolderShareDialog from '@/components/drive/FolderShareDialog.vue'
 import ShareLinkDialog from '@/components/drive/ShareLinkDialog.vue'
 import BatchRenameDialog from '@/components/drive/BatchRenameDialog.vue'
-import SearchPanel from '@/components/drive/SearchPanel.vue'
+import GlobalSearchDialog from '@/components/drive/GlobalSearchDialog.vue'
 import RecentPanel from '@/components/drive/RecentPanel.vue'
 import MessagePopover from '@/components/drive/MessagePopover.vue'
 import UserCenterPanel, { type SettingsSection, type UserProfile } from '@/components/drive/UserCenterPanel.vue'
@@ -33,6 +34,8 @@ import { computed, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } 
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
   ChevronRight,
   ChevronsUpDown,
   Clock,
@@ -42,6 +45,7 @@ import {
   File,
   FileArchive,
   Folder,
+  FolderTree as FolderTreeIcon,
   FolderPlus,
   FolderUp,
   Grid2X2,
@@ -93,15 +97,16 @@ import {
 import { logout as endSession } from '@repo/session/session'
 import { clearPrivateSpaceToken, hasPrivateSpaceToken, request, RequestError, saveBlob, setPrivateSpaceToken } from '@/utils/request'
 import '@/styles/drive.css'
+import { useSiteConfig } from '@/composables/useSiteConfig'
 
 const route = useRoute(), router = useRouter()
+const { siteConfig, loadSiteConfig } = useSiteConfig()
 const layout = reactive<LayoutPreferences>(loadLayoutPreferences())
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440)
 const viewportTier = computed(() => resolveViewportTier(viewportWidth.value))
 const mobileNavOpen = ref(false), drawerTreeOpen = ref(false), resizingTree = ref(false)
-const mode = computed<'files' | 'favorites' | 'settings' | 'tasks' | 'shared' | 'recent' | 'search'>(() => {
+const mode = computed<'files' | 'favorites' | 'settings' | 'tasks' | 'shared' | 'recent'>(() => {
   if (route.name === 'settings') return 'settings'
-  if (route.name === 'search') return 'search'
   if (route.name === 'tasks') return 'tasks'
   if (route.name === 'shared') return 'shared'
   if (route.name === 'recent') return 'recent'
@@ -153,6 +158,7 @@ const visibleSpaces = computed(() => spaces.value.filter(s => s.kind !== 'PRIVAT
 const selected = ref(new Set<string>()), page = ref(1), total = ref(0)
 const sort = ref(localStorage.getItem('cloudlane.sort') || 'name')
 const query = ref('')
+const searchOpen = ref(false)
 const searchInitialQuery = ref('')
 const searchInitialScope = ref<'space' | 'global'>('space')
 const view = ref(localStorage.getItem('cloudlane.view') || 'list')
@@ -206,10 +212,11 @@ function openSearch(scope: 'space' | 'global' = 'space', initial = '') {
   crumbMenuOpen.value = false
   cancelInlineEdit()
   closeDrawers()
-  if (route.name !== 'search') void router.push({ name: 'search' })
+  searchOpen.value = true
 }
 
 function locateSearchHit(hit: SearchHit) {
+  searchOpen.value = false
   navigate(hit.nodeType === 'FOLDER' ? hit.id : hit.parentId, hit.spaceId)
 }
 
@@ -392,7 +399,7 @@ let generation = 0, searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const dialog = ref<{ title: string; label: string; value: string; submit: (value: string) => Promise<unknown> }>()
 const dialogBusy = ref(false)
-const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceIcon = ref('folder'), spaceSortOrder = ref(0), spaceDeleteConfirm = ref('')
+const spaceDialogOpen = ref(false), spaceSaving = ref(false), spaceName = ref(''), spaceDescription = ref(''), spaceColor = ref('#6366f1'), spaceIcon = ref('folder'), spaceSortOrder = ref(0)
 
 async function submitDialog() {
   if (!dialog.value || dialogBusy.value) return
@@ -407,7 +414,6 @@ function openSpaceSettings(tab: 'general' | 'members' = 'general') {
   spaceColor.value = currentSpace.value.color || '#6366f1'
   spaceIcon.value = currentSpace.value.icon || 'folder'
   spaceSortOrder.value = currentSpace.value.sortOrder || 0
-  spaceDeleteConfirm.value = ''
   error.value = ''
   spaceSettingsTab.value = tab
   spaceDialogOpen.value = true
@@ -428,9 +434,17 @@ async function saveSpaceSettings() {
 }
 async function confirmDeleteSpace() {
   if (spaceSaving.value || !spaceId.value || !currentSpace.value) return
+  const targetSpace = currentSpace.value
+  const accepted = await confirm({
+    title: '删除空间',
+    description: `确定删除空间「${targetSpace.name}」吗？删除后该空间将无法访问。`,
+    confirmText: '确认删除',
+    variant: 'destructive',
+  })
+  if (!accepted || spaceSaving.value || spaceId.value !== targetSpace.id) return
   spaceSaving.value = true; error.value = ''
   try {
-    await drive.deleteSpace(spaceId.value, spaceDeleteConfirm.value)
+    await drive.deleteSpace(targetSpace.id, targetSpace.name)
     await loadSpaces()
     spaceDialogOpen.value = false
     if (spaces.value[0]) navigate('0', spaces.value[0].id)
@@ -456,6 +470,7 @@ const privateUnlockError = ref('')
 
 async function submitPrivateUnlock() {
   if (privateUnlockBusy.value || !spaceId.value) return
+  const unlockingSpaceId = spaceId.value
   if (!privateUnlockPassword.value) {
     privateUnlockError.value = '请输入账号密码'
     return
@@ -463,12 +478,17 @@ async function submitPrivateUnlock() {
   privateUnlockBusy.value = true
   privateUnlockError.value = ''
   try {
-    const res = await opsApi.unlockPrivate(spaceId.value, privateUnlockPassword.value, Number(privateUnlockIdle.value) || 15)
-    setPrivateSpaceToken(spaceId.value, res.privateToken)
+    const res = await opsApi.unlockPrivate(unlockingSpaceId, privateUnlockPassword.value, Number(privateUnlockIdle.value) || 15)
+    setPrivateSpaceToken(unlockingSpaceId, res.privateToken)
     privateUnlockOpen.value = false
     privateUnlockPassword.value = ''
-    notice.value = `私密空间已解锁（空闲 ${res.idleMinutes} 分钟后自动锁定）`
+    if (spaceId.value !== unlockingSpaceId) return
+    // Reload every directory request with the new credential, including failed tree branches.
+    treeRevision.value++
     await refresh()
+    if (!privateUnlockOpen.value && spaceId.value === unlockingSpaceId) {
+      notice.value = `私密空间已解锁（空闲 ${res.idleMinutes} 分钟后自动锁定）`
+    }
   } catch (e) {
     privateUnlockError.value = e instanceof Error ? e.message : '密码验证失败'
   } finally {
@@ -492,7 +512,7 @@ async function lockCurrentPrivateSpace() {
 
 async function loadSpaces() { spaces.value = await drive.spaces() }
 async function refresh() {
-  if (mode.value === 'settings' || mode.value === 'tasks' || mode.value === 'search' || !spaceId.value) return
+  if (mode.value === 'settings' || mode.value === 'tasks' || !spaceId.value) return
   const current = ++generation; loading.value = true; error.value = ''; selected.value = new Set()
   try {
     const [result, path, statsResult] = await Promise.all([
@@ -912,6 +932,7 @@ function size(bytes: number) { if (!bytes) return '0 B'; const units = ['B', 'KB
 async function logout() { try { await endSession() } catch (e) { fail(e) } finally { void router.replace('/auth/login') } }
 
 function key(event: KeyboardEvent) {
+  if (searchOpen.value) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     openSearch('global')
@@ -926,7 +947,7 @@ function key(event: KeyboardEvent) {
       return
     }
   }
-  if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || inlineCreateActive.value || inlineRenameId.value || dialog.value || preview.value || versionNode.value || spaceDialogOpen.value || mode.value === 'settings' || mode.value === 'search') return
+  if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || inlineCreateActive.value || inlineRenameId.value || dialog.value || preview.value || versionNode.value || spaceDialogOpen.value || mode.value === 'settings') return
   if ((event.ctrlKey || event.metaKey) && event.key === 'a') { event.preventDefault(); selected.value = new Set(nodes.value.map(n => n.id)) }
   if (event.key === 'Escape') selected.value = new Set()
   if (event.key === 'F2' && currentSelection.value[0]) { event.preventDefault(); rename(currentSelection.value[0]) }
@@ -939,7 +960,6 @@ const topbarTitle = computed(() => {
     const found = SETTINGS_NAV.find(i => i.key === settingsSection.value)
     return `个人中心 / ${found?.label || '个人资料'}`
   }
-  if (mode.value === 'search') return '搜索与检索'
   if (mode.value === 'tasks') return '传输与任务中心'
   if (mode.value === 'shared') return '共享中心'
   if (mode.value === 'recent') return '最近使用'
@@ -948,17 +968,19 @@ const topbarTitle = computed(() => {
 })
 
 watch(() => route.fullPath, () => {
+  searchOpen.value = false
   if (route.params.spaceId) lastSpaceId.value = String(route.params.spaceId)
   page.value = 1
-  if (mode.value !== 'settings' && mode.value !== 'search') void refresh()
+  if (mode.value !== 'settings') void refresh()
 })
-watch([sort, page], () => { if (mode.value !== 'settings' && mode.value !== 'search') void refresh() })
-watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page.value = 1; if (mode.value !== 'settings' && mode.value !== 'search') void refresh() }, 300) })
+watch([sort, page], () => { if (mode.value !== 'settings') void refresh() })
+watch(query, () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page.value = 1; if (mode.value !== 'settings') void refresh() }, 300) })
 watch(view, value => localStorage.setItem('cloudlane.view', value))
 watch(sort, value => localStorage.setItem('cloudlane.sort', value))
 watch(layout, value => { saveLayoutPreferences(value) }, { deep: true })
 
 onMounted(async () => {
+  void loadSiteConfig(true)
   document.addEventListener('keydown', key)
   window.addEventListener('resize', handleResize)
   try {
@@ -970,7 +992,7 @@ onMounted(async () => {
     if (route.params.spaceId) lastSpaceId.value = String(route.params.spaceId)
     else if (firstSpace) lastSpaceId.value = firstSpace.id
     if (route.name === 'app' && firstSpace) navigate('0', firstSpace.id)
-    else if (mode.value !== 'settings' && mode.value !== 'search') await refresh()
+    else if (mode.value !== 'settings') await refresh()
   } catch (e) { fail(e) }
 })
 onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abortAll(); stopResize?.(); document.removeEventListener('keydown', key); window.removeEventListener('resize', handleResize) })
@@ -991,11 +1013,14 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
     <!-- 第一栏：左侧全局导航（折叠时保留图标栏，不含个人中心/回收站，底部账户菜单精简） -->
     <aside class="drive-sidebar" :class="{ 'is-open': mobileNavOpen }" aria-label="全局导航">
       <div class="drive-brand-row">
-        <a class="drive-brand" href="/app" title="Cloudlane">
-          <span><Cloud :size="24" /></span>
+        <a class="drive-brand" href="/app" :title="siteConfig.siteName">
+          <span>
+            <img v-if="siteConfig.siteLogoUrl" :src="siteConfig.siteLogoUrl" :alt="siteConfig.siteName" class="size-6 object-contain" />
+            <Cloud v-else :size="24" />
+          </span>
           <div class="drive-brand-text">
-            <strong>Cloudlane</strong>
-            <small>个人云端工作台</small>
+            <strong>{{ siteConfig.siteName }}</strong>
+            <small v-if="siteConfig.siteDescription" :title="siteConfig.siteDescription">{{ siteConfig.siteDescription }}</small>
           </div>
         </a>
         <Button v-if="viewportTier === 'mobile'" variant="ghost" size="icon-xs" class="pane-close-btn" aria-label="关闭导航栏" @click="toggleSidebar">
@@ -1183,7 +1208,7 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
 
         <div class="topbar-trailing">
           <button
-            v-if="mode !== 'settings' && mode !== 'search'"
+            v-if="mode !== 'settings'"
             type="button"
             class="drive-search cursor-pointer text-left"
             aria-label="搜索当前空间或全局检索"
@@ -1251,18 +1276,6 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           @open-folder="(sid, fid) => navigate(fid, sid)"
           @preview-node="n => { previewVersion = undefined; preview = n }"
           @logout="logout"
-        />
-      </section>
-
-      <!-- 统一搜索与全局检索页 -->
-      <section v-else-if="mode === 'search'" class="drive-content">
-        <SearchPanel
-          :spaces="visibleSpaces"
-          :current-space-id="spaceId"
-          :initial-query="searchInitialQuery"
-          :initial-scope="searchInitialScope"
-          @locate="locateSearchHit"
-          @preview="previewSearchHit"
         />
       </section>
 
@@ -1338,16 +1351,28 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
           </div>
         </div>
 
-        <div v-if="mode === 'files' && (dirStats.files > 0 || dirStats.folders > 0)" class="category-bar" role="tablist" aria-label="文件类型筛选">
-          <Button variant="ghost" size="sm" role="tab" :aria-selected="!category" :class="{ 'is-active-tab': !category }" @click="selectCategory('')">全部 ({{ dirStats.files }})</Button>
-          <Button v-for="[cat, count] in activeCategories" :key="cat" variant="ghost" size="sm" role="tab" :aria-selected="category === cat" :class="{ 'is-active-tab': category === cat }" @click="selectCategory(cat)">{{ CATEGORY_LABELS[cat] || cat }} ({{ count }})</Button>
-          <span v-if="dirStats.folders > 0" class="category-folder-meta">{{ dirStats.folders }} 个文件夹</span>
-          <Button variant="ghost" size="sm" class="ml-auto text-xs" :class="{ 'text-primary': includeSubdirs }" @click="includeSubdirs = !includeSubdirs; void refresh()">
-            {{ includeSubdirs ? '已包含子目录统计' : '包含子目录' }}
-          </Button>
+        <div class="file-filter-toolbar">
+          <div v-if="mode === 'files'" class="category-bar" role="tablist" aria-label="文件类型筛选">
+            <Button variant="ghost" size="sm" role="tab" :aria-selected="!category" :class="{ 'is-active-tab': !category }" @click="selectCategory('')">全部 ({{ dirStats.files }})</Button>
+            <Button v-for="[cat, count] in activeCategories" :key="cat" variant="ghost" size="sm" role="tab" :aria-selected="category === cat" :class="{ 'is-active-tab': category === cat }" @click="selectCategory(cat)">{{ CATEGORY_LABELS[cat] || cat }} ({{ count }})</Button>
+            <span v-if="dirStats.folders > 0" class="category-folder-meta">{{ dirStats.folders }} 个文件夹</span>
+          </div>
+          <div class="file-view-controls" role="toolbar" aria-label="文件列表工具">
+            <Button v-if="mode === 'files'" variant="ghost" size="icon-sm" aria-label="包含子目录统计" :title="includeSubdirs ? '关闭子目录统计' : '包含子目录统计'" :aria-pressed="includeSubdirs" @click="includeSubdirs = !includeSubdirs; void refresh()"><FolderTreeIcon :size="16" /></Button>
+            <div class="file-control-group" role="group" aria-label="文件排序">
+              <Button variant="ghost" size="icon-sm" aria-label="按名称排序" title="按名称排序" :aria-pressed="sort === 'name'" @click="sort = 'name'"><ArrowDownAZ :size="16" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label="按最近修改排序" title="按最近修改排序" :aria-pressed="sort === 'updated'" @click="sort = 'updated'"><Clock :size="16" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label="按文件大小排序" title="按文件大小排序" :aria-pressed="sort === 'size'" @click="sort = 'size'"><ArrowDownWideNarrow :size="16" /></Button>
+            </div>
+            <div class="file-control-group" role="group" aria-label="文件视图">
+              <Button variant="ghost" size="icon-sm" aria-label="列表视图" title="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="16" /></Button>
+              <Button variant="ghost" size="icon-sm" aria-label="网格视图" title="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="16" /></Button>
+            </div>
+            <Button variant="ghost" size="icon-sm" aria-label="刷新文件" title="刷新文件" :disabled="loading" @click="refresh"><RefreshCw :size="15" :class="{ 'animate-spin': loading }" /></Button>
+          </div>
         </div>
 
-        <div class="drive-toolbar">
+        <div v-if="selected.size" class="drive-toolbar">
           <div class="toolbar-leading">
             <template v-if="selected.size">
               <span>已选 {{ selected.size }} 项</span>
@@ -1393,22 +1418,6 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             <Button variant="outline" size="sm" class="danger" @click="deleteSelection">移到回收站</Button>
           </div>
 
-          <div v-else class="toolbar-actions">
-            <Select
-              :model-value="sort"
-              class="h-8 w-28 text-xs"
-              aria-label="文件排序"
-              :options="[
-                { value: 'name', label: '名称排序' },
-                { value: 'updated', label: '最近修改' },
-                { value: 'size', label: '文件大小' },
-              ]"
-              @update:model-value="v => { sort = v as typeof sort }"
-            />
-            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="列表视图" :aria-pressed="view === 'list'" @click="view = 'list'"><List :size="16" /></Button>
-            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="网格视图" :aria-pressed="view === 'grid'" @click="view = 'grid'"><Grid2X2 :size="16" /></Button>
-            <Button variant="outline" size="sm" class="h-8 px-2.5" aria-label="刷新文件" @click="refresh"><RefreshCw :size="15" /></Button>
-          </div>
         </div>
 
         <p v-if="error" class="drive-error" role="alert">{{ error }}<Button variant="ghost" size="icon-xs" @click="error = ''" aria-label="关闭错误"><X :size="15" /></Button></p>
@@ -1743,6 +1752,16 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
       </div>
     </aside>
 
+    <GlobalSearchDialog
+      v-if="searchOpen"
+      :spaces="visibleSpaces"
+      :current-space-id="spaceId"
+      :initial-query="searchInitialQuery"
+      :initial-scope="searchInitialScope"
+      @close="searchOpen = false"
+      @locate="locateSearchHit"
+      @preview="previewSearchHit"
+    />
     <PreviewDialog v-if="preview" :node="preview" :version="previewVersion" :siblings="nodes" @select="next => { preview = next; previewVersion = undefined }" @close="preview = undefined" />
 
     <Dialog :open="createSpaceOpen" @update:open="value => { if (!value && !createSpaceBusy) createSpaceOpen = false }">
@@ -1937,15 +1956,12 @@ onBeforeUnmount(() => { generation++; clearTimeout(searchTimer); uploadQueue.abo
             </div>
             <label class="block space-y-1.5 text-sm"><span>排序权重</span><Input v-model="spaceSortOrder" type="number" aria-label="排序权重" :disabled="spaceSaving" /></label>
             <p v-if="error" role="alert" class="text-destructive text-sm">{{ error }}</p>
-            <DialogFooter class="pt-2"><Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button><Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button></DialogFooter>
+            <DialogFooter class="pt-2">
+              <Button v-if="spaces.length > 1" variant="outline" type="button" class="text-destructive" :disabled="spaceSaving" @click="confirmDeleteSpace">删除空间</Button>
+              <Button variant="outline" type="button" :disabled="spaceSaving" @click="spaceDialogOpen = false">取消</Button>
+              <Button type="submit" :disabled="spaceSaving">{{ spaceSaving ? '正在保存…' : '保存设置' }}</Button>
+            </DialogFooter>
           </form>
-          <div v-if="spaces.length > 1" class="mt-4 pt-4 border-t border-border space-y-2">
-            <p class="text-xs text-destructive">危险操作：输入空间名称「{{ currentSpace?.name }}」以确认删除该空间。</p>
-            <div class="flex items-center gap-2">
-              <Input v-model="spaceDeleteConfirm" aria-label="确认删除空间名称" :placeholder="currentSpace?.name" :disabled="spaceSaving" />
-              <Button variant="outline" class="text-destructive shrink-0" :disabled="spaceSaving || spaceDeleteConfirm !== currentSpace?.name" @click="confirmDeleteSpace">删除空间</Button>
-            </div>
-          </div>
         </template>
 
         <div v-else-if="currentSpace" class="pt-1">

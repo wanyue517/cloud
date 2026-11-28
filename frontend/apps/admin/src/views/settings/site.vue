@@ -8,12 +8,14 @@ import { request } from '@repo/session/request'
 
 interface SiteSettings {
   siteName: string
+  siteDescription: string
   siteLogoUrl: string
   siteAnnouncement: string
 }
 
 const siteForm = reactive<SiteSettings>({
   siteName: 'Cloudlane',
+  siteDescription: '个人云端工作台',
   siteLogoUrl: '',
   siteAnnouncement: '',
 })
@@ -31,6 +33,7 @@ async function load() {
   try {
     const res = await request.get<SiteSettings>('/v1/admin/settings/site')
     siteForm.siteName = res.siteName || 'Cloudlane'
+    siteForm.siteDescription = res.siteDescription ?? '个人云端工作台'
     siteForm.siteLogoUrl = res.siteLogoUrl || ''
     siteForm.siteAnnouncement = res.siteAnnouncement || ''
   } catch (e) {
@@ -73,13 +76,15 @@ async function save() {
   try {
     const res = await request.put<SiteSettings>('/v1/admin/settings/site', {
       siteName: siteForm.siteName.trim(),
+      siteDescription: siteForm.siteDescription.trim(),
       siteLogoUrl: siteForm.siteLogoUrl.trim(),
       siteAnnouncement: siteForm.siteAnnouncement.trim(),
     })
     siteForm.siteName = res.siteName
+    siteForm.siteDescription = res.siteDescription ?? '个人云端工作台'
     siteForm.siteLogoUrl = res.siteLogoUrl
     siteForm.siteAnnouncement = res.siteAnnouncement
-    notice.value = '站点设置已保存并立即生效（用户登录页与公开配置接口同步更新）。'
+    notice.value = '站点设置已保存，用户端刷新页面后显示最新配置。'
   } catch (e) {
     error.value = e instanceof Error ? e.message : '保存站点配置失败'
   } finally {
@@ -95,7 +100,7 @@ onMounted(() => { void load() })
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 class="text-xl font-semibold">站点设置</h2>
-        <p class="text-sm text-muted-foreground mt-1">配置站点名称、品牌 Logo 与全局公告；上传的品牌图片自动写入系统当前已配置的默认存储方案。</p>
+        <p class="text-sm text-muted-foreground mt-1">配置站点名称、描述、品牌 Logo 与全局公告；上传的品牌图片自动写入系统当前已配置的默认存储方案。</p>
       </div>
       <Button variant="outline" size="sm" :disabled="loading" @click="load">
         <RefreshCw class="size-4" :class="{ 'animate-spin': loading }" /> 刷新
@@ -131,6 +136,12 @@ onMounted(() => { void load() })
       <label class="block space-y-1.5 text-sm">
         <span class="font-medium">站点名称</span>
         <Input v-model="siteForm.siteName" maxlength="80" placeholder="Cloudlane" :disabled="loading || saving" />
+      </label>
+
+      <label class="block space-y-1.5 text-sm">
+        <span class="font-medium">站点描述</span>
+        <Input v-model="siteForm.siteDescription" maxlength="200" placeholder="个人云端工作台" :disabled="loading || saving" />
+        <p class="text-xs text-muted-foreground">显示在 Web 网盘左上角的站点名称下方，留空则隐藏。</p>
       </label>
 
       <label class="block space-y-1.5 text-sm">

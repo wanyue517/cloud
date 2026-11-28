@@ -15,6 +15,14 @@
   user-select: none;
   cursor: col-resize;
 }
+/* Reserve space on the scrolling container, shared by list and grid views. */
+.drive-sidebar,
+.folder-tree-viewport,
+.drive-content,
+.preview-dialog pre,
+.upload-panel {
+  scrollbar-gutter: stable;
+}
 .drive-app.is-resizing .drive-sidebar,
 .drive-app.is-resizing .drive-tree-pane {
   transition: none;
@@ -147,6 +155,12 @@
   flex-direction: column;
   min-width: 0;
   line-height: 1.2;
+}
+.drive-brand-text strong,
+.drive-brand-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pane-close-btn {
   flex-shrink: 0;
@@ -294,12 +308,44 @@
   padding: 4px;
   box-shadow: var(--app-shadow-sm);
 }
+.file-filter-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 8px 0 14px;
+}
 .category-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.category-bar::-webkit-scrollbar {
+  display: none;
+}
+.category-bar > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.file-view-controls,
+.file-control-group {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.file-view-controls {
+  margin-left: auto;
+  gap: 8px;
+  color: var(--muted-foreground);
+}
+.file-view-controls [aria-pressed="true"] {
+  background: var(--app-selected);
+  color: var(--drive-accent);
 }
 .category-bar .is-active-tab {
   background: var(--app-selected);
@@ -307,7 +353,6 @@
   font-weight: 500;
 }
 .category-folder-meta {
-  margin-left: auto;
   font-size: var(--app-font-xs);
   color: var(--muted-foreground);
 }

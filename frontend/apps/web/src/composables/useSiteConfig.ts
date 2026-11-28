@@ -8,6 +8,7 @@ export interface PublicOAuthProvider {
 
 export interface PublicSiteConfig {
   siteName: string
+  siteDescription: string
   siteLogoUrl: string
   siteAnnouncement: string
   allowRegister: boolean
@@ -21,6 +22,7 @@ export interface PublicSiteConfig {
 
 const state = reactive<PublicSiteConfig>({
   siteName: 'Cloudlane',
+  siteDescription: '个人云端工作台',
   siteLogoUrl: '',
   siteAnnouncement: '',
   allowRegister: true,
@@ -42,6 +44,7 @@ export function useSiteConfig() {
         .get<Partial<PublicSiteConfig>>('/v1/public/site-config')
         .then(res => {
           state.siteName = res.siteName || 'Cloudlane'
+          state.siteDescription = res.siteDescription ?? '个人云端工作台'
           state.siteLogoUrl = res.siteLogoUrl || ''
           state.siteAnnouncement = res.siteAnnouncement || ''
           state.allowRegister = res.allowRegister ?? true

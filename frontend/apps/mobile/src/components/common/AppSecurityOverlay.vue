@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Button as VanButton } from 'vant'
 import { Fingerprint, Lock, ShieldCheck } from '@lucide/vue'
 import { getAccessToken } from '@repo/session/auth'
+import { setVaultToken } from '@repo/session/request'
 import { normalizeErrorMessage } from '@repo/drive-core/errors'
 import { mobileDriveApi } from '@/api/drive'
 import {
@@ -43,7 +44,8 @@ async function handlePasswordUnlock() {
   verifying.value = true
   errorText.value = ''
   try {
-    await mobileDriveApi.unlockVault(password.value, 15)
+    const res = await mobileDriveApi.unlockVault(password.value, 15)
+    setVaultToken(res.privateToken)
     startupLocked.value = false
     password.value = ''
   } catch (err) {

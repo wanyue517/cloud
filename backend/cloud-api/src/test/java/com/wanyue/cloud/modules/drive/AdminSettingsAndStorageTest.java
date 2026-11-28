@@ -79,6 +79,39 @@ class AdminSettingsAndStorageTest {
     }
 
     @Test
+    void siteDescriptionCanBeSavedReadAndClearedWithoutBreakingOlderClients() throws Exception {
+        mvc.perform(put("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("""
+                                {"siteName":"星云网盘","siteDescription":"  团队文件工作台  "}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.siteDescription").value("团队文件工作台"));
+        mvc.perform(get("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.siteDescription").value("团队文件工作台"));
+        mvc.perform(get("/api/v1/public/site-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.siteDescription").value("团队文件工作台"));
+
+        // Clients predating the description field must preserve its saved value.
+        mvc.perform(put("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json").content("{\"siteName\":\"新名称\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.siteDescription").value("团队文件工作台"));
+        mvc.perform(put("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json").content("{\"siteName\":\"新名称\",\"siteDescription\":\"\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/public/site-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.siteDescription").value(""));
+        mvc.perform(put("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken)
+                        .contentType("application/json")
+                        .content("{\"siteName\":\"新名称\",\"siteDescription\":\"" + "a".repeat(201) + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void siteSettingsAuthSmtpAndOAuthPersistWithoutLeakingSecrets() throws Exception {
         mvc.perform(put("/api/v1/admin/settings/site").header("Authorization", "Bearer " + adminToken)
                         .contentType("application/json")

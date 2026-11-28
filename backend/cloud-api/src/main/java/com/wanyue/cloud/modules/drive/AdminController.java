@@ -537,6 +537,7 @@ public class AdminController {
 
     public record SiteSettingsInput(
             @NotBlank @Size(max = 80) String siteName,
+            @Size(max = 200) String siteDescription,
             @Size(max = 512) String siteLogoUrl,
             @Size(max = 1000) String siteAnnouncement) {}
 
@@ -544,6 +545,7 @@ public class AdminController {
     public R<Map<String, Object>> siteSettings() {
         return R.ok(Map.of(
                 "siteName", readPolicy("site_name", "Cloudlane"),
+                "siteDescription", readPolicy("site_description", "个人云端工作台"),
                 "siteLogoUrl", readPolicy("site_logo_url", ""),
                 "siteAnnouncement", readPolicy("site_announcement", "")));
     }
@@ -552,6 +554,9 @@ public class AdminController {
     @Transactional
     public R<Map<String, Object>> updateSiteSettings(@Valid @RequestBody SiteSettingsInput input) {
         upsertPolicy("site_name", input.siteName().strip());
+        if (input.siteDescription() != null) {
+            upsertPolicy("site_description", input.siteDescription().strip());
+        }
         upsertPolicy("site_logo_url", input.siteLogoUrl() == null ? "" : input.siteLogoUrl().strip());
         upsertPolicy("site_announcement", input.siteAnnouncement() == null ? "" : input.siteAnnouncement().strip());
         return siteSettings();

@@ -71,6 +71,8 @@ let vaultToken: string | null = null
 
 export function setVaultToken(token: string | null) {
     vaultToken = token
+    // A new vault session covers every space and supersedes older scoped sessions.
+    if (token) privateSpaceTokens.clear()
 }
 
 export function hasVaultToken(): boolean {
@@ -224,6 +226,17 @@ async function send<T>(options: RequestOptions): Promise<T> {
             : response?.config ?? options) as InternalAxiosRequestConfig
         const unauthorized = normalized.code === 401 || normalized.httpStatus === 401
         const isProtectedApi = !options.skipAuth && isTrustedRequest(original)
+
+        if ((normalized.code === 423 || normalized.httpStatus === 423) && isTrustedRequest(original)) {
+            const rejectedToken = AxiosHeaders.from(original.headers).get('X-Private-Token')
+            if (rejectedToken) {
+                if (vaultToken === rejectedToken) vaultToken = null
+                for (const [spaceId, token] of privateSpaceTokens) {
+                    // A delayed response must not invalidate a newer unlock session.
+                    if (token === rejectedToken) privateSpaceTokens.delete(spaceId)
+                }
+            }
+        }
 
         if (unauthorized && isProtectedApi && !options.skipRefresh &&
             !options._retried && hooks.refreshAccessToken) {
