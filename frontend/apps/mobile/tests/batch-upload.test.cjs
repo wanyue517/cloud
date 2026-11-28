@@ -5,6 +5,52 @@ const { pathToFileURL } = require('node:url')
 
 const uploadEngineUrl = pathToFileURL(path.resolve(__dirname, '../src/lib/upload-engine.ts')).href
 
+test('completion keeps progress below 100 and resumes processing without uploading chunks', async () => {
+  const { executeChunkedUpload } = await import(uploadEngineUrl)
+  for (const status of ['UPLOADING', 'PROCESSING']) {
+    const storage = createMemoryStorage()
+    const file = createFakeFile('large.bin', 200)
+    const progress = []
+    let chunks = 0
+    // Seed a resumable session using the same key as the engine.
+    const { uploadResumeKey } = await import(uploadEngineUrl)
+    storage.setItem(uploadResumeKey('10', '0', file), 'session')
+    await executeChunkedUpload({
+      storage,
+      getSession: async () => ({ id: 'session', chunkSize: 100, chunkCount: 2, status }),
+      createSession: async () => assert.fail(),
+      uploadChunk: async () => { chunks++ },
+      completeSession: async () => {
+        assert.ok(progress.every(([percent]) => percent < 100))
+        assert.deepEqual(progress.at(-1), [99, '正在合并与校验'])
+        return 'file'
+      },
+    }, { spaceId: '10', parentId: '0', file, onProgress: (...args) => progress.push(args) })
+    assert.equal(chunks, status === 'PROCESSING' ? 0 : 2)
+    assert.equal(progress.at(-1)[0], 100)
+    assert.equal(storage.size(), 0)
+  }
+})
+
+test('cancel stops the server session while pause only stops waiting', async () => {
+  const { executeChunkedUpload } = await import(uploadEngineUrl)
+  for (const reason of ['cancelled', 'paused']) {
+    const controller = new AbortController()
+    let cancelled = 0
+    const storage = createMemoryStorage()
+    await assert.rejects(executeChunkedUpload({
+      storage,
+      getSession: async () => assert.fail(),
+      createSession: async () => ({ id: 'session', chunkSize: 100, chunkCount: 1, status: 'UPLOADING' }),
+      uploadChunk: async () => {},
+      completeSession: async () => { controller.abort(reason); throw new Error('aborted') },
+      cancelSession: async id => { assert.equal(id, 'session'); cancelled++ },
+    }, { spaceId: '10', parentId: '0', file: createFakeFile('file.bin', 100), signal: controller.signal }))
+    assert.equal(cancelled, reason === 'cancelled' ? 1 : 0)
+    assert.equal(storage.size(), reason === 'cancelled' ? 0 : 1)
+  }
+})
+
 function createMemoryStorage() {
   const map = new Map()
   return {

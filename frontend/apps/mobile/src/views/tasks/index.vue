@@ -84,9 +84,15 @@ async function cancelServerSession(session: UploadSession) {
 
 function sessionPercent(s: UploadSession): number {
   if (s.status === 'COMPLETED') return 100
+  if (s.status === 'QUEUED' || s.status === 'PROCESSING') return 99
   const received = s.received?.length ?? 0
   const total = Math.max(1, s.chunkCount || 1)
   return Math.min(99, Math.round((received / total) * 100))
+}
+
+const sessionLabels: Record<string, string> = {
+  UPLOADING: '上传中', QUEUED: '等待合并', PROCESSING: '合并校验中',
+  FAILED: '处理失败', COMPLETED: '已完成', CANCELLED: '已取消', EXPIRED: '已过期',
 }
 </script>
 
@@ -314,7 +320,7 @@ function sessionPercent(s: UploadSession): number {
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-medium truncate text-foreground">{{ session.name }}</p>
                 <p class="text-xs text-muted-foreground mt-0.5">
-                  {{ formatBytes(session.size) }} · 分片 {{ session.received?.length ?? 0 }}/{{ session.chunkCount }} · {{ session.status }}
+                  {{ formatBytes(session.size) }} · 分片 {{ session.received?.length ?? 0 }}/{{ session.chunkCount }} · {{ sessionLabels[session.status] || session.status }}
                 </p>
                 <p v-if="session.expiresAt" class="text-[11px] text-muted-foreground mt-0.5">
                   过期时间：{{ formatDateTime(session.expiresAt) }}

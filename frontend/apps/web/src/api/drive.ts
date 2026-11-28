@@ -1,5 +1,6 @@
 import { request } from '@/utils/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
+import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -90,56 +91,76 @@ export const drive = {
     ),
 }
 
-export async function uploadFile(spaceId: string, parentId: string, file: File, progress: (percent: number) => void, signal?: AbortSignal): Promise<string> {
+export async function uploadFile(spaceId: string, parentId: string, file: File, progress: (percent: number, message?: string) => void, signal?: AbortSignal): Promise<string> {
   const key = `cloudlane.upload.${spaceId}.${parentId}.${file.name}.${file.size}.${file.lastModified}`
   let upload: Upload | undefined
-  const previous = localStorage.getItem(key)
-  if (previous) {
-    try { upload = await request.get<Upload>(`/v1/uploads/${previous}`, undefined, { signal, silent: true }) }
-    catch (error) { if (signal?.aborted) throw error; localStorage.removeItem(key) }
-  }
-  if (!upload || upload.status === 'CANCELLED') {
-    upload = await request.post<Upload>('/v1/uploads', { spaceId, parentId, name: file.name, size: file.size, mimeType: file.type }, { signal })
-    localStorage.setItem(key, upload.id)
-  }
-  let fileId = upload.fileId || ''
-  if (upload.status !== 'COMPLETED') {
-    const received = new Set(upload.received ?? [])
-    for (let index = 0; index < upload.chunkCount; index++) {
-      if (!received.has(index)) {
-        const chunkBlob = file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize))
-        let lastErr: unknown
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (signal?.aborted) throw new Error('上传已暂停')
-          try {
-            const form = new FormData()
-            form.append('file', chunkBlob, file.name)
-            await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, {
-              signal,
-              timeout: 300_000,
-              onUploadProgress: (evt) => {
-                const loaded = evt.loaded ?? 0
-                const total = evt.total || chunkBlob.size || 1
-                const chunkFraction = Math.min(1, loaded / total)
-                progress(Math.min(99, Math.round(((index + chunkFraction) / upload.chunkCount) * 100)))
-              },
-            })
-            lastErr = undefined
-            break
-          } catch (err) {
-            lastErr = err
-            if (signal?.aborted || attempt === 2) break
-            if (typeof setTimeout === 'function') {
-              await new Promise(resolve => setTimeout(resolve, 300 * 2 ** attempt))
+  try {
+    const previous = localStorage.getItem(key)
+    if (previous) {
+      try { upload = await request.get<Upload>(`/v1/uploads/${previous}`, undefined, { signal, silent: true }) }
+      catch (error) {
+        const status = (error as { httpStatus?: number })?.httpStatus
+        if (signal?.aborted || (status !== 404 && status !== 410)) throw error
+        localStorage.removeItem(key)
+      }
+    }
+    if (!upload || upload.status === 'CANCELLED') {
+      upload = await request.post<Upload>('/v1/uploads', { spaceId, parentId, name: file.name, size: file.size, mimeType: file.type }, { signal })
+      localStorage.setItem(key, upload.id)
+    }
+    let fileId = upload.fileId || ''
+    if (upload.status !== 'COMPLETED') {
+      const received = new Set(upload.received ?? [])
+      const totalChunks = upload.chunkCount
+      for (let index = 0; !['QUEUED', 'PROCESSING'].includes(upload.status) && index < totalChunks; index++) {
+        if (!received.has(index)) {
+          const chunkBlob = file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize))
+          let lastErr: unknown
+          for (let attempt = 0; attempt < 3; attempt++) {
+            if (signal?.aborted) throw new Error('上传已暂停')
+            try {
+              const form = new FormData()
+              form.append('file', chunkBlob, file.name)
+              await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, {
+                signal,
+                timeout: 300_000,
+                onUploadProgress: (evt) => {
+                  const loaded = evt.loaded ?? 0
+                  const total = evt.total || chunkBlob.size || 1
+                  const chunkFraction = Math.min(1, loaded / total)
+                  progress(Math.min(99, Math.round(((index + chunkFraction) / totalChunks) * 100)))
+                },
+              })
+              lastErr = undefined
+              break
+            } catch (err) {
+              lastErr = err
+              if (signal?.aborted || attempt === 2) break
+              if (typeof setTimeout === 'function') {
+                await new Promise(resolve => setTimeout(resolve, 300 * 2 ** attempt))
+              }
             }
           }
+          if (lastErr) throw lastErr
         }
-        if (lastErr) throw lastErr
+        progress(Math.min(99, Math.round((index + 1) / totalChunks * 100)))
       }
-      progress(Math.round((index + 1) / upload.chunkCount * 100))
+      progress(99, '正在合并与校验')
+      fileId = await waitForUploadCompletion({
+        initial: upload,
+        signal,
+        requestCompletion: () => request.post<Upload>(`/v1/uploads/${upload!.id}/finalize`, undefined, { signal, silent: true }),
+        getSession: () => request.get<Upload>(`/v1/uploads/${upload!.id}`, undefined, { signal, silent: true }),
+      })
     }
-    fileId = await request.post<string>(`/v1/uploads/${upload.id}/complete`, undefined, { signal, timeout: 120_000 })
+    progress(100, '')
+    localStorage.removeItem(key)
+    return fileId
+  } catch (error) {
+    if (signal?.aborted && signal.reason === 'cancelled' && upload) {
+      await request.delete(`/v1/uploads/${upload.id}`, undefined, { silent: true })
+      localStorage.removeItem(key)
+    }
+    throw error
   }
-  localStorage.removeItem(key)
-  return fileId
 }

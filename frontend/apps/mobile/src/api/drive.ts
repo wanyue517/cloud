@@ -1,5 +1,6 @@
 import { request } from '@repo/session/request'
 import type { ApiSchemas, ResourceId } from '@repo/api-client'
+import { waitForUploadCompletion } from '@repo/drive-core/upload-queue'
 
 export type Space = Required<ApiSchemas['DriveModels_Space']>
 export type DriveNode = Omit<Required<ApiSchemas['DriveModels_Node']>, 'nodeType' | 'currentVersionId'> & {
@@ -120,6 +121,7 @@ export interface UploadSession {
   status: string
   fileId?: string | null
   expiresAt?: string
+  errorMessage?: string | null
 }
 
 export interface TextChunk {
@@ -479,7 +481,11 @@ export const mobileDriveApi = {
     })
   },
   completeUploadSession: (uploadId: string, signal?: AbortSignal) =>
-    request.post<string>(`/v1/uploads/${uploadId}/complete`, undefined, { signal, timeout: 120_000 }),
+    waitForUploadCompletion({
+      signal,
+      requestCompletion: () => request.post<UploadSession>(`/v1/uploads/${uploadId}/finalize`, undefined, { signal, silent: true }),
+      getSession: () => request.get<UploadSession>(`/v1/uploads/${uploadId}`, undefined, { signal, silent: true }),
+    }),
   cancelUploadSession: (uploadId: string) => request.delete<void>(`/v1/uploads/${uploadId}`),
 }
 
@@ -487,7 +493,7 @@ export async function uploadFileDirect(
   spaceId: string,
   parentId: string,
   file: File,
-  onProgress?: (percent: number) => void,
+  onProgress?: (percent: number, message?: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
   const upload = await request.post<UploadSession>(
@@ -495,32 +501,36 @@ export async function uploadFileDirect(
     { spaceId, parentId, name: file.name, size: file.size, mimeType: file.type || 'application/octet-stream' },
     { signal },
   )
-  let fileId = upload.fileId || ''
-  if (upload.status !== 'COMPLETED') {
-    const received = new Set(upload.received ?? [])
-    for (let index = 0; index < upload.chunkCount; index++) {
-      if (!received.has(index)) {
-        const chunkBlob = file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize))
-        const form = new FormData()
-        form.append('file', chunkBlob, file.name)
-        await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, {
-          signal,
-          timeout: 300_000,
-          onUploadProgress: evt => {
-            if (!onProgress) return
-            const loaded = evt.loaded ?? 0
-            const total = evt.total || chunkBlob.size || 1
-            const fraction = Math.min(1, loaded / total)
-            onProgress(Math.min(99, Math.round(((index + fraction) / upload.chunkCount) * 100)))
-          },
-        })
+  try {
+    let fileId = upload.fileId || ''
+    if (upload.status !== 'COMPLETED') {
+      const received = new Set(upload.received ?? [])
+      for (let index = 0; index < upload.chunkCount; index++) {
+        if (!received.has(index)) {
+          const chunkBlob = file.slice(index * upload.chunkSize, Math.min(file.size, (index + 1) * upload.chunkSize))
+          const form = new FormData()
+          form.append('file', chunkBlob, file.name)
+          await request.put(`/v1/uploads/${upload.id}/chunks/${index}`, form, {
+            signal,
+            timeout: 300_000,
+            onUploadProgress: evt => {
+              if (!onProgress) return
+              const loaded = evt.loaded ?? 0
+              const total = evt.total || chunkBlob.size || 1
+              const fraction = Math.min(1, loaded / total)
+              onProgress(Math.min(99, Math.round(((index + fraction) / upload.chunkCount) * 100)))
+            },
+          })
+        }
+        onProgress?.(Math.min(99, Math.round(((index + 1) / upload.chunkCount) * 100)))
       }
-      onProgress?.(Math.round(((index + 1) / upload.chunkCount) * 100))
+      onProgress?.(99, '正在合并与校验')
+      fileId = await mobileDriveApi.completeUploadSession(upload.id, signal)
     }
-    fileId = await request.post<string>(`/v1/uploads/${upload.id}/complete`, undefined, {
-      signal,
-      timeout: 120_000,
-    })
+    onProgress?.(100, '')
+    return fileId
+  } catch (error) {
+    if (signal?.aborted && signal.reason === 'cancelled') await mobileDriveApi.cancelUploadSession(upload.id)
+    throw error
   }
-  return fileId
 }

@@ -82,6 +82,8 @@ mybatis-plus:
       logic-not-delete-value: 0
       logic-delete-value: id
 cloud:
+  upload:
+    completion-worker-enabled: ${CLOUD_UPLOAD_COMPLETION_WORKER_ENABLED:true}
   storage:
     root: ${CLOUD_STORAGE_ROOT:data/objects}
     upload-temp: ${CLOUD_UPLOAD_TEMP:data/uploads}

@@ -55,6 +55,9 @@ const notice = ref('')
 const statusLabels: Record<string, string> = {
   ALL: '全部',
   UPLOADING: '上传中',
+  QUEUED: '等待合并',
+  PROCESSING: '合并校验中',
+  FAILED: '处理失败',
   COMPLETED: '已完成',
   CANCELLED: '已取消',
   EXPIRED: '已过期',
@@ -179,7 +182,7 @@ onMounted(() => { void load() })
 
     <template v-if="activeTab === 'uploads'">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <section v-for="key in ['UPLOADING', 'COMPLETED', 'CANCELLED', 'EXPIRED']" :key="key" class="rounded-xl border border-border bg-card p-5">
+        <section v-for="key in ['UPLOADING', 'QUEUED', 'PROCESSING', 'FAILED', 'COMPLETED', 'CANCELLED', 'EXPIRED']" :key="key" class="rounded-xl border border-border bg-card p-5">
           <p class="text-sm text-muted-foreground">{{ statusLabels[key] }}</p>
           <p class="text-3xl font-semibold mt-2 tabular-nums">{{ (summary[key] || 0).toLocaleString() }}</p>
         </section>
@@ -187,7 +190,7 @@ onMounted(() => { void load() })
 
       <div class="flex flex-wrap items-center gap-2">
         <Button
-          v-for="key in ['ALL', 'UPLOADING', 'COMPLETED', 'CANCELLED', 'EXPIRED']"
+          v-for="key in ['ALL', 'UPLOADING', 'QUEUED', 'PROCESSING', 'FAILED', 'COMPLETED', 'CANCELLED', 'EXPIRED']"
           :key="key"
           size="sm"
           :variant="statusFilter === key ? 'default' : 'outline'"

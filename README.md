@@ -56,6 +56,12 @@ Nginx 配置位于 [frontend/nginx.conf](frontend/nginx.conf)，已针对大文�
 
 ## 验证、发布与运维
 
+分片上传通过 `POST /api/v1/uploads/{id}/finalize` 提交后台合并任务，再查询上传会话状态。状态依次为 `QUEUED`、`PROCESSING`、`COMPLETED`，失败时返回 `FAILED` 和 `errorMessage`，可保留分片重试。原 `/complete` 接口保留兼容。
+
+API 内置独立上传处理线程，同一数据库每次只合并一个文件，文件读写不占用长事务；重启后继续处理未完成任务。多 API 实例须共享相同的分片和对象目录。`CLOUD_UPLOAD_COMPLETION_WORKER_ENABLED=false` 可关闭该实例的处理线程。部署时先更新后端并执行 V19 迁移，再更新前端。日志包含 `storageMs`、`commitMs`、`cleanupMs`，可用于定位收尾耗时。
+
+- **上传收尾集成测试**：`python scripts/verify-upload-completion.py`（需要本地 MySQL、Maven 和 PyYAML；自动创建和删除临时数据库，不迁移现有业务库）
+
 - **按模块打包发布**：`.\scripts\release.ps1 -Module all`（支持 `backend` / `web` / `admin` / `all`）
 - **备份与恢复演练**：`.\scripts\backup.ps1`，详细步骤见 [备份恢复与演练指南](docs/ops/备份恢复与演练指南.md)
 - **端到端 Playwright 测试**：`E2E_BASE_URL=http://localhost:3000 node frontend/tests/e2e/core-flows.spec.mjs`

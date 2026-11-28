@@ -24,12 +24,16 @@ test('resuming an upload skips received chunks and preserves string identifiers'
   const request = {
     get: async url => { assert.equal(url, '/v1/uploads/99'); return { id: '99', chunkSize: 3, chunkCount: 2, received: [0], status: 'UPLOADING' } },
     put: async (url, form) => { writes.push(url); assert.equal(await form.get('file').text(), 'def') },
-    post: async url => { writes.push(url); return '2124534695294148999' },
+    post: async url => {
+      writes.push(url)
+      assert.equal(progress.at(-1), 99)
+      return { status: 'COMPLETED', fileId: '2124534695294148999' }
+    },
   }
   const api = load('src/api/drive.ts', { '@/utils/request': { request } }, { localStorage: local, FormData, File })
   const progress = []
   await api.uploadFile('2124534695294148609', '0', new File(['abcdef'], 'sample.txt', { lastModified: 10 }), value => progress.push(value))
-  assert.deepEqual(writes, ['/v1/uploads/99/chunks/1', '/v1/uploads/99/complete'])
+  assert.deepEqual(writes, ['/v1/uploads/99/chunks/1', '/v1/uploads/99/finalize'])
   assert.equal(local.values.size, 0)
   assert.equal(progress.at(-1), 100)
 })
@@ -37,13 +41,34 @@ test('failed chunk keeps the upload session for a later retry and never commits 
   const local = storage()
   let completes = 0
   const request = {
-    post: async url => { if (url.endsWith('/complete')) completes++; return { id: '88', chunkSize: 3, chunkCount: 2, received: [], status: 'UPLOADING' } },
+    post: async url => { if (url.endsWith('/finalize')) completes++; return { id: '88', chunkSize: 3, chunkCount: 2, received: [], status: 'UPLOADING' } },
     put: async () => { throw new Error('offline') },
   }
   const api = load('src/api/drive.ts', { '@/utils/request': { request } }, { localStorage: local, FormData, File })
   await assert.rejects(api.uploadFile('1', '0', new File(['abcdef'], 'sample.txt', { lastModified: 10 }), () => {}), /offline/)
   assert.equal(completes, 0)
   assert.equal([...local.values.values()][0], '88')
+})
+
+test('cancel during completion cancels the server session without using the aborted signal', async () => {
+  const local = storage({ 'cloudlane.upload.1.0.sample.txt.6.10': '99' })
+  const controller = new AbortController()
+  let cancelled = false
+  const request = {
+    get: async () => ({ id: '99', chunkSize: 3, chunkCount: 2, status: 'PROCESSING' }),
+    delete: async (url, _params, options) => {
+      assert.equal(url, '/v1/uploads/99')
+      assert.equal(options.signal, undefined)
+      cancelled = true
+    },
+  }
+  const completion = {
+    waitForUploadCompletion: async () => { controller.abort('cancelled'); throw new Error('aborted') },
+  }
+  const api = load('src/api/drive.ts', { '@/utils/request': { request }, '@repo/drive-core/upload-queue': completion }, { localStorage: local, FormData, File })
+  await assert.rejects(api.uploadFile('1', '0', new File(['abcdef'], 'sample.txt', { lastModified: 10 }), () => {}, controller.signal), /aborted/)
+  assert.equal(cancelled, true)
+  assert.equal(local.values.size, 0)
 })
 function themed(saved, blocked = false) {
   const local = storage({ 'cloudlane.theme': saved })

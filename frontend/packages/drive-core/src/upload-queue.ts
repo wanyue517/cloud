@@ -64,11 +64,55 @@ export function statusLabel(status: UploadTaskStatus, message?: string): string 
   }
 }
 
+export interface UploadCompletionState {
+  status: string
+  fileId?: string | null
+  errorMessage?: string | null
+}
+
+/** Short requests keep completion independent of file size; the session survives client disconnects. */
+export async function waitForUploadCompletion(deps: {
+  requestCompletion: () => Promise<UploadCompletionState>
+  getSession: () => Promise<UploadCompletionState>
+  initial?: UploadCompletionState
+  signal?: AbortSignal
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
+}): Promise<string> {
+  const sleep = deps.sleep ?? defaultSleep
+  const retry = async <T>(operation: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      if (deps.signal?.aborted) throw new Error('已停止等待上传处理')
+      try { return await operation() }
+      catch (error) {
+        const status = (error as { httpStatus?: number })?.httpStatus
+        if (deps.signal?.aborted || attempt >= 3 || (status && status < 500 && status !== 429)) throw error
+        await sleep(500 * 2 ** attempt, deps.signal)
+      }
+    }
+  }
+  let state = deps.initial ?? await retry(deps.getSession)
+  if (state.status === 'UPLOADING' || state.status === 'FAILED') {
+    // Retrying submission is safe: the server queues each session only once.
+    state = await retry(deps.requestCompletion)
+  }
+  while (true) {
+    if (deps.signal?.aborted) throw new Error('已停止等待上传处理')
+    if (state.status === 'COMPLETED') {
+      if (!state.fileId) throw new Error('上传已完成，但缺少文件标识')
+      return state.fileId
+    }
+    if (state.status === 'FAILED') throw new Error(state.errorMessage || '文件处理失败，请重试')
+    if (state.status !== 'QUEUED' && state.status !== 'PROCESSING') throw new Error('上传任务已取消或过期')
+    await sleep(2000, deps.signal)
+    state = await retry(deps.getSession)
+  }
+}
+
 /**
  * 轻量任务队列状态机（类 Uppy Core 语义）：支持单任务暂停、继续、重试与取消。
  */
 export function createUploadQueue(
-  executor: (item: UploadQueueItem, onProgress: (percent: number) => void, signal: AbortSignal) => Promise<void>,
+  executor: (item: UploadQueueItem, onProgress: (percent: number, message?: string) => void, signal: AbortSignal) => Promise<void>,
   onStateChange?: (items: UploadQueueItem[]) => void,
 ) {
   const items: UploadQueueItem[] = []
@@ -94,8 +138,9 @@ export function createUploadQueue(
         next.attempts++
         notify()
         try {
-          await executor(next, percent => {
+          await executor(next, (percent, message) => {
             next.percent = percent
+            if (message !== undefined) next.message = message
             notify()
           }, ctrl.signal)
           if (next.status === 'uploading') {
@@ -147,8 +192,8 @@ export function createUploadQueue(
       if (!item) return
       if (item.status === 'uploading' || item.status === 'queued') {
         item.status = 'paused'
-        item.message = '已暂停，可点击继续续传'
-        controllers.get(id)?.abort()
+        item.message = item.message === '正在合并与校验' ? '已停止等待，服务器仍在处理，可点击继续查看' : '已暂停，可点击继续续传'
+        controllers.get(id)?.abort('paused')
         notify()
       }
     },
@@ -165,7 +210,7 @@ export function createUploadQueue(
       if (!item || item.status === 'completed') return
       item.status = 'cancelled'
       item.message = '已取消'
-      controllers.get(id)?.abort()
+      controllers.get(id)?.abort('cancelled')
       notify()
     },
     clearFinished() {
@@ -180,7 +225,8 @@ export function createUploadQueue(
       for (const item of items) {
         if (item.status === 'uploading' || item.status === 'queued') {
           item.status = 'paused'
-          controllers.get(item.id)?.abort()
+          item.message = item.message === '正在合并与校验' ? '已停止等待，服务器仍在处理，可点击继续查看' : '已暂停，可点击继续续传'
+          controllers.get(item.id)?.abort('paused')
         }
       }
       notify()

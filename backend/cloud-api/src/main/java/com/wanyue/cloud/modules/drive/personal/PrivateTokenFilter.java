@@ -20,6 +20,19 @@ public class PrivateTokenFilter extends OncePerRequestFilter {
         return TOKEN_HOLDER.get();
     }
 
+    /** Restore the submitting request's encrypted credential for a background task. */
+    public static <T> T withToken(String token, java.util.concurrent.Callable<T> task) throws Exception {
+        String previous = TOKEN_HOLDER.get();
+        try {
+            if (token == null || token.isBlank()) TOKEN_HOLDER.remove();
+            else TOKEN_HOLDER.set(token);
+            return task.call();
+        } finally {
+            if (previous == null) TOKEN_HOLDER.remove();
+            else TOKEN_HOLDER.set(previous);
+        }
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
