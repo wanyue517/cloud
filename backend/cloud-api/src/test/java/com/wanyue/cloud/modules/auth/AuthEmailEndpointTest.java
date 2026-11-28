@@ -50,7 +50,8 @@ class AuthEmailEndpointTest {
     static class Config {
         @Bean com.wanyue.cloud.modules.auth.service.WebSessionService webSessions() {
             var sessions=mock(com.wanyue.cloud.modules.auth.service.WebSessionService.class);
-            when(sessions.start(anyLong())).thenReturn("test-refresh");return sessions;
+            when(sessions.start(anyLong(), nullable(String.class), nullable(String.class), nullable(String.class), nullable(String.class)))
+                    .thenReturn("test-refresh");return sessions;
         }
         @Bean com.wanyue.cloud.common.security.AccessTokenFilter accessTokenFilter() {
             return new com.wanyue.cloud.common.security.AccessTokenFilter(
@@ -59,11 +60,20 @@ class AuthEmailEndpointTest {
         }
         @Bean AuthService authService() { return mock(AuthService.class); }
         @Bean VerificationRateLimiter limiter() { return mock(VerificationRateLimiter.class); }
+        @Bean com.wanyue.cloud.modules.ops.ErrorReportService errorReports() { return mock(com.wanyue.cloud.modules.ops.ErrorReportService.class); }
         @Bean TestErrorController errorController() { return new TestErrorController(); }
     }
 
     @RestController
     static class TestErrorController {
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter;
+
+        @GetMapping(value="/api/v1/messages/events", produces="text/event-stream")
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter stream() throws Exception {
+            emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(60000L);
+            emitter.send("connected");
+            return emitter;
+        }
         @GetMapping("/error")
         org.springframework.http.ResponseEntity<Void> error() {
             return org.springframework.http.ResponseEntity.status(500).build();
@@ -144,6 +154,74 @@ class AuthEmailEndpointTest {
                 .andExpect(status().isInternalServerError());
         mvc.perform(get("/error")).andExpect(status().isUnauthorized());
         verifyNoInteractions(auth, limiter);
+    }
+
+    @Test
+    void committedResponseCanIncludeContainerErrorPageWithoutReauthorizing() throws Exception {
+        var request = new org.springframework.mock.web.MockHttpServletRequest(context.getServletContext(), "GET", "/api/v1/messages/events");
+        request.setServletPath("/api/v1/messages/events");
+        request.setDispatcherType(DispatcherType.INCLUDE);
+        request.setAttribute(jakarta.servlet.RequestDispatcher.ERROR_REQUEST_URI, "/api/v1/messages/events");
+        request.setAttribute(jakarta.servlet.RequestDispatcher.ERROR_STATUS_CODE, 500);
+        request.setAttribute(jakarta.servlet.RequestDispatcher.INCLUDE_REQUEST_URI, "/error");
+        request.setAttribute(jakarta.servlet.RequestDispatcher.INCLUDE_SERVLET_PATH, "/error");
+        var response = new org.springframework.mock.web.MockHttpServletResponse();
+        response.setContentType("text/event-stream");
+        response.getWriter().write("data: connected\n\n");
+        response.flushBuffer();
+        var included = new java.util.concurrent.atomic.AtomicBoolean();
+        context.getBean(org.springframework.security.web.FilterChainProxy.class)
+                .doFilter(request, response, (req, resp) -> included.set(true));
+        org.junit.jupiter.api.Assertions.assertTrue(included.get());
+        org.junit.jupiter.api.Assertions.assertEquals("data: connected\n\n", response.getContentAsString());
+        org.junit.jupiter.api.Assertions.assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void ordinaryIncludesAndSpoofedHeadersDoNotBypassAuthentication() throws Exception {
+        mvc.perform(get("/error").with(request -> {
+                    request.setDispatcherType(DispatcherType.INCLUDE);
+                    request.setAttribute(jakarta.servlet.RequestDispatcher.INCLUDE_REQUEST_URI, "/error");
+                    return request;
+                })).andExpect(status().isUnauthorized());
+        mvc.perform(get("/error").header("jakarta.servlet.error.request_uri", "/original")
+                .header("jakarta.servlet.include.request_uri", "/error"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/protected").with(request -> {
+                    request.setDispatcherType(DispatcherType.INCLUDE);
+                    request.setAttribute(jakarta.servlet.RequestDispatcher.ERROR_REQUEST_URI, "/original");
+                    request.setAttribute(jakarta.servlet.RequestDispatcher.INCLUDE_REQUEST_URI, "/api/v1/protected");
+                    return request;
+                })).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void authenticatedSseCanCompleteEvenIfAsyncDispatchHasNoAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/messages/events")).andExpect(status().isUnauthorized());
+        var initial = mvc.perform(get("/api/v1/messages/events")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("test")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.request().asyncStarted()).andReturn();
+        org.junit.jupiter.api.Assertions.assertTrue(initial.getResponse().isCommitted());
+        context.getBean(TestErrorController.class).emitter.complete();
+        var dispatch = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(initial);
+        mvc.perform(servletContext -> org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous()
+                        .postProcessRequest(dispatch.buildRequest(servletContext)))
+                .andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("connected")));
+    }
+
+    @Test
+    void asyncDispatchWithoutAnExistingStreamResultCannotBypassAuthentication() throws Exception {
+        mvc.perform(get("/api/v1/messages/events").with(request -> {
+            request.setDispatcherType(DispatcherType.ASYNC);
+            return request;
+        })).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/protected").with(request -> {
+            request.setDispatcherType(DispatcherType.ASYNC);
+            var manager = mock(org.springframework.web.context.request.async.WebAsyncManager.class);
+            when(manager.hasConcurrentResult()).thenReturn(true);
+            request.setAttribute(org.springframework.web.context.request.async.WebAsyncUtils.WEB_ASYNC_MANAGER_ATTRIBUTE, manager);
+            return request;
+        })).andExpect(status().isUnauthorized());
     }
 
     @Test
