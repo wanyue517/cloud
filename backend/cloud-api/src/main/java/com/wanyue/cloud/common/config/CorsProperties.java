@@ -16,5 +16,6 @@ import java.util.List;
 public class CorsProperties {
     @NotEmpty
     private List<@NotBlank String> allowedOrigins = List.of(
-            "http://localhost:3000", "http://127.0.0.1:3000");
+            "http://localhost:3000", "http://127.0.0.1:3000",
+            "capacitor://localhost", "https://localhost");
 }

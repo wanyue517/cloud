@@ -307,4 +307,33 @@ class AuthEmailEndpointTest {
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"));
     }
 
+    @Test
+    void capacitorOriginsCanPreflightAndCallPublicApiWithTheirActualAppHeaders() throws Exception {
+        for (String origin : java.util.List.of("capacitor://localhost", "https://localhost")) {
+            mvc.perform(options("/api/admin/auth/register/send-email-code")
+                    .header(HttpHeaders.ORIGIN, origin)
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type,x-client-type,x-device-name,x-refresh-token,x-private-token"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin))
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+            mvc.perform(post("/api/admin/auth/register/send-email-code")
+                    .param("email", "user@example.com").header(HttpHeaders.ORIGIN, origin))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin));
+        }
+    }
+
+    @Test
+    void nativeAppOriginsStillNeedAuthenticationAndOtherCapacitorHostsAreRejected() throws Exception {
+        for (String origin : java.util.List.of("capacitor://localhost", "https://localhost")) {
+            mvc.perform(get("/api/admin/users").header(HttpHeaders.ORIGIN, origin))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin));
+        }
+        mvc.perform(get("/api/admin/users").header(HttpHeaders.ORIGIN, "capacitor://untrusted.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
+
 }

@@ -42,7 +42,7 @@ docker exec redis sh /tmp/cloud-verification-review-tests/test.sh
 
 测试使用独立随机前缀，并在退出时删除本次测试键。
 
-跨域由 Spring Security 统一处理，默认允许 `http://localhost:3000` 和 `http://127.0.0.1:3000`。
+跨域由 Spring Security 统一处理，默认允许 `http://localhost:3000`、`http://127.0.0.1:3000`，以及 Capacitor App 的 `capacitor://localhost`（iOS）和 `https://localhost`（Android）。
 其他前端域名或端口可在 `cloud.cors.allowed-origins` 中配置，或设置逗号分隔的环境变量
 `CORS_ALLOWED_ORIGINS`。填写完整来源（协议、域名、端口），不包含页面路径。
-配置支持携带凭据，因此不能使用 `*`。修改配置后需重启后端。
+配置支持携带凭据，因此不能使用 `*`。自定义白名单时请保留实际使用的原生 App 来源。修改配置后需重启后端。

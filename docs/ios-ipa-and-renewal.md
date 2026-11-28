@@ -6,6 +6,14 @@
 
 后端先启动到包含 Flyway `V22`、`V23` 的版本，配置 FFmpeg/FFprobe。iOS App 首次启动后在服务器设置中填入手机能访问的云盘 **HTTPS 地址**，不能使用 Windows 本机专用的 `localhost`。
 
+如果浏览器能访问服务器，App 测试连接却失败，请检查后端 CORS 白名单。iOS App 的请求来源是 `capacitor://localhost`，Android App 是 `https://localhost`，不等于服务器的公网域名。默认配置已包含这两个来源；自定义 `CORS_ALLOWED_ORIGINS` 时也需保留它们，例如：
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://cloud.example.com,capacitor://localhost,https://localhost
+```
+
+Docker Compose 部署需确认 `api.environment` 传递此变量；本仓库 compose 已加入传递。修改后执行 `docker compose --profile app up -d --build api` 重建 API 并重新创建容器以加载新配置，仅 `restart` 不会更新容器环境变量。直接运行 JAR 则设置环境变量后重启 Java 进程；使用 systemd 时在服务配置内设置 `Environment=`，终端内的 `export` 不会自动传入 systemd。也可在原来的 JAR 启动命令中追加 `--cloud.cors.allowed-origins=https://cloud.example.com,capacitor://localhost,https://localhost`（保留其他参数，放在输出重定向之前）。这项后端修复不需要重新打 IPA。
+
 - 文件页“新建与上传” → **实况照片**：系统选择器只选择 Live Photo，一次导出静态原件、配套 MOV 和兼容 JPEG，自动上传并绑定。支持系统下载 iCloud 中的原件；此过程可能需要等待。
 - 照片、MOV、JPEG 预览图作为三个普通文件保存，都计算配额。当前版本请一并保留；删除、跨空间移动或撤销对配套文件的访问，会使绑定资源不可用。传输在前台完成，中途失败会提示已保留的原件数量。
 - 图片预览 → **LIVE** 或长按：播放兼容实况视频，默认静音，可开启原声。
