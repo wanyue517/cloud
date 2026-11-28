@@ -34,14 +34,12 @@ import java.util.Locale;
 
 /**
  * 面向浏览器原生 <video>/<audio> 的短期票据流式媒体端点。
- * 通过 SeekableByteChannel + StreamingResponseBody 精确响应 HTTP Range（206 Partial Content），
- * 零内存堆积且不依赖 ResourceRegionHttpMessageConverter，支持任意大小视频秒开与拖动进度条。
+ * 通过存储路由和 StreamingResponseBody 响应 HTTP Range（206 Partial Content），
+ * 按请求区间流式读取，内存占用不随视频大小增长。
  */
 @RestController
 @RequestMapping("/api/v1/media")
 public class MediaStreamController {
-    /** 单次 Range 分片上限（4 MB），防止开放区间 bytes=0- 占满连接，保证 seek 响应迅速。 */
-    private static final long MAX_CHUNK_SIZE = 4L * 1024 * 1024;
     private static final int IO_BUFFER_SIZE = 64 * 1024;
 
     private final JwtTokenProvider jwtTokenProvider;
@@ -128,8 +126,10 @@ public class MediaStreamController {
                     .build();
         }
 
-        long rangeLength = Math.min(MAX_CHUNK_SIZE, requestedEnd - start + 1);
-        long end = start + rangeLength - 1;
+        // Honor the browser's actual byte interval; an open-ended range must not be
+        // silently cut at 4 MiB. The bounded IO buffer, not the response size, controls memory.
+        long end = requestedEnd;
+        long rangeLength = end - start + 1;
         StreamingResponseBody body = head ? null : body(localPath, remoteSource, start, rangeLength);
         return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")
@@ -171,7 +171,7 @@ public class MediaStreamController {
                 int toRead = (int) Math.min(array.length, remaining);
                 ByteBuffer buf = ByteBuffer.wrap(array, 0, toRead);
                 int read = channel.read(buf);
-                if (read < 0) break;
+                if (read < 0) throw new java.io.EOFException("本地视频数据提前结束");
                 out.write(array, 0, read);
                 remaining -= read;
             }

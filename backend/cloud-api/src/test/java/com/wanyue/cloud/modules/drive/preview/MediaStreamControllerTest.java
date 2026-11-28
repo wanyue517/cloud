@@ -59,4 +59,50 @@ class MediaStreamControllerTest {
                 .andExpect(content().bytes("abcdefghij".getBytes(StandardCharsets.UTF_8)));
         verify(drive, never()).materializeMediaSource(source);
     }
+
+    @Test
+    void openEndedLargeRangeAndTailAreNotTruncated() throws Exception {
+        byte[] secret = "test-only-secret-at-least-32-bytes".getBytes(StandardCharsets.UTF_8);
+        JwtTokenProvider jwt = new JwtTokenProvider(Base64.getEncoder().encodeToString(secret), "cloudlane", 900, new JsonMapper());
+        DriveService drive = mock(DriveService.class);
+        PreviewAssetService assets = mock(PreviewAssetService.class);
+        var storage = mock(com.wanyue.cloud.modules.drive.storage.StorageRouterService.class);
+        long size = 3L * 1024 * 1024 * 1024;
+        var source = new DriveModels.MediaSource(4L, 9L, "large", size, "large.mp4", "video/mp4", "abc");
+        when(drive.mediaSourceByVerifiedTicket(2L, 3L, 4L)).thenReturn(source);
+        String ticket = jwt.createMediaStreamTicket(1L, 2L, 3L, 4L, "ORIGINAL", 1800);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage)).build();
+
+        // HEAD can assert a multi-gigabyte range without allocating the payload.
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head("/api/v1/media/stream")
+                        .param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=0-"))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 0-" + (size - 1) + "/" + size))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, size));
+
+        long start = size - 8;
+        byte[] tail = "moovtail".getBytes(StandardCharsets.UTF_8);
+        when(storage.openRange(source, start, size - 1)).thenReturn(new java.io.ByteArrayInputStream(tail));
+        var pending = mvc.perform(get("/api/v1/media/stream").param("ticket", ticket)
+                        .header(HttpHeaders.RANGE, "bytes=-8"))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(pending))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + (size - 1) + "/" + size))
+                .andExpect(content().bytes(tail));
+
+        // An actual range above the previous 4 MiB limit must also be streamed in full.
+        int length = 5 * 1024 * 1024;
+        byte[] data = new byte[length];
+        data[length - 1] = 42;
+        when(storage.openRange(source, 0, length - 1L)).thenReturn(new java.io.ByteArrayInputStream(data));
+        var large = mvc.perform(get("/api/v1/media/stream").param("ticket", ticket)
+                        .header(HttpHeaders.RANGE, "bytes=0-" + (length - 1L)))
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(large))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, length))
+                .andExpect(content().bytes(data));
+        verify(drive, never()).materializeMediaSource(source);
+    }
 }

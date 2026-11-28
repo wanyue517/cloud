@@ -22,18 +22,29 @@ export function createMediaPlaybackSession(deps: {
   const cancel = deps.cancel ?? (timer => clearTimeout(timer as ReturnType<typeof setTimeout>))
   let disposed = false
   let busy = false
-  let recoveryPending = false
+  let recoveryPending: 'network' | 'media' | 'timeout' | undefined
   let failed = false
   let forceProxy = false
   let current: PlaybackAddress | undefined
   let renewal: unknown
   let watchdog: unknown
   let expiresAt = 0
+  let retries = 0
+  const startupIdleMs = 60_000
+  const maxRetries = 1
 
   function clearTimers() {
     if (renewal !== undefined) cancel(renewal)
     if (watchdog !== undefined) cancel(watchdog)
     renewal = watchdog = undefined
+  }
+
+  function armWatchdog() {
+    if (watchdog !== undefined) cancel(watchdog)
+    watchdog = schedule(() => {
+      watchdog = undefined
+      void recover('timeout')
+    }, startupIdleMs)
   }
 
   async function load() {
@@ -48,7 +59,7 @@ export function createMediaPlaybackSession(deps: {
       const position = deps.getPosition()
       const playing = deps.isPlaying()
       // Register before applying: a cached media source can become ready immediately.
-      watchdog = schedule(() => { void recover() }, 20000)
+      armWatchdog()
       await deps.applyAddress(address, Number.isFinite(position) ? position : 0, playing)
       if (disposed) return
       renewal = schedule(() => { void load() }, Math.max(1000, expiresAt - now() - 60000))
@@ -57,8 +68,9 @@ export function createMediaPlaybackSession(deps: {
     } finally {
       busy = false
       if (recoveryPending) {
-        recoveryPending = false
-        void recover()
+        const reason = recoveryPending
+        recoveryPending = undefined
+        void recover(reason)
       }
     }
   }
@@ -70,28 +82,39 @@ export function createMediaPlaybackSession(deps: {
     deps.onFailure(message)
   }
 
-  async function recover() {
+  async function recover(reason: 'network' | 'media' | 'timeout' = 'media') {
     if (disposed || failed) return
     if (busy) {
-      recoveryPending = true
+      recoveryPending = reason
       return
     }
     if (current && now() >= expiresAt) { await load(); return }
     if (current?.mode === 'DIRECT' && current.proxyFallbackAllowed && !forceProxy) {
       forceProxy = true
+      retries = 0
       await load()
       return
     }
-    fail('视频加载或解码失败，请重试；也可尝试兼容转码或下载原件')
+    if (reason !== 'media' && retries < maxRetries) {
+      retries++
+      await load()
+      return
+    }
+    fail(reason === 'media' ? '视频加载或解码失败，请重试；也可尝试兼容转码或下载原件' : '视频数据长时间未到达，请检查网络或存储连接后重试')
   }
 
   return {
     start: load,
     recover,
+    progress() {
+      // Only extend the startup deadline while real media progress is being reported.
+      if (!disposed && !failed && watchdog !== undefined) armWatchdog()
+    },
     ready() {
       if (watchdog !== undefined) cancel(watchdog)
       watchdog = undefined
-      recoveryPending = false
+      recoveryPending = undefined
+      retries = 0
     },
     dispose() { disposed = true; clearTimers() },
   }

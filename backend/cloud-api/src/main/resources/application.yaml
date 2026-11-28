@@ -6,6 +6,10 @@ spring:
     import: optional:file:./application-local.yaml,optional:file:../application-local.yaml
   application:
     name: cloud-api
+  mvc:
+    async:
+      # A browser may hold a large open-ended media range while buffering/playback continues.
+      request-timeout: ${CLOUD_MVC_ASYNC_TIMEOUT:30m}
   servlet:
     multipart:
       max-file-size: 64MB

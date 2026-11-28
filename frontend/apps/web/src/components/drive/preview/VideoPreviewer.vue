@@ -70,6 +70,7 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
   player = new Player({
     el: containerRef.value,
     url,
+    preload: 'auto',
     fluid: false,
     width: '100%',
     height: '100%',
@@ -80,9 +81,17 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
   })
   const instance = player
   player.on('canplay', () => { if (player === instance) playbackSession?.ready() })
-  player.on('error', () => { if (player === instance) void playbackSession?.recover() })
+  player.on('progress', () => { if (player === instance) playbackSession?.progress() })
+  player.on('error', () => {
+    if (player !== instance) return
+    const media = (instance as unknown as { media?: HTMLMediaElement }).media
+    // HTMLMediaElement error 2 is a transport failure, not an unsupported codec.
+    void playbackSession?.recover(media?.error?.code === 2 ? 'network' : 'media')
+  })
   player.once('loadedmetadata', () => {
     if (player !== instance) return
+    // Metadata is enough to stop the startup watchdog, even if playback is paused.
+    playbackSession?.ready()
     if (position > 0) instance.currentTime = position
     if (playing) void instance.play()?.catch(() => undefined)
   })
@@ -108,8 +117,9 @@ async function mountPlayer(url: string, currentSeq: number, position = 0, playin
 
 async function startPlayback(assetType: 'ORIGINAL' | 'VIDEO_MP4', currentSeq: number) {
   playbackSession?.dispose()
+  const versionId = props.version?.id ?? props.node.currentVersionId ?? undefined
   playbackSession = createMediaPlaybackSession({
-    requestAddress: forceProxy => drive.streamTicket(props.node, { versionId: props.version?.id, assetType, forceProxy }),
+    requestAddress: forceProxy => drive.streamTicket(props.node, { versionId, assetType, forceProxy }),
     applyAddress: async (address, position, playing) => {
       if (currentSeq === seq) await mountPlayer(address.streamUrl, currentSeq, position, playing)
     },
