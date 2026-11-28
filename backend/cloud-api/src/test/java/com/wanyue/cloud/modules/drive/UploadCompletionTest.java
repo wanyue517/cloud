@@ -28,11 +28,12 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** Run via scripts/verify-upload-completion.py against a disposable MySQL schema. */
-@SpringBootTest(properties = "cloud.upload.completion-worker-enabled=false")
+@SpringBootTest(properties = {"cloud.upload.completion-worker-enabled=false", "cloud.openapi.enabled=true"})
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "UPLOAD_TEST_DB_URL", matches = ".+")
 class UploadCompletionTest {
@@ -45,6 +46,11 @@ class UploadCompletionTest {
     @Autowired DriveService drive;
     @Autowired MockMvc mvc;
     @Autowired com.wanyue.cloud.modules.auth.support.JwtTokenProvider jwt;
+    @Autowired DirectUploadService directUploads;
+    @Autowired AdminController admin;
+    @Autowired tools.jackson.databind.ObjectMapper objectMapper;
+    @Autowired com.wanyue.cloud.modules.drive.storage.SecretCipher cipher;
+    @MockitoSpyBean com.wanyue.cloud.modules.drive.storage.S3StorageProvider s3;
     long user;
     long space;
 
@@ -65,10 +71,137 @@ class UploadCompletionTest {
 
     @BeforeEach
     void setup() {
+        db.update("UPDATE storage_profile SET is_default=(id=1)");
         user = IdWorker.getId(); space = IdWorker.getId();
         db.update("INSERT INTO sys_user(id,display_name,status) VALUES (?,'Upload test',1)", user);
         db.update("INSERT INTO auth_user_security(id,user_id) VALUES (?,?)", IdWorker.getId(), user);
         db.update("INSERT INTO space(id,owner_user_id,kind,name) VALUES (?,?,'PERSONAL','Upload test')", space, user);
+    }
+
+    private long directUpload(String mode, boolean fallback) throws Exception {
+        long profile = IdWorker.getId();
+        db.update("UPDATE storage_profile SET is_default=FALSE");
+        db.update("INSERT INTO storage_profile(id,name,provider,root_path,endpoint,bucket,region,access_key,secret_cipher,is_default,upload_mode,direct_threshold_bytes,direct_fallback) VALUES (?,'Direct test','S3','s3://test','https://storage.invalid','test','auto','access',?,TRUE,?,5,?)",
+                profile, cipher.encrypt("secret"), mode, fallback);
+        var session = uploads.create(user, new DriveModels.UploadInput(space, 0, "direct.bin", 6, "application/octet-stream"));
+        doReturn("multipart-id").when(s3).initiateMultipart(any(), anyString(), anyString());
+        doReturn(java.util.List.of()).when(s3).listParts(any(), anyString(), anyString(), anyString());
+        doNothing().when(s3).abortMultipart(any(), anyString(), anyString(), anyString());
+        doNothing().when(s3).deleteObject(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        return Long.parseLong(session.id());
+    }
+
+    @Test
+    void directUploadVerifiesRemotePartsAndCommitsWithoutReadingFileBytesOrTrustingClientHash() throws Exception {
+        long id = directUpload("DIRECT", false);
+        assertEquals("DIRECT", uploads.status(user, id, false).uploadMode());
+        assertThrows(BizException.class, () -> directUploads.info(user + 1, id));
+        directUploads.info(user, id);
+        String url = (String) directUploads.presign(user, id, 0).get("uploadUrl");
+        assertTrue(url.contains("partNumber=1"));
+        assertTrue(url.contains("uploadId=multipart-id"));
+        assertThrows(BizException.class, () -> directUploads.presign(user, id, 1));
+        assertThrows(BizException.class, () -> uploads.chunk(user, id, 0, new ByteArrayInputStream(new byte[6]), 6));
+        doReturn(java.util.List.of(new com.wanyue.cloud.modules.drive.storage.S3StorageProvider.RemotePart(1, 6, "\"etag\"")))
+                .when(s3).listParts(any(), anyString(), anyString(), anyString());
+        doNothing().when(s3).completeMultipart(any(), anyString(), anyString(), anyString(), anyList());
+        doReturn(6L).when(s3).headObjectSize(any(), anyString(), anyString());
+        uploads.requestCompletion(user, id, "0".repeat(64));
+        assertTrue(worker.processNext());
+        assertEquals("COMPLETED", uploads.status(user, id, false).status());
+        assertNull(db.queryForObject("SELECT b.sha256 FROM blob_object b JOIN file_version v ON v.blob_id=b.id JOIN file_node n ON n.current_version_id=v.id WHERE n.space_id=?", String.class, space));
+        verify(s3, never()).putObject(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(), anyLong());
+        assertEquals(0, drive.findUserReadableBlobBySha256(user, "0".repeat(64), 6).stream().count());
+    }
+
+    @Test
+    void directModeIsPinnedAndFallbackRequiresExplicitOptIn() throws Exception {
+        long id = directUpload("AUTO", false);
+        assertEquals("DIRECT", uploads.status(user, id, false).uploadMode());
+        db.update("UPDATE storage_profile SET upload_mode='PROXY'");
+        assertEquals("DIRECT", uploads.status(user, id, false).uploadMode());
+        assertThrows(BizException.class, () -> uploads.fallback(user, id));
+        db.update("UPDATE upload_session SET direct_fallback=TRUE WHERE id=?", id);
+        directUploads.info(user, id);
+        assertEquals("PROXY", uploads.fallback(user, id).uploadMode());
+        verify(s3).abortMultipart(any(), anyString(), anyString(), eq("multipart-id"));
+        assertNull(db.queryForObject("SELECT direct_upload_id FROM upload_session WHERE id=?", String.class, id));
+    }
+
+    @Test
+    void incompleteDirectUploadFailsWithoutCreatingNodeAndCanBeRetried() throws Exception {
+        long id = directUpload("DIRECT", false);
+        directUploads.info(user, id);
+        uploads.requestCompletion(user, id, null);
+        assertTrue(worker.processNext());
+        assertEquals("FAILED", uploads.status(user, id, false).status());
+        assertEquals(0L, db.queryForObject("SELECT COUNT(*) FROM file_node WHERE space_id=?", Long.class, space));
+        directUploads.info(user, id);
+        uploads.cancel(user, id);
+        assertEquals("CANCELLED", uploads.status(user, id, false).status());
+        verify(s3).abortMultipart(any(), anyString(), anyString(), eq("multipart-id"));
+    }
+
+    @Test
+    void exportsActualApiContract() throws Exception {
+        String json = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        // Only explicitly requested by the disposable test runner; normal tests do not rewrite documentation.
+        if (System.getenv("EXPORT_UPLOAD_API_CONTRACT") != null) {
+            var target = Path.of("..", "..", "docs", "api", "openapi.json");
+            var parsed = objectMapper.readValue(json, java.util.Map.class);
+            var baseline = objectMapper.readValue(Files.readString(target), java.util.Map.class);
+            Files.writeString(target, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(orderLike(parsed, baseline)) + "\n", java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    private static Object orderLike(Object current, Object baseline) {
+        if (current instanceof java.util.List<?> nowList && baseline instanceof java.util.List<?> oldList) {
+            var result = new java.util.ArrayList<Object>();
+            for (int i = 0; i < nowList.size(); i++) result.add(orderLike(nowList.get(i), i < oldList.size() ? oldList.get(i) : null));
+            return result;
+        }
+        if (!(current instanceof java.util.Map<?, ?> now) || !(baseline instanceof java.util.Map<?, ?> old)) return current;
+        var ordered = new java.util.LinkedHashMap<Object, Object>();
+        for (var key : old.keySet()) if (now.containsKey(key)) ordered.put(key, orderLike(now.get(key), old.get(key)));
+        for (var key : now.keySet()) if (!ordered.containsKey(key)) ordered.put(key, now.get(key));
+        return ordered;
+    }
+
+    @Test
+    void retriesCompletedRemoteObjectAfterMetadataFailureWithoutDeletingOrRetransmitting() throws Exception {
+        long id = directUpload("DIRECT", false);
+        directUploads.info(user, id);
+        doReturn(java.util.List.of(new com.wanyue.cloud.modules.drive.storage.S3StorageProvider.RemotePart(1, 6, "\"etag\"")))
+                .when(s3).listParts(any(), anyString(), anyString(), anyString());
+        doNothing().when(s3).completeMultipart(any(), anyString(), anyString(), anyString(), anyList());
+        doReturn(6L).when(s3).headObjectSize(any(), anyString(), anyString());
+        doThrow(new IllegalStateException("metadata unavailable")).doCallRealMethod().when(uploads).finishCompletion(eq(user), eq(id), any());
+        uploads.requestCompletion(user, id, null);
+        assertTrue(worker.processNext());
+        assertEquals("FAILED", uploads.status(user, id, false).status());
+        verify(s3, never()).deleteObject(anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        doThrow(new com.wanyue.cloud.modules.drive.storage.S3StorageProvider.S3ResponseException(404))
+                .when(s3).listParts(any(), anyString(), anyString(), anyString());
+        assertEquals(java.util.List.of(0), directUploads.info(user, id).get("received"));
+        uploads.requestCompletion(user, id, null);
+        assertTrue(worker.processNext());
+        assertEquals("COMPLETED", uploads.status(user, id, false).status());
+        verify(s3, times(1)).completeMultipart(any(), anyString(), anyString(), anyString(), anyList());
+    }
+
+    @Test
+    @org.springframework.security.test.context.support.WithMockUser(roles="SUPER_ADMIN")
+    void adminCanReadAndConfigureUploadModeButCannotDeleteAnActiveStorageProfile() throws Exception {
+        long id = directUpload("DIRECT", false);
+        long profile = db.queryForObject("SELECT storage_profile_id FROM upload_session WHERE id=?", Long.class, id);
+        assertFalse(admin.storageProfiles().getData().isEmpty());
+        admin.updateStorageProfile(profile, new AdminController.StorageProfileInput("Updated", "S3", "s3://test", "https://storage.invalid", "test", "auto", "access", null, null,
+                "AUTO", 200L * 1048576, 16777216, 2, 600, true));
+        assertEquals("AUTO", db.queryForObject("SELECT upload_mode FROM storage_profile WHERE id=?", String.class, profile));
+        assertEquals("DIRECT", uploads.status(user, id, false).uploadMode());
+        db.update("UPDATE storage_profile SET is_default=FALSE WHERE id=?", profile);
+        assertThrows(BizException.class, () -> admin.deleteStorageProfile(profile));
     }
 
     private long upload() throws Exception {

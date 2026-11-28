@@ -37,6 +37,7 @@ const queue = createUploadQueue(
         uploadChunk: (id, idx, blob, name, onChunk, sig) =>
           mobileDriveApi.uploadChunk(id, idx, blob, name, onChunk, sig),
         completeSession: (id, sig) => mobileDriveApi.completeUploadSession(id, sig),
+        uploadDirect: (session, file, progress, sig) => mobileDriveApi.uploadDirect(session, file, progress, sig),
         cancelSession: id => mobileDriveApi.cancelUploadSession(id),
         storage,
       },

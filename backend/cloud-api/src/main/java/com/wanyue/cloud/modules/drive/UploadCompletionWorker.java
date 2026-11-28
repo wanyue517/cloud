@@ -101,7 +101,7 @@ public class UploadCompletionWorker {
             uploads.finishCompletion(user, id, prepared);
             committed = true;
         } finally {
-            if (!committed) {
+            if (!committed && !prepared.retainOnFailure()) {
                 try { drive.discardPreparedUpload(prepared); }
                 catch (Exception e) { log.warn("Upload object cleanup failed: uploadId={}", id, e); }
             }

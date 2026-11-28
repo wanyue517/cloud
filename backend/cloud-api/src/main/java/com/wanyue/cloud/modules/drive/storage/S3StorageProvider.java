@@ -182,7 +182,10 @@ public class S3StorageProvider implements StorageProvider {
         String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
         try {
             HttpRequest req = buildSignedRequest("DELETE", uri, safeRegion, accessKey, secretKey, new byte[0], null);
-            httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+            var response = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() != 404 && (response.statusCode() < 200 || response.statusCode() >= 300)) {
+                throw new IOException("S3 对象删除失败，HTTP " + response.statusCode());
+            }
         } catch (Exception e) {
             throw new IOException("S3 对象删除异常: " + e.getMessage(), e);
         }
@@ -255,6 +258,16 @@ public class S3StorageProvider implements StorageProvider {
     public String generatePresignedPutUrl(
             String endpoint, String bucket, String region, String accessKey, String secretKey,
             String key, int expiresSeconds) {
+        return presignPut(endpoint, bucket, region, accessKey, secretKey, key, expiresSeconds, Map.of());
+    }
+
+    public String presignPart(StorageRouterService.StorageProfileMeta p, String secret, String key, String uploadId, int part, int ttl) {
+        return presignPut(p.endpoint(), p.bucket(), p.region(), p.accessKey(), secret, key, ttl,
+                Map.of("partNumber", Integer.toString(part), "uploadId", uploadId));
+    }
+
+    private String presignPut(String endpoint, String bucket, String region, String accessKey, String secretKey,
+                              String key, int expiresSeconds, Map<String, String> extraQuery) {
         int safeExpires = Math.max(60, Math.min(3600, expiresSeconds));
         String safeRegion = (region == null || region.isBlank()) ? "us-east-1" : region.strip();
         URI uri = buildObjectUri(endpoint, bucket, key);
@@ -272,6 +285,7 @@ public class S3StorageProvider implements StorageProvider {
                     + "&X-Amz-Date=" + amzDate
                     + "&X-Amz-Expires=" + safeExpires
                     + "&X-Amz-SignedHeaders=host";
+            if (!extraQuery.isEmpty()) canonicalQuery += "&" + query(extraQuery);
             String canonicalRequest = "PUT\n" + canonicalUri + "\n" + canonicalQuery + "\nhost:" + host + "\n\nhost\nUNSIGNED-PAYLOAD";
             String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n"
                     + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
@@ -304,7 +318,7 @@ public class S3StorageProvider implements StorageProvider {
         String canonicalUri = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String canonicalHeaders = "host:" + host + "\nx-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + amzDate + "\n";
         String signedHeaders = "host;x-amz-content-sha256;x-amz-date";
-        String canonicalRequest = method + "\n" + canonicalUri + "\n\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
+        String canonicalRequest = method + "\n" + canonicalUri + "\n" + (uri.getRawQuery() == null ? "" : uri.getRawQuery()) + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash;
         String scope = dateStamp + "/" + region + "/s3/aws4_request";
         String stringToSign = "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + sha256Hex(canonicalRequest.getBytes(StandardCharsets.UTF_8));
         byte[] signingKey = getSignatureKey(secretKey == null ? "" : secretKey.strip(), dateStamp, region, "s3");
@@ -323,9 +337,117 @@ public class S3StorageProvider implements StorageProvider {
         return switch (method) {
             case "HEAD" -> builder.method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
             case "PUT" -> builder.PUT(publisher).build();
+            case "POST" -> builder.POST(publisher).build();
             case "DELETE" -> builder.DELETE().build();
             default -> builder.GET().build();
         };
+    }
+
+    public record RemotePart(int number, long size, String etag) {}
+
+    private static String query(Map<String, String> values) {
+        return new java.util.TreeMap<>(values).entrySet().stream()
+                .map(e -> encode(e.getKey()) + "=" + encode(e.getValue())).collect(java.util.stream.Collectors.joining("&"));
+    }
+
+    private static String encode(String value) {
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20").replace("*", "%2A").replace("%7E", "~");
+    }
+
+    public static class S3ResponseException extends IOException {
+        public final int status;
+        public S3ResponseException(int status) { super("S3 请求失败，HTTP " + status); this.status = status; }
+    }
+
+    private HttpResponse<InputStream> multipartRequest(String method, StorageRouterService.StorageProfileMeta p,
+            String secret, String key, Map<String, String> params, byte[] body) throws IOException {
+        URI base = buildObjectUri(p.endpoint(), p.bucket(), key);
+        URI uri = URI.create(base + (params.isEmpty() ? "" : "?" + query(params)));
+        try {
+            var request = buildSignedRequest(method, uri, p.region().isBlank() ? "us-east-1" : p.region(),
+                    p.accessKey(), secret, body, null,
+                    "POST".equals(method) && params.containsKey("uploadId") ? Duration.ofMinutes(10) : Duration.ofSeconds(15));
+            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                response.body().close();
+                throw new S3ResponseException(response.statusCode());
+            }
+            return response;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new java.io.InterruptedIOException("S3 请求已中断");
+        } catch (IOException e) { throw e; }
+        catch (Exception e) { throw new IOException("S3 请求失败", e); }
+    }
+
+    private org.w3c.dom.Document xml(HttpResponse<InputStream> response) throws IOException {
+        try (var input = response.body()) {
+            var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            // Control-plane XML only. Never buffer a large or untrusted error response in heap.
+            byte[] bytes = input.readNBytes(2 * 1024 * 1024 + 1);
+            if (bytes.length > 2 * 1024 * 1024) throw new IOException("S3 响应过大");
+            var document = factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(bytes));
+            if (document.getElementsByTagName("Error").getLength() > 0) throw new IOException("S3 返回错误响应");
+            return document;
+        } catch (IOException e) { throw e; }
+        catch (Exception e) { throw new IOException("S3 响应格式无效", e); }
+    }
+
+    private static String text(org.w3c.dom.Element element, String tag) throws IOException {
+        var nodes = element.getElementsByTagName(tag);
+        if (nodes.getLength() == 0) throw new IOException("S3 响应缺少 " + tag);
+        return nodes.item(0).getTextContent();
+    }
+
+    public String initiateMultipart(StorageRouterService.StorageProfileMeta p, String secret, String key) throws IOException {
+        return text(xml(multipartRequest("POST", p, secret, key, Map.of("uploads", ""), new byte[0])).getDocumentElement(), "UploadId");
+    }
+
+    public java.util.List<RemotePart> listParts(StorageRouterService.StorageProfileMeta p, String secret, String key, String uploadId) throws IOException {
+        var parts = new java.util.ArrayList<RemotePart>();
+        String marker = "0";
+        do {
+            var root = xml(multipartRequest("GET", p, secret, key,
+                    Map.of("uploadId", uploadId, "part-number-marker", marker), new byte[0])).getDocumentElement();
+            var nodes = root.getElementsByTagName("Part");
+            for (int i = 0; i < nodes.getLength(); i++) {
+                var part = (org.w3c.dom.Element) nodes.item(i);
+                parts.add(new RemotePart(Integer.parseInt(text(part, "PartNumber")), Long.parseLong(text(part, "Size")), text(part, "ETag")));
+            }
+            if (!"true".equals(text(root, "IsTruncated"))) break;
+            String next = text(root, "NextPartNumberMarker");
+            if (Integer.parseInt(next) <= Integer.parseInt(marker) || parts.size() > 10000) throw new IOException("S3 分片分页无效");
+            marker = next;
+        } while (true);
+        return parts;
+    }
+
+    public void completeMultipart(StorageRouterService.StorageProfileMeta p, String secret, String key, String uploadId,
+                                  java.util.List<RemotePart> parts) throws IOException {
+        StringBuilder body = new StringBuilder("<CompleteMultipartUpload>");
+        for (var part : parts) body.append("<Part><PartNumber>").append(part.number()).append("</PartNumber><ETag>")
+                .append(part.etag().replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;"))
+                .append("</ETag></Part>");
+        body.append("</CompleteMultipartUpload>");
+        var doc = xml(multipartRequest("POST", p, secret, key, Map.of("uploadId", uploadId), body.toString().getBytes(StandardCharsets.UTF_8)));
+        if (!"CompleteMultipartUploadResult".equals(doc.getDocumentElement().getTagName())) throw new IOException("S3 完成响应无效");
+    }
+
+    public void abortMultipart(StorageRouterService.StorageProfileMeta p, String secret, String key, String uploadId) throws IOException {
+        try { multipartRequest("DELETE", p, secret, key, Map.of("uploadId", uploadId), new byte[0]).body().close(); }
+        catch (S3ResponseException e) { if (e.status != 404) throw e; }
+    }
+
+    public long headObjectSize(StorageRouterService.StorageProfileMeta p, String secret, String key) throws IOException {
+        var response = multipartRequest("HEAD", p, secret, key, Map.of(), new byte[0]);
+        try (var input = response.body()) {
+            return response.headers().firstValueAsLong("Content-Length").orElseThrow(() -> new IOException("S3 对象缺少长度"));
+        }
     }
 
     private static String sha256Hex(byte[] bytes) throws Exception {

@@ -674,7 +674,9 @@ public class DriveService {
         return commitPreparedUpload(user, space, parent, name, mime, replace, expectedRevision, prepared);
     }
 
-    public record PreparedUpload(long profileId, com.wanyue.cloud.modules.drive.storage.StorageProvider.StoredObject blob) {}
+    public record PreparedUpload(long profileId, com.wanyue.cloud.modules.drive.storage.StorageProvider.StoredObject blob, boolean retainOnFailure) {
+        public PreparedUpload(long profileId, com.wanyue.cloud.modules.drive.storage.StorageProvider.StoredObject blob) { this(profileId, blob, false); }
+    }
 
     /** File I/O deliberately has no transaction; callers commit metadata separately. */
     public PreparedUpload prepareUpload(InputStream input, long length, String expectedSha256, Long targetProfileId) throws IOException {
@@ -702,7 +704,7 @@ public class DriveService {
         final long committedProfileId = profileId;
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCompletion(int status) {
-                if(status!=STATUS_COMMITTED) try { storageRouter.delete(committedProfileId, blob.key()); } catch(IOException e) { /* Orphan scan can retry. */ }
+                if(status!=STATUS_COMMITTED && !prepared.retainOnFailure()) try { storageRouter.delete(committedProfileId, blob.key()); } catch(IOException e) { /* Orphan scan can retry. */ }
             }
         });
         // Revalidate permissions, name, revision and quota after potentially slow storage I/O.

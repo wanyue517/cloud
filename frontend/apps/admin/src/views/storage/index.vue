@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, type SelectOption } from '@repo/ui/select'
 import { toast } from '@repo/ui/toast'
 import { request } from '@repo/session/request'
+import UploadModeSettings from './components/UploadModeSettings.vue'
 
 interface StorageProfileItem {
   id: string
@@ -20,6 +21,12 @@ interface StorageProfileItem {
   accessKey?: string | null
   hasSecret?: boolean | number
   maxFileBytes?: number | null
+  uploadMode?: string
+  directThresholdBytes?: number
+  directChunkSize?: number
+  directConcurrency?: number
+  directUrlTtl?: number
+  directFallback?: boolean | number
   isDefault: boolean | number
   objectCount: number
   totalBytes: number
@@ -70,6 +77,8 @@ const formRegion = ref('us-east-1')
 const formAccessKey = ref('')
 const formSecretKey = ref('')
 const formMaxFileMb = ref(4)
+const defaultUploadSettings = () => ({ uploadMode: 'PROXY', thresholdMb: 100, partMb: 16, concurrency: 3, ttl: 900, fallback: 'no' })
+const formUpload = ref(defaultUploadSettings())
 
 const totalObjects = computed(() => profiles.value.reduce((acc, p) => acc + Number(p.objectCount || 0), 0))
 const totalBytes = computed(() => profiles.value.reduce((acc, p) => acc + Number(p.totalBytes || 0), 0))
@@ -217,6 +226,7 @@ async function deleteProfile(item: StorageProfileItem) {
 }
 
 function openCreateModal() {
+  formUpload.value = defaultUploadSettings()
   editingId.value = null
   editingHasSecret.value = false
   formName.value = ''
@@ -234,6 +244,14 @@ function openCreateModal() {
 }
 
 function openEditModal(item: StorageProfileItem) {
+  formUpload.value = {
+    uploadMode: item.uploadMode || 'PROXY',
+    thresholdMb: (item.directThresholdBytes ?? 104857600) / 1048576,
+    partMb: (item.directChunkSize ?? 16777216) / 1048576,
+    concurrency: item.directConcurrency ?? 3,
+    ttl: item.directUrlTtl ?? 900,
+    fallback: item.directFallback ? 'yes' : 'no',
+  }
   editingId.value = item.id
   editingHasSecret.value = Boolean(item.hasSecret)
   formName.value = item.name || ''
@@ -299,6 +317,12 @@ async function saveProfile() {
       accessKey: formProvider.value === 'S3' ? formAccessKey.value.trim() : null,
       secretKey: formProvider.value === 'S3' && formSecretKey.value.trim() ? formSecretKey.value.trim() : null,
       maxFileBytes: formProvider.value === 'DB' ? Math.max(1, Number(formMaxFileMb.value) || 4) * 1024 * 1024 : null,
+      uploadMode: formProvider.value === 'S3' ? formUpload.value.uploadMode : 'PROXY',
+      directThresholdBytes: Math.round(Number(formUpload.value.thresholdMb) * 1048576),
+      directChunkSize: Math.round(Number(formUpload.value.partMb) * 1048576),
+      directConcurrency: Number(formUpload.value.concurrency),
+      directUrlTtl: Number(formUpload.value.ttl),
+      directFallback: formUpload.value.fallback === 'yes',
     }
     if (editingId.value) {
       await request.put(`/v1/admin/storage-profiles/${editingId.value}`, payload)
@@ -467,7 +491,7 @@ onMounted(() => { void load() })
     </section>
 
     <Dialog :open="modalOpen" @update:open="v => { if (!v && !saving && !formTesting) modalOpen = false }">
-      <DialogContent>
+      <DialogContent class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{{ editingId ? '编辑存储实例' : '新增存储实例' }}</DialogTitle>
           <DialogDescription>填写配置后可直接点击「测试连接」验证连通性；S3 SecretKey 经 AES-256-GCM 密文存储，留空则保持原密钥不变。</DialogDescription>
@@ -538,6 +562,8 @@ onMounted(() => { void load() })
 
           <p v-if="formTestError" role="alert" class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{{ formTestError }}</p>
           <p v-if="formTestNotice" role="status" class="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">{{ formTestNotice }}</p>
+
+          <UploadModeSettings v-if="formProvider === 'S3'" v-model="formUpload" :disabled="saving || formTesting" />
 
           <DialogFooter class="flex flex-wrap items-center justify-between gap-2 sm:justify-between">
             <Button variant="outline" type="button" :disabled="saving || formTesting || !canTestForm" @click="testFormConfig">

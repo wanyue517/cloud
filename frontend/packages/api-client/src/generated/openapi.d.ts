@@ -63,6 +63,12 @@ export interface components {
       accessKey?: string
       secretKey?: string
       maxFileBytes?: number
+      uploadMode?: string
+      directThresholdBytes?: number
+      directChunkSize?: number
+      directConcurrency?: number
+      directUrlTtl?: number
+      directFallback?: boolean
     }
     AdminController_StorageProfileTestInput: {
       id?: string
@@ -166,7 +172,9 @@ export interface components {
       missing?: Array<number>
       status?: string
       fileId?: string
-      errorMessage?: string | null
+      errorMessage?: string
+      instantHit: boolean
+      uploadMode?: string
     }
     DriveModels_UploadInput: {
       spaceId: string
@@ -174,6 +182,7 @@ export interface components {
       name?: string
       size: number
       mimeType?: string
+      expectedSha256?: string
     }
     DriveModels_Version: {
       id?: string
@@ -233,6 +242,30 @@ export interface components {
       userAgent?: string
       clientType?: string
       occurredAt?: string
+    }
+    MediaTimelineService_TimelineItem: {
+      id?: string
+      spaceId?: string
+      spaceName?: string
+      parentId?: string
+      name?: string
+      size: number
+      mimeType?: string
+      mediaType?: string
+      takenAt?: string
+      dateGroup?: string
+      width?: number
+      height?: number
+      durationSeconds?: number
+      currentVersionId?: string
+      revision: number
+    }
+    MediaTimelineService_TimelinePage: {
+      items?: Array<components['schemas']["MediaTimelineService_TimelineItem"]>
+      total: number
+      page: number
+      pageSize: number
+      hasMore: boolean
     }
     MediaType: {
       type?: string
@@ -442,6 +475,16 @@ export interface components {
       outcomes?: Array<components['schemas']["PersonalAndBatchService_BatchItemOutcome"]>
       errorMessage?: string
     }
+    PersonalAndBatchService_FileProgressInput: {
+      progressType?: string
+      positionValue: number
+    }
+    PersonalAndBatchService_FileProgressView: {
+      nodeId?: string
+      progressType?: string
+      positionValue: number
+      updatedAt?: string
+    }
     PersonalAndBatchService_PrivateNodeItem: {
       id?: string
       spaceId?: string
@@ -495,6 +538,11 @@ export interface components {
     }
     PersonalAndBatchService_ZipBatchInput: {
       nodeIds?: Array<string>
+    }
+    PreviewController_StreamTicketResponse: {
+      ticket?: string
+      streamUrl?: string
+      expiresInSeconds: number
     }
     PreviewModels_ArchiveEntry: {
       path?: string
@@ -551,6 +599,17 @@ export interface components {
       bitrate: number
       strategy?: string
       reason?: string
+    }
+    QrLoginController_QrStatusResp: {
+      status?: string
+      accessToken?: string
+      expiresInSeconds?: number
+      displayName?: string
+    }
+    QrLoginService_QrCreateResult: {
+      qrId?: string
+      expiresInSeconds: number
+      expiresAt?: string
     }
     RecoveryCodeCreateReqVO: {
       userId?: string
@@ -793,6 +852,12 @@ export interface components {
       allowDownload: boolean
       expiresAt?: string
     }
+    ShareLinkModels_SavePublicShareInput: {
+      targetSpaceId?: string
+      targetParentId: string
+      nodeId?: string
+      password?: string
+    }
     ShareLinkModels_ShareLinkItem: {
       id?: string
       spaceId?: string
@@ -936,6 +1001,7 @@ export interface components {
       writeLock?: components['schemas']["Lock"]
     }
     "StackTraceElement[]": Record<string, unknown>
+    StreamingResponseBody: Record<string, unknown>
     Throwable: {
       detailMessage?: string
       cause?: components['schemas']["Throwable"]
@@ -1547,6 +1613,31 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["PageResult"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/admin/auth/qr/{qrId}/status": {
+    get: {
+      parameters: {
+        path: {
+          qrId: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["QrLoginController_QrStatusResp"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/admin/auth/qr/create": {
+    post: {
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["QrLoginService_QrCreateResult"]
         traceId?: string | null
       }
     }
@@ -2864,8 +2955,39 @@ export interface paths {
       response: null
     }
   }
+  "/api/v1/auth/qr/{qrId}/confirm": {
+    post: {
+      parameters: {
+        path: {
+          qrId: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/auth/qr/{qrId}/scan": {
+    post: {
+      parameters: {
+        path: {
+          qrId: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: null
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/auth/refresh": {
     post: {
+      requestBody: Record<string, unknown>
       response: {
         code: number
         msg: string
@@ -3037,6 +3159,34 @@ export interface paths {
       }
     }
   }
+  "/api/v1/media/stream": {
+    get: {
+      parameters: {
+        query?: {
+          ticket: string
+        }
+      }
+      response: components['schemas']["StreamingResponseBody"]
+    }
+  }
+  "/api/v1/media/timeline": {
+    get: {
+      parameters: {
+        query?: {
+          spaceId?: number
+          mediaType?: string
+          page?: number
+          pageSize?: number
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["MediaTimelineService_TimelinePage"]
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/messages": {
     get: {
       response: {
@@ -3135,6 +3285,22 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["ShareLinkModels_PublicNodeList"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/public/shares/{token}/save": {
+    post: {
+      parameters: {
+        path: {
+          token: string
+        }
+      }
+      requestBody: components['schemas']["ShareLinkModels_SavePublicShareInput"]
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["DriveModels_Node"]
         traceId?: string | null
       }
     }
@@ -3835,6 +4001,26 @@ export interface paths {
       }
     }
   }
+  "/api/v1/spaces/{space}/nodes/{id}/preview/stream-ticket": {
+    post: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+        query?: {
+          versionId?: number
+          assetType?: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["PreviewController_StreamTicketResponse"]
+        traceId?: string | null
+      }
+    }
+  }
   "/api/v1/spaces/{space}/nodes/{id}/preview/thumbnail": {
     get: {
       parameters: {
@@ -3865,6 +4051,37 @@ export interface paths {
         code: number
         msg: string
         data?: components['schemas']["PreviewModels_VideoProbe"]
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/spaces/{space}/nodes/{id}/progress": {
+    get: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["PersonalAndBatchService_FileProgressView"]
+        traceId?: string | null
+      }
+    }
+    put: {
+      parameters: {
+        path: {
+          space: string
+          id: string
+        }
+      }
+      requestBody: components['schemas']["PersonalAndBatchService_FileProgressInput"]
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["PersonalAndBatchService_FileProgressView"]
         traceId?: string | null
       }
     }
@@ -4213,6 +4430,52 @@ export interface paths {
         code: number
         msg: string
         data?: string
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/uploads/{id}/direct": {
+    post: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/uploads/{id}/direct/parts/{index}": {
+    get: {
+      parameters: {
+        path: {
+          id: string
+          index: number
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: Record<string, unknown>
+        traceId?: string | null
+      }
+    }
+  }
+  "/api/v1/uploads/{id}/fallback": {
+    post: {
+      parameters: {
+        path: {
+          id: string
+        }
+      }
+      response: {
+        code: number
+        msg: string
+        data?: components['schemas']["DriveModels_Upload"]
         traceId?: string | null
       }
     }

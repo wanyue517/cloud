@@ -12,12 +12,23 @@ import static com.wanyue.cloud.modules.drive.DriveModels.*;
 @RequestMapping("/api/v1/uploads")
 public class UploadController {
     private final UploadService uploads;
-    public UploadController(UploadService uploads) { this.uploads=uploads; }
+    private final DirectUploadService direct;
+    public UploadController(UploadService uploads, DirectUploadService direct) { this.uploads=uploads; this.direct=direct; }
+    @PostMapping("/{id}/direct") public R<java.util.Map<String, Object>> directInfo(Authentication a,@PathVariable long id) throws IOException {
+        return R.ok(direct.info(DriveController.user(a),id));
+    }
+    @GetMapping("/{id}/direct/parts/{index}") public R<java.util.Map<String, Object>> directPart(Authentication a,@PathVariable long id,@PathVariable int index) throws IOException {
+        return R.ok(direct.presign(DriveController.user(a),id,index));
+    }
+    @PostMapping("/{id}/fallback") public R<Upload> fallback(Authentication a,@PathVariable long id) throws IOException {
+        return R.ok(uploads.fallback(DriveController.user(a),id));
+    }
     @GetMapping public R<java.util.List<java.util.Map<String, Object>>> list(Authentication a) { return R.ok(uploads.listByUser(DriveController.user(a))); }
     @PostMapping public R<Upload> create(Authentication a,@Valid @RequestBody UploadInput input) throws IOException { return R.ok(uploads.create(DriveController.user(a),input)); }
     @GetMapping("/{id}") public R<Upload> status(Authentication a,@PathVariable long id) throws IOException { return R.ok(uploads.status(DriveController.user(a),id,false)); }
-    @GetMapping("/{id}/presign") public R<java.util.Map<String, Object>> presign(Authentication a,@PathVariable long id,@RequestParam(defaultValue="900") int expiresSeconds) {
-        return R.ok(uploads.presign(DriveController.user(a),id,expiresSeconds));
+    @GetMapping("/{id}/presign") public R<java.util.Map<String, Object>> presign(Authentication a,@PathVariable long id,@RequestParam(defaultValue="900") int expiresSeconds) throws IOException {
+        direct.info(DriveController.user(a),id);
+        return R.ok(direct.presign(DriveController.user(a),id,0));
     }
     @PutMapping("/{id}/chunks/{index}") public R<Void> chunk(Authentication a,@PathVariable long id,@PathVariable int index,@RequestParam MultipartFile file,@RequestParam(required=false) String sha256) throws IOException {
         try(var in=file.getInputStream()) {uploads.chunk(DriveController.user(a),id,index,in,file.getSize(),sha256);} return R.ok();
