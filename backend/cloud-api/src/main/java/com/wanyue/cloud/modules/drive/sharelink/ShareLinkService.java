@@ -217,7 +217,8 @@ public class ShareLinkService {
         return new PublicNodeList(items);
     }
 
-    @Transactional
+    private record SharedBlobMeta(long profileId, String storageKey, long sizeBytes, String name, String mimeType, String sha256) {}
+
     public DriveModels.Content publicContent(String token, String password, Long fileNodeId, boolean download) {
         var link = loadActiveLink(token);
         checkPasswordIfNeeded(link, password);
@@ -241,23 +242,31 @@ public class ShareLinkService {
         if (inside == null || inside == 0) {
             throw BizException.notFound("文件不存在或超出分享范围");
         }
+        // 先查询元数据并释放 JDBC 连接，再执行远程存储读取/物化，避免长时间占用数据库事务连接。
         var rows = db.query(
                 "SELECT n.name, n.node_type, n.hidden, b.storage_key, b.storage_profile_id, b.size_bytes, v.mime_type, b.sha256 "
                         + "FROM file_node n JOIN file_version v ON v.id=n.current_version_id JOIN blob_object b ON b.id=v.blob_id "
                         + "WHERE n.space_id=? AND n.id=? AND n.deleted_at IS NULL AND n.hidden=FALSE",
-                (r, i) -> {
-                    long profileId = r.getObject("storage_profile_id") == null ? 1L : r.getLong("storage_profile_id");
-                    Path path = storageRouter.resolveReadablePath(profileId, r.getString("storage_key"));
-                    return new DriveModels.Content(path, r.getLong("size_bytes"), r.getString("name"), r.getString("mime_type"), r.getString("sha256"));
-                },
+                (r, i) -> new SharedBlobMeta(
+                        r.getObject("storage_profile_id") == null ? 1L : r.getLong("storage_profile_id"),
+                        r.getString("storage_key"),
+                        r.getLong("size_bytes"),
+                        r.getString("name"),
+                        r.getString("mime_type"),
+                        r.getString("sha256")),
                 spaceId, targetFileId);
-        if (rows.isEmpty() || !Files.isRegularFile(rows.get(0).path())) {
+        if (rows.isEmpty()) {
+            throw BizException.notFound("文件内容不存在");
+        }
+        SharedBlobMeta meta = rows.get(0);
+        Path path = storageRouter.resolveReadablePath(meta.profileId(), meta.storageKey());
+        if (!Files.isRegularFile(path)) {
             throw BizException.notFound("文件内容不存在");
         }
         if (download) {
             db.update("UPDATE share_link SET download_count=download_count+1 WHERE id=?", ((Number) link.get("id")).longValue());
         }
-        return rows.get(0);
+        return new DriveModels.Content(path, meta.sizeBytes(), meta.name(), meta.mimeType(), meta.sha256());
     }
 
     @Transactional

@@ -785,24 +785,33 @@ public class DriveService {
             default->"application/octet-stream";
         };
     }
+    private record BlobMeta(long profileId, String storageKey, long size, String mimeType, String sha256) {}
+
+    private Content loadContentByVersion(String fileName, long id, long versionId) {
+        // 先只查询元数据并立即释放 JDBC 连接，避免在 RowMapper 持有连接期间嵌套查库或执行 S3 远程下载导致连接池死锁。
+        var rows = db.query(
+                "SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
+                (r, i) -> new BlobMeta(r.getLong(1), r.getString(2), r.getLong(3), r.getString(4), r.getString(5)),
+                versionId, id);
+        if (rows.isEmpty()) throw BizException.notFound("文件内容不存在");
+        BlobMeta meta = rows.get(0);
+        java.nio.file.Path path = storageRouter.resolveReadablePath(meta.profileId(), meta.storageKey());
+        if (!java.nio.file.Files.isRegularFile(path)) throw BizException.notFound("文件内容不存在");
+        return new Content(path, meta.size(), fileName, meta.mimeType(), meta.sha256());
+    }
+
     public Content content(long user,long space,long id,Long versionId) {
         resolveNodeAccess(user, space, id, false, false); Node n=getNode(space,id,false); ancestors(space,id);
         if(!n.nodeType().equals("FILE")) throw BizException.notFound("文件不存在");
         long version=versionId==null?Long.parseLong(n.currentVersionId()):versionId;
-        var rows=db.query("SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
-                (r,i)->new Content(storageRouter.resolveReadablePath(r.getLong(1), r.getString(2)),r.getLong(3),n.name(),r.getString(4),r.getString(5)),version,id);
-        if(rows.isEmpty() || !java.nio.file.Files.isRegularFile(rows.get(0).path())) throw BizException.notFound("文件内容不存在");
-        return rows.get(0);
+        return loadContentByVersion(n.name(), id, version);
     }
     /** 仅限已验签的短期媒体流票据调用：跳过请求头鉴权与私密空间会话头，直接读取已授权文件版本。 */
     public Content contentByVerifiedTicket(long space, long id, long versionId) {
         Node n = getNode(space, id, false);
         ancestors(space, id);
         if (!n.nodeType().equals("FILE")) throw BizException.notFound("文件不存在");
-        var rows = db.query("SELECT b.storage_profile_id,b.storage_key,b.size_bytes,v.mime_type,b.sha256 FROM file_version v JOIN blob_object b ON b.id=v.blob_id WHERE v.id=? AND v.file_id=?",
-                (r, i) -> new Content(storageRouter.resolveReadablePath(r.getLong(1), r.getString(2)), r.getLong(3), n.name(), r.getString(4), r.getString(5)), versionId, id);
-        if (rows.isEmpty() || !java.nio.file.Files.isRegularFile(rows.get(0).path())) throw BizException.notFound("文件内容不存在");
-        return rows.get(0);
+        return loadContentByVersion(n.name(), id, versionId);
     }
     public TextChunk readTextChunk(long user, long space, long id, Long versionId, long offset, int limit) throws IOException {
         Content c = content(user, space, id, versionId);
