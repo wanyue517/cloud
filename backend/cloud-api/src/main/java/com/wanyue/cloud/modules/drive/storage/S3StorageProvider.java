@@ -316,8 +316,9 @@ public class S3StorageProvider implements StorageProvider {
                     profile.accessKey(), secret, new byte[0], "bytes=" + start + "-" + end);
             var response = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
             String expected = "bytes " + start + "-" + end + "/" + total;
+            long expectedLength = end - start + 1;
             if (response.statusCode() != 206 || !expected.equals(response.headers().firstValue("Content-Range").orElse(""))
-                    || response.headers().firstValueAsLong("Content-Length").orElse(end - start + 1) != end - start + 1) {
+                    || response.headers().firstValueAsLong("Content-Length").orElse(-1) != expectedLength) {
                 response.body().close();
                 throw new IOException("对象存储未返回正确的视频范围，HTTP " + response.statusCode());
             }

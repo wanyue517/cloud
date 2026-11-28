@@ -84,7 +84,7 @@ class MediaPlaybackControllerTest {
     @Test void proxyForwardsOnlyRequestedBytesAndHeadDoesNotReadObject() throws Exception {
         auth();
         when(drive.mediaSourceByVerifiedTicket(2, 3, 4)).thenReturn(source);
-        when(storage.openMediaRange(source, 10, 19)).thenReturn(new ByteArrayInputStream("abcdefghij".getBytes()));
+        when(storage.openRange(source, 10, 19)).thenReturn(new ByteArrayInputStream("abcdefghij".getBytes()));
         var mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assets, storage)).build();
         String ticket = jwt.createMediaStreamTicket(1, 2, 3, 4, "ORIGINAL", 1800);
         var pending = mvc.perform(get("/api/v1/media/stream").param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=10-19"))
@@ -96,7 +96,7 @@ class MediaPlaybackControllerTest {
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, source.size())).andExpect(content().string(""));
         mvc.perform(get("/api/v1/media/stream").param("ticket", ticket).header(HttpHeaders.RANGE, "bytes=9999999999-"))
                 .andExpect(status().isRequestedRangeNotSatisfiable());
-        verify(storage, times(1)).openMediaRange(source, 10, 19);
+        verify(storage, times(1)).openRange(source, 10, 19);
         verify(drive, never()).materializeMediaSource(any());
         verify(drive, never()).contentByVerifiedTicket(anyLong(), anyLong(), anyLong());
     }

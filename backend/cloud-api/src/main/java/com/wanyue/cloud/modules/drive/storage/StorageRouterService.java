@@ -90,6 +90,37 @@ public class StorageRouterService {
         return s3Provider.openRange(profile, cipher.decrypt(profile.secretCipher()), source.storageKey(), start, end, source.size());
     }
 
+    public InputStream openRange(com.wanyue.cloud.modules.drive.DriveModels.MediaSource source, long start, long end) throws IOException {
+        var profile = getProfile(source.profileId());
+        if (start < 0 || end < start || end >= source.size()) throw new IllegalArgumentException("invalid range");
+        if ("S3".equalsIgnoreCase(profile.provider()))
+            return s3Provider.openRange(profile, cipher.decrypt(profile.secretCipher()), source.storageKey(), start, end, source.size());
+        if ("DB".equalsIgnoreCase(profile.provider())) return dbProvider.getRange(source.storageKey(), start, end);
+        Path path = localPath(profile, source.storageKey());
+        if (!Files.isRegularFile(path)) throw new FileNotFoundException(source.storageKey());
+        var channel = java.nio.channels.FileChannel.open(path, StandardOpenOption.READ);
+        channel.position(start);
+        InputStream raw = java.nio.channels.Channels.newInputStream(channel);
+        long length = end - start + 1;
+        return new FilterInputStream(raw) {
+            long remaining = length;
+            @Override public int read() throws IOException { if (remaining == 0) return -1; int b = super.read(); if (b >= 0) remaining--; return b; }
+            @Override public int read(byte[] b, int off, int len) throws IOException { if (remaining == 0) return -1; int n = super.read(b, off, (int)Math.min(len, remaining)); if (n > 0) remaining -= n; return n; }
+        };
+    }
+
+    public InputStream openStream(com.wanyue.cloud.modules.drive.DriveModels.MediaSource source) throws IOException {
+        return source.size() == 0 ? InputStream.nullInputStream() : openRange(source, 0, source.size() - 1);
+    }
+
+    private Path localPath(StorageProfileMeta profile, String storageKey) {
+        if (profile.id() == 1L || profile.rootPath().isBlank()) return defaultLocal.resolve(storageKey);
+        Path root = Path.of(profile.rootPath()).toAbsolutePath().normalize();
+        Path resolved = root.resolve(storageKey).normalize();
+        if (!resolved.startsWith(root)) throw new BizException(HttpStatus.BAD_REQUEST, 400, "illegal storage path");
+        return resolved;
+    }
+
     public long resolveDefaultProfileId() {
         var rows = db.queryForList("SELECT id FROM storage_profile WHERE is_default=TRUE ORDER BY id ASC LIMIT 1");
         if (!rows.isEmpty()) {

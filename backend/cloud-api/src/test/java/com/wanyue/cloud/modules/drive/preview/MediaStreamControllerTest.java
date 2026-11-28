@@ -16,6 +16,8 @@ import java.nio.file.Path;
 import java.util.Base64;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -37,10 +39,9 @@ class MediaStreamControllerTest {
         // 故意模拟上传时 MIME 存成了 application/octet-stream
         var source = new DriveModels.MediaSource(4L, 1L, "key", data.length, "demo.mp4", "application/octet-stream", "abc");
         when(drive.mediaSourceByVerifiedTicket(2L, 3L, 4L)).thenReturn(source);
-        when(drive.materializeMediaSource(source)).thenReturn(new DriveModels.Content(video, data.length, "demo.mp4", "application/octet-stream", "abc"));
-
         String ticket = jwt.createMediaStreamTicket(1L, 2L, 3L, 4L, "ORIGINAL", 1800);
         var storage = mock(com.wanyue.cloud.modules.drive.storage.StorageRouterService.class);
+        when(storage.openRange(source, 10, 19)).thenReturn(new java.io.ByteArrayInputStream("abcdefghij".getBytes(StandardCharsets.UTF_8)));
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new MediaStreamController(jwt, drive, assetService, storage)).build();
 
         var mvcResult = mvc.perform(get("/api/v1/media/stream")
@@ -56,5 +57,6 @@ class MediaStreamControllerTest {
                 .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "video/mp4"))
                 .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 10L))
                 .andExpect(content().bytes("abcdefghij".getBytes(StandardCharsets.UTF_8)));
+        verify(drive, never()).materializeMediaSource(source);
     }
 }

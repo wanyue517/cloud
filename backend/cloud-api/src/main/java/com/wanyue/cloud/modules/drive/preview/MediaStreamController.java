@@ -80,7 +80,6 @@ public class MediaStreamController {
             mimeType = "video/mp4";
         } else {
             source = drive.mediaSourceByVerifiedTicket(claims.spaceId(), claims.nodeId(), claims.versionId());
-            if (!storage.isRemote(source.profileId())) path = drive.materializeMediaSource(source).path();
             fileName = source.name();
             mimeType = source.mimeType();
         }
@@ -149,7 +148,7 @@ public class MediaStreamController {
             // Open R2 inside the async response callback. Opening it here would block the
             // servlet request before headers are sent and makes the browser cancel/retry
             // when the upstream takes a moment to establish the Range response.
-            try (var input = storage.openMediaRange(source, start, start + length - 1)) {
+            try (var input = storage.openRange(source, start, start + length - 1)) {
                 byte[] buffer = new byte[IO_BUFFER_SIZE];
                 long remaining = length;
                 while (remaining > 0) {
