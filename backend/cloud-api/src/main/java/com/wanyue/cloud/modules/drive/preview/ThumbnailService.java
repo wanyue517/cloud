@@ -19,6 +19,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import com.wanyue.cloud.common.exception.BizException;
+import org.springframework.http.HttpStatus;
 import java.awt.*;
 import java.awt.geom.Dimension2D;
 import java.awt.image.BufferedImage;
@@ -36,6 +40,11 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeoutException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -64,6 +73,10 @@ public class ThumbnailService {
 
     private final Path thumbDir;
     private final String ffmpegBin;
+    // Bound both working decoders and request threads waiting for generation.
+    private final Semaphore generationSlots = new Semaphore(2, true);
+    private final Semaphore admissionSlots = new Semaphore(18, true);
+    private final ConcurrentHashMap<Path, CompletableFuture<Optional<Path>>> inFlight = new ConcurrentHashMap<>();
 
     public ThumbnailService(
             @Value("${cloud.storage.preview-root:data/previews}") String previewRoot,
@@ -75,11 +88,49 @@ public class ThumbnailService {
 
     public Optional<Path> getOrGenerate(long versionId, DriveModels.Content source, int requestedWidth) {
         int width = requestedWidth <= 240 ? 240 : (requestedWidth <= 480 ? 480 : 640);
-        String ext = extensionOf(source.name());
         Path cached = thumbDir.resolve(versionId + "_" + width + ".jpg").normalize();
         if (Files.isRegularFile(cached)) {
             return Optional.of(cached);
         }
+        if (!admissionSlots.tryAcquire()) throw busy();
+        var task = new CompletableFuture<Optional<Path>>();
+        var existing = inFlight.putIfAbsent(cached, task);
+        boolean acquired = false;
+        try {
+            if (existing != null) return existing.get(10, TimeUnit.SECONDS);
+            acquired = generationSlots.tryAcquire(5, TimeUnit.SECONDS);
+            if (!acquired) throw busy();
+            // Another generation may have completed between the first cache check and admission.
+            Optional<Path> result = Files.isRegularFile(cached)
+                    ? Optional.of(cached) : generate(source, cached, width);
+            task.complete(result);
+            return result;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            task.completeExceptionally(e);
+            throw busy();
+        } catch (TimeoutException e) {
+            throw busy();
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException cause) throw cause;
+            if (e.getCause() instanceof Error cause) throw cause;
+            throw busy();
+        } catch (RuntimeException | Error e) {
+            task.completeExceptionally(e);
+            throw e;
+        } finally {
+            if (acquired) generationSlots.release();
+            if (existing == null) inFlight.remove(cached, task);
+            admissionSlots.release();
+        }
+    }
+
+    private static BizException busy() {
+        return new BizException(HttpStatus.SERVICE_UNAVAILABLE, 503, "缩略图生成繁忙，请稍后重试");
+    }
+
+    private Optional<Path> generate(DriveModels.Content source, Path cached, int width) {
+        String ext = extensionOf(source.name());
         if (IMAGE_EXTS.contains(ext)) {
             return generateImageThumb(source.path(), cached, width);
         }
@@ -113,21 +164,43 @@ public class ThumbnailService {
         return Optional.empty();
     }
 
-    private Optional<Path> generateImageThumb(Path src, Path target, int maxWidth) {
-        try {
-            BufferedImage img = ImageIO.read(src.toFile());
-            if (img == null) {
+    Optional<Path> generateImageThumb(Path src, Path target, int maxWidth) {
+        try (ImageInputStream input = ImageIO.createImageInputStream(src.toFile())) {
+            if (input == null) return Optional.empty();
+            var readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
                 // ImageIO 不原生支持 webp 等格式时，回退到 FFmpeg 转换
                 return runFfmpegFrame(src, target, List.of(
                         ffmpegBin, "-loglevel", "error", "-y", "-i", src.toAbsolutePath().toString(),
                         "-vframes", "1", "-vf", "scale='min(" + maxWidth + ",iw)':-2"));
             }
-            long pixels = (long) img.getWidth() * (long) img.getHeight();
-            if (pixels <= 0 || pixels > MAX_IMAGE_PIXELS) return Optional.empty();
-            return writeScaledJpeg(img, target, maxWidth);
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                BufferedImage img = readSampledImage(reader, maxWidth);
+                if (img == null) return Optional.empty();
+                try {
+                    return writeScaledJpeg(img, target, maxWidth);
+                } finally {
+                    img.flush();
+                }
+            } finally {
+                reader.dispose();
+            }
         } catch (Exception e) {
             return Optional.empty();
         }
+    }
+
+    static BufferedImage readSampledImage(ImageReader reader, int maxWidth) throws IOException {
+        int w = reader.getWidth(0);
+        int h = reader.getHeight(0);
+        if (w <= 0 || h <= 0 || (long) w * h > MAX_IMAGE_PIXELS) return null;
+        // Preserve the requested width for ordinary portraits; bound tall images too.
+        int sample = Math.max(1, Math.max(w / maxWidth, h / (maxWidth * 2)));
+        var param = reader.getDefaultReadParam();
+        param.setSourceSubsampling(sample, sample, 0, 0);
+        return reader.read(0, param);
     }
 
     private Optional<Path> generateVideoPoster(Path src, Path target, int maxWidth) {
