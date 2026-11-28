@@ -4,10 +4,10 @@ import { Button as VanButton, Switch as VanSwitch, showToast } from 'vant'
 import {
   ChevronRight,
   Eye,
-  File,
   Fingerprint,
-  Folder,
   FolderPlus,
+  LayoutGrid,
+  List,
   Lock,
   Plus,
   ShieldCheck,
@@ -37,6 +37,7 @@ import {
 import { fetchSpaces } from '@/stores/spaces'
 import { enqueueFilesWithGuard, onUploadCompleted } from '@/stores/uploads'
 import { EmptyState, MobileShell, SkeletonList } from '@/components/common'
+import NodeThumb from '@/components/drive/NodeThumb.vue'
 import RenameDialogSheet from '@/components/drive/RenameDialogSheet.vue'
 import MobilePreviewShell from '@/components/preview/MobilePreviewShell.vue'
 
@@ -79,6 +80,7 @@ const currentFolderId = ref('0')
 const folderTrail = ref<{ id: string; name: string }[]>([])
 const spaceNodes = ref<DriveNode[]>([])
 const loadingNodes = ref(false)
+const privateViewMode = ref<'list' | 'grid'>('list')
 
 // Create private space / folder / upload / preview
 const createSpaceOpen = ref(false)
@@ -442,7 +444,16 @@ function previewHiddenItem(item: PrivateNodeItem) {
         <div class="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground active:bg-accent"
+            class="tap-press inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground active:bg-accent"
+            :aria-label="privateViewMode === 'list' ? '切换网格视图' : '切换列表视图'"
+            @click="privateViewMode = privateViewMode === 'list' ? 'grid' : 'list'"
+          >
+            <LayoutGrid v-if="privateViewMode === 'list'" :size="16" />
+            <List v-else :size="16" />
+          </button>
+          <button
+            type="button"
+            class="tap-press inline-flex h-8 w-8 items-center justify-center rounded-full text-foreground active:bg-accent"
             aria-label="新建文件夹"
             @click="createFolderOpen = true"
           >
@@ -450,7 +461,7 @@ function previewHiddenItem(item: PrivateNodeItem) {
           </button>
           <button
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-full text-primary active:bg-primary/10"
+            class="tap-press inline-flex h-8 w-8 items-center justify-center rounded-full text-primary active:bg-primary/10"
             aria-label="上传文件"
             @click="uploadInputRef?.click()"
           >
@@ -461,32 +472,48 @@ function previewHiddenItem(item: PrivateNodeItem) {
 
       <input ref="uploadInputRef" type="file" multiple class="hidden" @change="handlePrivateUpload" />
 
-      <div class="flex-1 overflow-y-auto px-3.5 pb-16">
+      <div class="flex-1 overflow-y-auto px-3.5 py-2 pb-16">
         <SkeletonList v-if="loadingNodes" :count="5" />
         <EmptyState v-else-if="spaceNodes.length === 0" title="当前私密目录为空" />
-        <div v-else class="divide-y divide-border">
-          <button
-            v-for="node in spaceNodes"
-            :key="node.id"
-            type="button"
-            class="w-full flex items-center gap-3 py-3 text-left active:bg-accent/50"
-            @click="openPrivateNode(node)"
-          >
-            <span
-              class="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
-              :class="node.nodeType === 'FOLDER' ? 'bg-primary/10 text-primary' : 'bg-muted text-foreground'"
+        <Transition v-else name="m-fade" mode="out-in">
+          <!-- 列表模式 -->
+          <div v-if="privateViewMode === 'list'" key="private-list" class="divide-y divide-border">
+            <button
+              v-for="node in spaceNodes"
+              :key="node.id"
+              type="button"
+              class="tap-press w-full flex items-center gap-3 py-3 text-left active:bg-accent/50 rounded-xl px-1"
+              @click="openPrivateNode(node)"
             >
-              <Folder v-if="node.nodeType === 'FOLDER'" :size="20" />
-              <File v-else :size="20" />
-            </span>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium truncate text-foreground">{{ node.name }}</p>
-              <p class="text-xs text-muted-foreground mt-0.5">
-                {{ node.nodeType === 'FOLDER' ? '文件夹' : formatBytes(node.size) }} · {{ formatRelativeTime(node.updatedAt) }}
+              <NodeThumb :node="node" variant="list" ephemeral />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium truncate text-foreground">{{ node.name }}</p>
+                <p class="text-xs text-muted-foreground mt-0.5">
+                  {{ node.nodeType === 'FOLDER' ? '文件夹' : formatBytes(node.size) }} · {{ formatRelativeTime(node.updatedAt) }}
+                </p>
+              </div>
+            </button>
+          </div>
+
+          <!-- 三列网格缩略图模式 -->
+          <div v-else key="private-grid" class="grid grid-cols-3 gap-2.5 pt-1">
+            <button
+              v-for="node in spaceNodes"
+              :key="node.id"
+              type="button"
+              class="tap-press flex flex-col text-left rounded-2xl border border-border/70 bg-card p-1.5 active:bg-accent/40"
+              @click="openPrivateNode(node)"
+            >
+              <NodeThumb :node="node" variant="grid" ephemeral />
+              <p class="mt-1.5 text-xs font-medium text-foreground line-clamp-2 break-all leading-snug px-0.5">
+                {{ node.name }}
               </p>
-            </div>
-          </button>
-        </div>
+              <p class="mt-0.5 text-[10px] text-muted-foreground truncate px-0.5">
+                {{ node.nodeType === 'FOLDER' ? '文件夹' : formatBytes(node.size) }}
+              </p>
+            </button>
+          </div>
+        </Transition>
       </div>
 
       <RenameDialogSheet
@@ -537,22 +564,24 @@ function previewHiddenItem(item: PrivateNodeItem) {
             </button>
           </div>
 
-          <form
-            v-if="createSpaceOpen"
-            class="flex items-center gap-2 rounded-2xl border border-border bg-card p-2.5"
-            @submit.prevent="createPrivateSpace"
-          >
-            <input
-              v-model="newSpaceName"
-              type="text"
-              maxlength="40"
-              placeholder="输入新私密空间名称"
-              class="flex-1 min-w-0 rounded-xl border border-input bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none"
-            />
-            <VanButton size="small" round type="primary" native-type="submit" :loading="creatingSpace">
-              创建
-            </VanButton>
-          </form>
+          <Transition name="m-slide-down">
+            <form
+              v-if="createSpaceOpen"
+              class="flex items-center gap-2 rounded-2xl border border-border bg-card p-2.5"
+              @submit.prevent="createPrivateSpace"
+            >
+              <input
+                v-model="newSpaceName"
+                type="text"
+                maxlength="40"
+                placeholder="输入新私密空间名称"
+                class="flex-1 min-w-0 rounded-xl border border-input bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none"
+              />
+              <VanButton size="small" round type="primary" native-type="submit" :loading="creatingSpace">
+                创建
+              </VanButton>
+            </form>
+          </Transition>
 
           <EmptyState
             v-if="privateOnlySpaces.length === 0"
@@ -613,13 +642,10 @@ function previewHiddenItem(item: PrivateNodeItem) {
             <div
               v-for="item in hiddenItems"
               :key="item.id"
-              class="flex items-center gap-3 py-3"
+              class="tap-press flex items-center gap-3 py-3"
               @click="previewHiddenItem(item)"
             >
-              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-muted text-foreground shrink-0">
-                <Folder v-if="item.nodeType === 'FOLDER'" :size="18" />
-                <File v-else :size="18" />
-              </span>
+              <NodeThumb :node="item" variant="list" ephemeral />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium truncate text-foreground">{{ item.name }}</p>
                 <p class="text-xs text-muted-foreground truncate">

@@ -121,21 +121,23 @@ async function handleDownload() {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="props.open && props.node"
-      class="fixed inset-0 z-50 flex flex-col"
-      :class="isDarkBackdrop ? 'bg-black text-white' : 'bg-background text-foreground'"
-    >
-      <!-- 顶部工具栏（图片/视频采用绝对定位悬浮，避免显隐时挤压画布导致画面抖动） -->
-      <header
-        v-show="chromeVisible"
-        class="z-20 flex items-center gap-2 px-2.5 py-2 safe-top border-b shrink-0 transition-opacity"
-        :class="
-          isDarkBackdrop
-            ? 'absolute inset-x-0 top-0 bg-black/75 border-white/10 text-white backdrop-blur'
-            : 'bg-background/95 border-border text-foreground backdrop-blur'
-        "
+    <Transition name="m-fade">
+      <div
+        v-if="props.open && props.node"
+        class="fixed inset-0 z-50 flex flex-col"
+        :class="isDarkBackdrop ? 'bg-black text-white' : 'bg-background text-foreground'"
       >
+        <!-- 顶部工具栏（图片/视频采用绝对定位悬浮，避免显隐时挤压画布导致画面抖动） -->
+        <Transition name="m-slide-down">
+          <header
+            v-show="chromeVisible"
+            class="z-20 flex items-center gap-2 px-2.5 py-2 safe-top border-b shrink-0"
+            :class="
+              isDarkBackdrop
+                ? 'absolute inset-x-0 top-0 bg-black/75 border-white/10 text-white backdrop-blur'
+                : 'bg-background/95 border-border text-foreground backdrop-blur'
+            "
+          >
         <button
           type="button"
           class="inline-flex h-9 w-9 items-center justify-center rounded-full active:bg-white/10 shrink-0"
@@ -158,9 +160,10 @@ async function handleDownload() {
         >
           <MoreHorizontal :size="20" />
         </button>
-      </header>
+        </header>
+        </Transition>
 
-      <!-- 主预览体 -->
+        <!-- 主预览体 -->
       <MobileImagePreviewer
         v-if="previewKind === 'image'"
         :node="props.node"
@@ -283,7 +286,7 @@ async function handleDownload() {
 
         <button
           type="button"
-          class="flex flex-col items-center gap-0.5 rounded-xl py-1 active:opacity-70"
+          class="tap-press flex flex-col items-center gap-0.5 rounded-xl py-1 active:opacity-70"
           @click="emit('detail', props.node)"
         >
           <Info :size="18" />
@@ -291,5 +294,6 @@ async function handleDownload() {
         </button>
       </footer>
     </div>
+    </Transition>
   </Teleport>
 </template>

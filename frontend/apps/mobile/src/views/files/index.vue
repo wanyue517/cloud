@@ -1301,12 +1301,14 @@ async function confirmTrashNode(node: DriveNode) {
     </header>
 
     <!-- 上传进度轻提示条 -->
-    <div
-      v-if="uploadingHint"
-      class="bg-primary/10 text-primary text-xs px-4 py-2 flex items-center justify-between border-b border-primary/20"
-    >
-      <span class="truncate">{{ uploadingHint }}</span>
-    </div>
+    <Transition name="m-slide-down">
+      <div
+        v-if="uploadingHint"
+        class="bg-primary/10 text-primary text-xs px-4 py-2 flex items-center justify-between border-b border-primary/20"
+      >
+        <span class="truncate">{{ uploadingHint }}</span>
+      </div>
+    </Transition>
 
     <PullRefresh v-model="refreshing" @refresh="onRefresh">
       <SkeletonList v-if="initialLoading" :count="7" />
@@ -1461,16 +1463,19 @@ async function confirmTrashNode(node: DriveNode) {
     </PullRefresh>
 
     <!-- 右下角新建/上传 FAB（VIEWER 或多选模式隐藏） -->
-    <FloatingActionButton
-      v-if="currentSpace && isWritable && !selecting"
-      @click="createSheetOpen = true"
-    />
+    <Transition name="m-pop">
+      <FloatingActionButton
+        v-if="currentSpace && isWritable && !selecting"
+        @click="createSheetOpen = true"
+      />
+    </Transition>
 
     <!-- M017 底部批量操作栏（多选模式替代底部 Tab） -->
-    <div
-      v-if="selecting"
-      class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur safe-bottom px-2 py-2"
-    >
+    <Transition name="m-slide-up">
+      <div
+        v-if="selecting"
+        class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur safe-bottom px-2 py-2"
+      >
       <div class="grid gap-1" :class="isWritable ? 'grid-cols-4' : 'grid-cols-2'">
         <button
           v-if="isWritable"
@@ -1515,6 +1520,7 @@ async function confirmTrashNode(node: DriveNode) {
         </button>
       </div>
     </div>
+    </Transition>
 
     <!-- 隐藏文件选择器 -->
     <input

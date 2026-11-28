@@ -30,9 +30,12 @@ const props = withDefaults(
   defineProps<{
     node: ThumbNodeLike
     variant?: 'list' | 'grid'
+    /** 仅内存临时缓存模式（私密空间/隐藏项专用，绝不写入持久化 Cache Storage，卸载即销毁） */
+    ephemeral?: boolean
   }>(),
   {
     variant: 'list',
+    ephemeral: false,
   },
 )
 
@@ -40,6 +43,14 @@ const rootEl = ref<HTMLElement | null>(null)
 const thumbUrl = ref<string | null>(null)
 const visible = ref(false)
 let observer: IntersectionObserver | null = null
+let ephemeralObjectUrl: string | null = null
+
+function revokeEphemeralUrl() {
+  if (ephemeralObjectUrl) {
+    URL.revokeObjectURL(ephemeralObjectUrl)
+    ephemeralObjectUrl = null
+  }
+}
 
 const canThumb = computed(() => supportsFileThumbnail(props.node))
 
@@ -93,6 +104,24 @@ const iconMeta = computed(() => {
 async function loadThumb() {
   if (!canThumb.value || !visible.value) return
   const width = getMobileThumbWidth(networkPrefs, networkStatus)
+  if (props.ephemeral) {
+    try {
+      const blob = await mobileDriveApi.thumbnail(
+        props.node.spaceId,
+        props.node.id,
+        width,
+        props.node.currentVersionId ?? undefined,
+      )
+      if (blob && blob.size > 0) {
+        revokeEphemeralUrl()
+        ephemeralObjectUrl = URL.createObjectURL(blob)
+        thumbUrl.value = ephemeralObjectUrl
+      }
+    } catch {
+      // ignore missing thumbnail
+    }
+    return
+  }
   const verKey = props.node.currentVersionId || String(props.node.revision ?? '')
   const key = `${props.node.spaceId}:${props.node.id}:${verKey}:${width}`
   const cached = mobileThumbCache.get(key)
@@ -139,6 +168,7 @@ onMounted(() => {
 watch(
   () => [props.node.id, props.node.revision, props.node.currentVersionId],
   () => {
+    revokeEphemeralUrl()
     thumbUrl.value = null
     if (visible.value && canThumb.value) {
       void loadThumb()
@@ -149,6 +179,7 @@ watch(
 onBeforeUnmount(() => {
   observer?.disconnect()
   observer = null
+  revokeEphemeralUrl()
 })
 </script>
 
@@ -165,7 +196,7 @@ onBeforeUnmount(() => {
       v-if="thumbUrl"
       :src="thumbUrl"
       :alt="props.node.name"
-      class="h-full w-full object-cover"
+      class="h-full w-full object-cover transition-opacity duration-200"
       loading="lazy"
       @error="thumbUrl = null"
     />

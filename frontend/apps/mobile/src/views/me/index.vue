@@ -111,11 +111,11 @@ async function handleLogout() {
       </button>
     </template>
     <PullRefresh v-model="refreshing" @refresh="onRefresh">
-      <div class="space-y-4 px-4 py-4 pb-8">
+      <div class="flex flex-col gap-4 px-4 py-4 pb-10">
         <!-- 用户资料卡片 -->
         <button
           type="button"
-          class="w-full flex items-center gap-3.5 rounded-2xl border border-border bg-card p-4 text-left active:bg-accent/50 transition-colors"
+          class="tap-press w-full flex items-center gap-3.5 rounded-2xl border border-border bg-card p-4 text-left active:bg-accent/50"
           @click="router.push('/settings/profile')"
         >
           <div class="h-14 w-14 rounded-full bg-primary/15 text-primary flex items-center justify-center text-lg font-semibold overflow-hidden shrink-0">
